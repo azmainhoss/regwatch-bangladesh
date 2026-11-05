@@ -45,6 +45,19 @@ class AnalysisService:
         if not version or not version.pages:
             raise ValueError("Document version or its pages are missing.")
 
+        # Concurrency / Idempotency check: prevent duplicate processing
+        if doc.publication_status == "ANALYZING":
+            now = datetime.now(timezone.utc)
+            updated_at = doc.updated_at
+            if updated_at and updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if updated_at and (now - updated_at).total_seconds() < 300:
+                raise ValueError("Document analysis is already in progress. Duplicate execution prevented.")
+            logger.warning(f"Document {doc.id} was stuck in ANALYZING; recovering and restarting pipeline.")
+
+        doc.publication_status = "ANALYZING"
+        await db.commit()
+
         # Clean up any previous analysis artifacts for this version
         await db.execute(delete(Obligation).where(Obligation.document_version_id == version.id))
         await db.execute(delete(Provision).where(Provision.document_version_id == version.id))
@@ -151,7 +164,7 @@ class AnalysisService:
                 explicit_deadline=explicit_date,
                 deadline_description=obl_data.get("explicit_deadline"),
                 frequency=obl_data.get("reporting_frequency", "ONE_TIME"),
-                verification_status="VERIFIED" if obl_data.get("verification_status") == "VERIFIED" else "PENDING_REVIEW"
+                verification_status="VERIFIED" if obl_data.get("verification_status") in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED") else "PENDING_REVIEW"
             )
             db.add(obl_record)
 
@@ -168,7 +181,7 @@ class AnalysisService:
                 supporting_quote=rel_data.get("supporting_quote", ""),
                 confidence=float(rel_data.get("confidence", 0.9)),
                 detection_method="AI_INFERRED",
-                verification_status="VERIFIED" if rel_data.get("verification_status") == "VERIFIED" else "PENDING_REVIEW"
+                verification_status="VERIFIED" if rel_data.get("verification_status") in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED") else "PENDING_REVIEW"
             )
             db.add(rel_record)
 
@@ -201,21 +214,46 @@ class AnalysisService:
         logger.info(f"Analysis saved successfully for doc '{doc.title}'. Published status: {doc.publication_status}")
         return analysis
 
+    ALLOWED_REVIEW_DECISIONS = {
+        "PUBLISHED_HUMAN_REVIEWED",
+        "REJECTED",
+        "NEEDS_REVISION",
+        "CORRECTED",
+        "WITHDRAWN",
+        "SUPERSEDED"
+    }
+
     @staticmethod
     async def review_and_publish_analysis(
         db: AsyncSession,
         document_id: UUID,
         reviewer_id: UUID,
-        decision: str,  # PUBLISHED_HUMAN_REVIEWED, REJECTED, NEEDS_REVISION
+        decision: str,
         review_notes: Optional[str] = None
     ) -> Document:
         """
         Records human editor review decision, audits the decision,
-        and updates the document's publication status.
+        validates state machine transitions, and updates the document's publication status.
         """
+        if decision not in AnalysisService.ALLOWED_REVIEW_DECISIONS:
+            raise ValueError(
+                f"Invalid review decision '{decision}'. Allowed: {sorted(list(AnalysisService.ALLOWED_REVIEW_DECISIONS))}"
+            )
+
         doc = await db.get(Document, document_id)
         if not doc or not doc.current_version_id:
             raise ValueError("Document or active version not found.")
+
+        # State transition validation
+        current_status = doc.publication_status
+        if current_status == "EXTRACTION_FAILED" and decision in ("PUBLISHED_HUMAN_REVIEWED", "CORRECTED"):
+            raise ValueError("Cannot publish a document whose extraction has failed. Please re-extract or correct the document first.")
+
+        if current_status == "WITHDRAWN" and decision == "PUBLISHED_HUMAN_REVIEWED":
+            raise ValueError("Cannot publish a document that has been marked as WITHDRAWN.")
+
+        if current_status == "SUPERSEDED" and decision == "PUBLISHED_HUMAN_REVIEWED":
+            raise ValueError("Cannot publish a document that has been marked as SUPERSEDED.")
 
         # Find latest analysis
         query = select(DocumentAnalysis).where(

@@ -2,7 +2,7 @@ import io
 import re
 from typing import Any, Dict, List, Optional, Tuple
 import pdfplumber
-import fitz  # PyMuPDF
+import pymupdf as fitz
 
 from backend.app.core.logging import logger
 
@@ -120,14 +120,23 @@ class TableExtractor:
                 record[h_name] = val
             normalized_records.append(record)
 
-        # Detect financial contents
+        # Detect financial contents and extract exact figures
         all_text = " ".join([" ".join(row) for row in cleaned_rows])
-        has_financial = bool(cls.FINANCIAL_PATTERN.search(all_text))
+        financial_matches = [m.group(0).strip() for m in cls.FINANCIAL_PATTERN.finditer(all_text)]
+        has_financial = len(financial_matches) > 0
+
+        # Detect potential merged cells (None or empty in raw matrix where row length is inconsistent)
+        merged_cells_detected = any(
+            (cell is None or cell == "") and idx > 0
+            for row in raw_matrix for idx, cell in enumerate(row)
+        ) and not (all(cell == "" for cell in raw_matrix[-1]))
 
         # Calculate structure quality
         col_counts = [len(r) for r in cleaned_rows]
         is_rectangular = len(set(col_counts)) == 1
-        quality_score = 1.0 if is_rectangular else 0.75
+        quality_score = 1.0 if is_rectangular else 0.70
+        if merged_cells_detected:
+            quality_score = min(quality_score, 0.80)
 
         return {
             "table_index": table_index,
@@ -139,9 +148,11 @@ class TableExtractor:
             "row_count": len(cleaned_rows),
             "col_count": max(col_counts) if col_counts else 0,
             "has_financial_data": has_financial,
+            "financial_figures": list(dict.fromkeys(financial_matches)),
+            "merged_cells_detected": merged_cells_detected,
             "quality_score": quality_score,
             "bbox": bbox,
-            "needs_review": quality_score < 0.8
+            "needs_review": quality_score < 0.85 or not is_rectangular
         }
 
     @classmethod

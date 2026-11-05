@@ -2,7 +2,7 @@ from datetime import date
 from io import BytesIO
 from typing import List, Optional
 from uuid import UUID
-import fitz
+import pymupdf as fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
@@ -76,13 +76,13 @@ async def upload_document(
         if len(test_doc) == 0:
             test_doc.close()
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Malformed PDF: document contains 0 pages."
             )
         test_doc.close()
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Malformed or corrupt PDF document: {str(e)}"
         )
 

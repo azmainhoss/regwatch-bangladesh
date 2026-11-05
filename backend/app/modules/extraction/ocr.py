@@ -2,12 +2,17 @@ import io
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import fitz  # PyMuPDF
+import pymupdf as fitz
 from PIL import Image
 import pytesseract
 
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
+
+
+class MissingTrainedDataError(RuntimeError):
+    """Raised when required Tesseract OCR language traineddata is missing from the environment."""
+    pass
 
 
 class OCRManager:
@@ -57,24 +62,44 @@ class OCRManager:
     def has_english_support(self) -> bool:
         return "eng" in self._available_languages
 
-    def select_ocr_language(self, hint: str = "auto") -> str:
+    def select_ocr_language(self, hint: str = "auto", strict: bool = False) -> str:
         """
         Determines the optimal OCR language configuration.
         hint: 'en', 'bn', 'mixed', or 'auto'
+        If strict=True, raises MissingTrainedDataError if the requested language is unavailable.
         """
         has_ben = self.has_bengali_support
         has_eng = self.has_english_support
 
-        if hint == "bn" and has_ben:
+        if hint == "bn":
+            if not has_ben:
+                if strict:
+                    raise MissingTrainedDataError(
+                        "Bengali OCR language data ('ben.traineddata') is missing from Tesseract tessdata."
+                    )
+                logger.warning("Bengali OCR requested but 'ben' traineddata missing; falling back to English.")
+                return "eng" if has_eng else settings.OCR_DEFAULT_LANG
             return "ben"
-        if hint == "en" and has_eng:
+
+        if hint == "en":
+            if not has_eng:
+                if strict:
+                    raise MissingTrainedDataError(
+                        "English OCR language data ('eng.traineddata') is missing from Tesseract tessdata."
+                    )
             return "eng"
-        if (hint == "mixed" or hint == "auto") and has_ben and has_eng:
-            return "ben+eng"
-        if has_eng:
-            return "eng"
-        if has_ben:
-            return "ben"
+
+        if hint in ("mixed", "auto"):
+            if has_ben and has_eng:
+                return "ben+eng"
+            if has_ben:
+                return "ben"
+            if has_eng:
+                return "eng"
+
+        if strict and hint not in self._available_languages:
+            raise MissingTrainedDataError(f"Requested OCR language '{hint}' is not available in Tesseract tessdata.")
+
         return settings.OCR_DEFAULT_LANG
 
     def render_page_to_image(self, page: fitz.Page, dpi: int = 200) -> Image.Image:

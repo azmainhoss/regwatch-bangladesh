@@ -18,26 +18,46 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table('document_analyses', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('raw_model_response', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('validation_errors', sa.JSON(), nullable=False, server_default='[]'))
-        batch_op.add_column(sa.Column('tokens_used', sa.Integer(), nullable=False, server_default='0'))
-        batch_op.add_column(sa.Column('estimated_cost_usd', sa.Float(), nullable=False, server_default='0.0'))
-        batch_op.add_column(sa.Column('processing_time_ms', sa.Integer(), nullable=False, server_default='0'))
-        batch_op.add_column(sa.Column('publication_decision', sa.String(length=32), nullable=False, server_default='AWAITING_REVIEW'))
-        batch_op.add_column(sa.Column('reviewed_by', backend.app.database.base.GUID(), nullable=True))
-        batch_op.add_column(sa.Column('reviewed_at', sa.DateTime(timezone=True), nullable=True))
-        batch_op.add_column(sa.Column('review_notes', sa.Text(), nullable=True))
-        batch_op.create_foreign_key('fk_document_analyses_reviewed_by_users', 'users', ['reviewed_by'], ['id'], ondelete='SET NULL')
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
 
+    existing_analyses = {c["name"] for c in insp.get_columns("document_analyses")} if insp.has_table("document_analyses") else set()
+    with op.batch_alter_table('document_analyses', schema=None) as batch_op:
+        if 'raw_model_response' not in existing_analyses:
+            batch_op.add_column(sa.Column('raw_model_response', sa.Text(), nullable=True))
+        if 'validation_errors' not in existing_analyses:
+            batch_op.add_column(sa.Column('validation_errors', sa.JSON(), nullable=False, server_default='[]'))
+        if 'tokens_used' not in existing_analyses:
+            batch_op.add_column(sa.Column('tokens_used', sa.Integer(), nullable=False, server_default='0'))
+        if 'estimated_cost_usd' not in existing_analyses:
+            batch_op.add_column(sa.Column('estimated_cost_usd', sa.Float(), nullable=False, server_default='0.0'))
+        if 'processing_time_ms' not in existing_analyses:
+            batch_op.add_column(sa.Column('processing_time_ms', sa.Integer(), nullable=False, server_default='0'))
+        if 'publication_decision' not in existing_analyses:
+            batch_op.add_column(sa.Column('publication_decision', sa.String(length=32), nullable=False, server_default='AWAITING_REVIEW'))
+        if 'reviewed_by' not in existing_analyses:
+            batch_op.add_column(sa.Column('reviewed_by', backend.app.database.base.GUID(), nullable=True))
+        if 'reviewed_at' not in existing_analyses:
+            batch_op.add_column(sa.Column('reviewed_at', sa.DateTime(timezone=True), nullable=True))
+        if 'review_notes' not in existing_analyses:
+            batch_op.add_column(sa.Column('review_notes', sa.Text(), nullable=True))
+
+    existing_pages = {c["name"] for c in insp.get_columns("document_pages")} if insp.has_table("document_pages") else set()
     with op.batch_alter_table('document_pages', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('quality_status', sa.String(length=32), nullable=False, server_default='SUCCESS_NATIVE'))
-        batch_op.add_column(sa.Column('quality_score', sa.Float(), nullable=False, server_default='1.0'))
-        batch_op.add_column(sa.Column('layout_hierarchy', sa.JSON(), nullable=False, server_default='{}'))
-        batch_op.add_column(sa.Column('native_text', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('ocr_text', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('human_corrected_text', sa.Text(), nullable=True))
-        batch_op.add_column(sa.Column('is_human_corrected', sa.Boolean(), nullable=False, server_default='0'))
+        if 'quality_status' not in existing_pages:
+            batch_op.add_column(sa.Column('quality_status', sa.String(length=32), nullable=False, server_default='SUCCESS_NATIVE'))
+        if 'quality_score' not in existing_pages:
+            batch_op.add_column(sa.Column('quality_score', sa.Float(), nullable=False, server_default='1.0'))
+        if 'layout_hierarchy' not in existing_pages:
+            batch_op.add_column(sa.Column('layout_hierarchy', sa.JSON(), nullable=False, server_default='{}'))
+        if 'native_text' not in existing_pages:
+            batch_op.add_column(sa.Column('native_text', sa.Text(), nullable=True))
+        if 'ocr_text' not in existing_pages:
+            batch_op.add_column(sa.Column('ocr_text', sa.Text(), nullable=True))
+        if 'human_corrected_text' not in existing_pages:
+            batch_op.add_column(sa.Column('human_corrected_text', sa.Text(), nullable=True))
+        if 'is_human_corrected' not in existing_pages:
+            batch_op.add_column(sa.Column('is_human_corrected', sa.Boolean(), nullable=False, server_default='0'))
 
 
 def downgrade() -> None:

@@ -19,7 +19,8 @@ class BijoyConverter:
     # Typical Bijoy byte sequence markers that do not appear frequently in genuine English text
     BIJOY_CHARACTER_MARKERS = [
         "Av", "wK", "Ges", "cÖ", "hvi", "n‡e", "Kv‡Q", "Av‡Q",
-        "GB", "Zvnv", "Dci", "cÖwZ", "e¨vsK", "A_©", "cwiPvjb"
+        "GB", "Zvnv", "Dci", "cÖwZ", "e¨vsK", "A_©", "cwiPvjb",
+        "evsjv", "evsjv‡`k", "FY", "†kÖwY", "mve©wK", "mvaviY"
     ]
 
     @classmethod

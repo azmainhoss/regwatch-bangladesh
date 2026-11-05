@@ -20,6 +20,7 @@ from backend.app.modules.analysis.schemas import (
 from backend.app.modules.analysis.service import AnalysisService
 from backend.app.modules.documents.models import Document
 from backend.app.modules.obligations.models import Obligation
+from backend.app.modules.organizations.models import OrganizationMember
 from backend.app.modules.provisions.models import Provision
 from backend.app.modules.relationships.models import DocumentRelationship
 
@@ -96,7 +97,26 @@ async def publish_or_review_document(
 ):
     """
     Submits a human review decision and updates document publication status.
+    Requires authenticated compliance reviewer or superuser authorization.
     """
+    # Authorization verification: superuser or active ORG_ADMIN/COMPLIANCE_HEAD
+    is_authorized = current_user.is_superuser
+    if not is_authorized:
+        membership_query = select(OrganizationMember).where(
+            OrganizationMember.user_id == current_user.id,
+            OrganizationMember.status == "ACTIVE",
+            OrganizationMember.role.in_(["ORG_ADMIN", "COMPLIANCE_HEAD"])
+        )
+        memberships = (await db.execute(membership_query)).scalars().all()
+        if memberships:
+            is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks compliance reviewer or administrative authorization to publish regulatory intelligence."
+        )
+
     try:
         updated_doc = await AnalysisService.review_and_publish_analysis(
             db=db,
@@ -111,7 +131,10 @@ async def publish_or_review_document(
             "publication_status": updated_doc.publication_status
         }
     except ValueError as ve:
-        raise HTTPException(status_code=404, detail=str(ve))
+        err_msg = str(ve)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=err_msg)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
 
 
 @router.get("/{document_id}/provisions", response_model=List[ProvisionRead])

@@ -25,6 +25,8 @@ class DocumentCompletenessReport(BaseModel):
     empty_pages: int
     failed_pages: int
     low_confidence_pages: int
+    missing_page_numbers: List[int] = Field(default_factory=list)
+    duplicate_page_numbers: List[int] = Field(default_factory=list)
     tables_detected: int
     tables_extracted: int
     primary_language: str
@@ -183,6 +185,24 @@ class ExtractionQualityAssessor:
         failed_pages = sum(1 for p in page_metrics if p.status == "FAILED")
         extracted_pages = total_pages - empty_pages - failed_pages
 
+        # Check page continuity and duplicates
+        seen_pages = set()
+        duplicate_pages = []
+        page_numbers = []
+        for p in page_metrics:
+            p_no = p.page_number
+            if p_no in seen_pages:
+                duplicate_pages.append(p_no)
+            seen_pages.add(p_no)
+            page_numbers.append(p_no)
+
+        missing_pages = []
+        if page_numbers:
+            min_p = min(page_numbers)
+            max_p = max(page_numbers)
+            expected_set = set(range(min_p, max_p + 1))
+            missing_pages = sorted(list(expected_set - seen_pages))
+
         avg_score = round(sum(p.quality_score for p in page_metrics) / total_pages, 4)
         completion_pct = round((extracted_pages / total_pages) * 100.0, 1)
 
@@ -198,13 +218,17 @@ class ExtractionQualityAssessor:
             completion_pct < 90.0 or
             low_conf_pages > 0 or
             failed_pages > 0 or
-            avg_score < 0.75
+            avg_score < 0.75 or
+            len(missing_pages) > 0 or
+            len(duplicate_pages) > 0
         )
 
         summary = (
             f"{extracted_pages}/{total_pages} pages extracted ({completion_pct}%). "
             f"Average quality score: {avg_score:.2f}. "
             f"Language: {primary_lang}. "
+            f"{f'Missing pages: {missing_pages}. ' if missing_pages else ''}"
+            f"{f'Duplicate pages: {duplicate_pages}. ' if duplicate_pages else ''}"
             f"{'Flagged for human review' if requires_review else 'Passed quality gate'}."
         )
 
@@ -215,6 +239,8 @@ class ExtractionQualityAssessor:
             empty_pages=empty_pages,
             failed_pages=failed_pages,
             low_confidence_pages=low_conf_pages,
+            missing_page_numbers=missing_pages,
+            duplicate_page_numbers=duplicate_pages,
             tables_detected=tables_detected,
             tables_extracted=tables_extracted,
             primary_language=primary_lang,

@@ -56,23 +56,38 @@
 #### Stage 8: Business & Regulatory Impact Assessment
 - **Output:** Breakdown across Banking Operations, Credit, Compliance, Risk Management, Technology, and Governance.
 
-#### Stage 9: Deterministic Citation Validation
+#### Stage 9: Deterministic Citation Validation (Phase 3.5 Hardened)
 - **Input:** All claims, provisions, obligations, and relationships against stored `document_pages`.
 - **Validation Rule:**
-  $$\text{Coverage} = \frac{\sum \text{Verified Quotes}}{\text{Total Claims}}$$
-- Evaluates exact substring matching, whitespace-normalized matching, and high-confidence fuzzy matching (>= 0.92).
-- Flags any unlocated quote as `UNVERIFIED`.
+  $$\text{Coverage} = \frac{\sum \text{Verified Quotes (Exact + Normalized)}}{\text{Total Claims}}$$
+- Evaluates against discrete canonical verification states:
+  - `VERIFIED_EXACT`: Exact character-for-character substring match on the cited page.
+  - `VERIFIED_NORMALIZED`: Match found after whitespace collapsing and case folding. Retains exact quote and notes applied normalization operations.
+  - `CANDIDATE_FUZZY`: Approximate match ($\ge 0.85$). **Crucial Rule:** Treated strictly as a candidate for human review; does NOT count as a verified citation and blocks automated publication.
+  - `WRONG_PAGE`: Quote exists in the document but appears on a different page than cited. Blocks automated publication.
+  - `SOURCE_MISSING`: Cited page does not exist in the document.
+  - `UNVERIFIED`: Quote cannot be located anywhere in the document.
+  - `HUMAN_CONFIRMED`: Certified by an authorized human compliance reviewer.
 
 #### Stage 10: Consolidated Intelligence Record & Publication Check
 - Aggregates validated results, stores token usage, latency, and estimated cost.
-- Sets publication status: `PUBLISHED_MACHINE_PROCESSED` (if coverage >= 95% and zero unverified claims) or `AWAITING_REVIEW`.
+- **Deterministic Publication Gates:**
+  A document is placed in `AWAITING_REVIEW` if:
+  1. Any `UNVERIFIED`, `WRONG_PAGE`, or `CANDIDATE_FUZZY` claims exist on obligations.
+  2. Citation coverage score is below 95%.
+  3. Circular has legal alteration semantics (`AMENDS`, `REPEALS`, `SUPERSEDES`, `REPLACES`).
+  4. Overall impact assessment is `HIGH`.
+  5. Document completeness report indicates missing or non-contiguous pages.
+  6. `force_human_review` was requested.
+- Only if all 6 publication gates pass does a document receive `PUBLISHED_MACHINE_VERIFIED`.
 
 ---
 
 ### 3. Publication State Machine & Human Review Workflow
-- **`PROCESSING`**: Analysis in flight.
-- **`EXTRACTION_FAILED`**: Text extraction or OCR failed.
-- **`AWAITING_REVIEW`**: High-impact circular, amendment/repeal detected, or unverified claims present.
-- **`PUBLISHED_MACHINE_PROCESSED`**: Deterministically passed 100% citation coverage.
-- **`PUBLISHED_HUMAN_REVIEWED`**: Verified and approved by a compliance officer or regulatory research editor.
-- **`CORRECTED`**: Human corrections applied to page text or obligations.
+- **`ANALYZING`**: Pipeline in flight with 5-minute timeout lock preventing duplicate processing.
+- **`EXTRACTION_FAILED`**: Text extraction or OCR failed; blocks publishing directly.
+- **`AWAITING_REVIEW`**: Held for human review due to legal alterations, high impact, or unverified claims.
+- **`PUBLISHED_MACHINE_VERIFIED`**: Deterministically passed 100% of citation and publication gates.
+- **`PUBLISHED_HUMAN_REVIEWED`**: Verified and approved by an authenticated superuser or compliance head.
+- **`CORRECTED`**: Human corrections applied with full audit trail.
+- **`WITHDRAWN` / `SUPERSEDED`**: Terminal or superseded states; cannot be transitioned directly to published.

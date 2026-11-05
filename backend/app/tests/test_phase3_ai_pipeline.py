@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 from pathlib import Path
 import pytest
@@ -5,6 +6,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.core.security import create_access_token, get_password_hash
+from backend.app.database.session import AsyncSessionLocal
 from backend.app.main import app
 from backend.app.modules.analysis.citations import CitationValidator
 from backend.app.modules.analysis.pipeline import RegulatoryIntelligencePipeline
@@ -12,6 +15,7 @@ from backend.app.modules.analysis.providers.mock import MockAIProvider
 from backend.app.modules.analysis.service import AnalysisService
 from backend.app.modules.documents.models import Document, DocumentVersion
 from backend.app.modules.documents.service import document_ingestion_service
+from backend.app.modules.identity.models import User
 from backend.app.modules.institutions.models import Institution
 
 CORPUS_DIR = Path("backend/app/tests/fixtures/corpus")
@@ -44,6 +48,22 @@ async def auth_token(client: AsyncClient):
         "password": password
     })
     return login_res.json()["access_token"]
+
+
+@pytest.fixture
+async def admin_auth_token():
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"admin_{uuid.uuid4().hex[:6]}@regwatch.bd",
+            hashed_password=get_password_hash("AdminPass123!"),
+            full_name="Compliance Superuser",
+            is_active=True,
+            is_superuser=True
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return create_access_token(subject=str(user.id))
 
 
 @pytest.mark.anyio
@@ -180,7 +200,7 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
     assert len(obligations) >= 2
     stage2_obl = next((o for o in obligations if "5.00%" in o["title"] or "Stage 2" in o["title"]), None)
     assert stage2_obl is not None
-    assert stage2_obl["verification_status"] == "VERIFIED"
+    assert stage2_obl["verification_status"] in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED")
     assert stage2_obl["obligation_type"] == "MANDATORY"
     assert "5.00%" in stage2_obl["supporting_text"]
     assert stage2_obl["page_id"] is not None
@@ -197,7 +217,7 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
 
 
 @pytest.mark.anyio
-async def test_human_review_and_publication_workflow(client: AsyncClient, auth_token: str):
+async def test_human_review_and_publication_workflow(client: AsyncClient, auth_token: str, admin_auth_token: str):
     """Tests the human review publishing approval workflow."""
     inst_res = await client.get("/api/v1/institutions")
     inst_id = inst_res.json()[0]["id"]
@@ -229,14 +249,14 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
     doc_check = await client.get(f"/api/v1/documents/{doc_id}")
     assert doc_check.json()["publication_status"] == "AWAITING_REVIEW"
 
-    # Human Editor Approves Publication
+    # Human Editor Approves Publication (requires admin/reviewer authorization)
     publish_res = await client.post(
         f"/api/v1/documents/{doc_id}/publish",
         json={
             "decision": "PUBLISHED_HUMAN_REVIEWED",
             "review_notes": "All IFRS 9 provisioning percentages and citations verified against official BB Gazette."
         },
-        headers={"Authorization": f"Bearer {auth_token}"}
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
     assert publish_res.status_code == 200
     assert publish_res.json()["publication_status"] == "PUBLISHED_HUMAN_REVIEWED"

@@ -1,7 +1,7 @@
 import io
 import re
 from typing import Any, Dict, List, Optional, Tuple
-import fitz  # PyMuPDF
+import pymupdf as fitz
 
 from backend.app.core.config import settings
 from backend.app.core.logging import logger

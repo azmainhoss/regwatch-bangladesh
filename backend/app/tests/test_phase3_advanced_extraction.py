@@ -1,7 +1,7 @@
 import io
 from pathlib import Path
 import pytest
-import fitz
+import pymupdf as fitz
 from PIL import Image
 
 from backend.app.modules.extraction.service import extraction_service

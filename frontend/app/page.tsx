@@ -21,6 +21,46 @@ import {
   triggerDocumentAnalysis,
 } from "@/services/api";
 
+function renderPublicationBadge(status: string) {
+  switch (status) {
+    case "PUBLISHED_HUMAN_REVIEWED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-950 text-emerald-300 border border-emerald-700/80">Human Reviewed</span>;
+    case "PUBLISHED_MACHINE_VERIFIED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-cyan-950 text-cyan-300 border border-cyan-800/80">Machine Verified</span>;
+    case "PUBLISHED_MACHINE_PROCESSED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-blue-950 text-blue-300 border border-blue-800/80">Machine Processed</span>;
+    case "CORRECTED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-teal-950 text-teal-300 border border-teal-800/80">Human Corrected</span>;
+    case "AWAITING_REVIEW":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-950 text-amber-300 border border-amber-800/80">Awaiting Review</span>;
+    case "REJECTED":
+    case "WITHDRAWN":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-rose-950 text-rose-300 border border-rose-800/80">{status}</span>;
+    case "EXTRACTION_FAILED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-red-950 text-red-300 border border-red-800/80">Extraction Failed</span>;
+    default:
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-400">{status}</span>;
+  }
+}
+
+function renderCitationBadge(status: string) {
+  switch (status) {
+    case "VERIFIED_EXACT":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">Verified Exact</span>;
+    case "VERIFIED_NORMALIZED":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-teal-950 text-teal-300 border border-teal-800">Verified Normalized</span>;
+    case "CANDIDATE_FUZZY":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-950 text-amber-300 border border-amber-800">Candidate Fuzzy (Needs Review)</span>;
+    case "WRONG_PAGE":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-orange-950 text-orange-300 border border-orange-800">Wrong Page Cited</span>;
+    case "UNVERIFIED":
+    case "SOURCE_MISSING":
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-rose-950 text-rose-300 border border-rose-800">Unverified Citation</span>;
+    default:
+      return <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-400">{status}</span>;
+  }
+}
+
 export default function ProfessionalFeedPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -263,11 +303,7 @@ export default function ProfessionalFeedPage() {
                       </span>
                       <span>{activeVersion?.page_count || 0} pages</span>
                     </div>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                      isPublished ? "bg-emerald-950 text-emerald-400 border border-emerald-800/50" : "bg-amber-950 text-amber-300 border border-amber-800/50"
-                    }`}>
-                      {doc.publication_status}
-                    </span>
+                    {renderPublicationBadge(doc.publication_status)}
                   </div>
                 </div>
               );
@@ -452,7 +488,7 @@ export default function ProfessionalFeedPage() {
                           {obl.explicit_deadline && (
                             <span className="text-amber-400">Deadline: {obl.explicit_deadline}</span>
                           )}
-                          <span className="text-emerald-400">{obl.verification_status}</span>
+                          {renderCitationBadge(obl.verification_status)}
                         </div>
                       </div>
                     ))

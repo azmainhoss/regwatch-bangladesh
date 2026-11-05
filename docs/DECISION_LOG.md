@@ -81,3 +81,26 @@
 - **Context:** LLMs are prone to hallucinating or subtly misquoting regulatory text, creating catastrophic legal liability in banking compliance.
 - **Decision:** Make Stage 9 (Citation Validation) a non-negotiable deterministic gate. Every generated claim, provision, obligation, and relationship quotation is verified against the stored page text via exact, normalized, and high-confidence fuzzy matching. Any unverified quote blocks automated publication and flags the document for human review.
 - **Rationale:** Financial compliance cannot rely on self-reported LLM confidence; only cryptographic and verbatim page grounding guarantees evidentiary integrity.
+
+---
+
+### ADR 010: Idempotent Migration Chain & Clean Database Baseline
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** Fresh database initialization previously failed during `alembic upgrade head` because the initial migration `29119fb58419` was an empty stub (`pass`), causing subsequent migrations that altered tables (`982a64deb81e` and `0755184b9d4f`) to fail on clean installations.
+- **Decision:** Initialize all baseline declarative tables via `Base.metadata.create_all(bind)` in `29119fb58419`, and inspect existing schema columns dynamically (`insp.get_columns(...)`) before issuing column additions or table creations in subsequent revisions.
+- **Rationale:** Guarantees that any developer, CI test pipeline, or fresh production deployment can run `alembic upgrade head` from a zero-byte database to the latest schema without errors, while maintaining full idempotency on existing populated databases.
+
+---
+
+### ADR 011: Discrete Citation Verification States & Strict Publication Gates
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** Audit in Phase 3.5 revealed that high-confidence fuzzy matches ($\ge 0.85$) were previously treated as verified (`is_verified = True`), potentially allowing subtle hallucinations, paraphrasing, or altered regulatory provisions to pass as verified law. Furthermore, quotes appearing on pages other than the cited page were not flagged with page misattribution.
+- **Decision:** 
+  1. Introduce discrete citation verification states: `VERIFIED_EXACT`, `VERIFIED_NORMALIZED`, `CANDIDATE_FUZZY`, `WRONG_PAGE`, `SOURCE_MISSING`, `UNVERIFIED`, and `HUMAN_CONFIRMED`.
+  2. Classified quotes with fuzzy similarity ($\ge 0.85$) are strictly marked as `CANDIDATE_FUZZY` with `is_verified = False` and require human confirmation.
+  3. Detect quotes appearing on different pages of the same document and flag them as `WRONG_PAGE`.
+  4. Enforce strict deterministic publication gates: automated publication is blocked if any unverified quote, wrong page citation, or candidate fuzzy citation exists on obligations, or if the document introduces legal alterations (`AMENDS`, `REPEALS`, `SUPERSEDES`, `REPLACES`) or high regulatory impact.
+- **Rationale:** Regulatory compliance in banking cannot tolerate paraphrasing as verified quotation. A candidate fuzzy match is a hypothesis requiring human verification. This eliminates legal exposure and ensures strict institutional provenance.
+

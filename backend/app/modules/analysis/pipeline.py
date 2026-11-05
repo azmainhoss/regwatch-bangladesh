@@ -102,21 +102,31 @@ class RegulatoryIntelligencePipeline:
             pages_by_number=pages_by_number
         )
 
-        # Step 4: Risk-based Publication Eligibility
-        # A document requires human review if:
-        # - Any unverified claims
-        # - Citation coverage < 95%
-        # - Contains AMENDS / REPEALS / SUPERSEDES relationships
-        # - Explicitly requested via force_human_review
-        has_amendment = any(
-            rel.get("relationship_type") in ("AMENDS", "REPEALS", "SUPERSEDES")
+        # Step 4: Deterministic Publication Gates (Phase 4 Hardening)
+        # A document REQUIRES human review if:
+        # 1. Any unverified claims, candidate fuzzy citations, or wrong page citations exist
+        # 2. Overall citation coverage score < 95%
+        # 3. Document has high legal impact (AMENDS, REPEALS, SUPERSEDES, REPLACES)
+        # 4. Overall impact assessment is HIGH
+        # 5. Extraction quality requires human review
+        # 6. Explicitly forced via force_human_review
+        has_legal_alteration = any(
+            rel.get("relationship_type") in ("AMENDS", "REPEALS", "SUPERSEDES", "REPLACES")
             for rel in payload.get("relationships", [])
         )
+        has_high_impact = (
+            payload.get("impact_assessment", {}).get("overall_impact_severity") == "HIGH"
+        )
 
-        if force_human_review or not validation_report.is_publication_eligible or has_amendment:
+        if (
+            force_human_review
+            or not validation_report.is_publication_eligible
+            or has_legal_alteration
+            or has_high_impact
+        ):
             publication_status = "AWAITING_REVIEW"
         else:
-            publication_status = "PUBLISHED_MACHINE_PROCESSED"
+            publication_status = "PUBLISHED_MACHINE_VERIFIED"
 
         logger.info(
             f"Pipeline completed in {elapsed_ms}ms. "
