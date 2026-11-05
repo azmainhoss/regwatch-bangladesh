@@ -34,21 +34,38 @@
 3. **`sources`**
    - `id`: UUID (PK)
    - `institution_id`: UUID (FK -> institutions.id)
+   - `department_id`: UUID (FK -> institution_departments.id, NULLABLE)
    - `name`: VARCHAR(255) NOT NULL
    - `source_type`: VARCHAR(64) NOT NULL (`WEB_CRAWLER`, `MANUAL_UPLOAD`, `API_FEED`)
+   - `monitoring_method`: VARCHAR(64) DEFAULT 'WEB_CRAWLER'
    - `base_url`: VARCHAR(512)
+   - `polling_frequency_minutes`: INTEGER DEFAULT 60
    - `config`: JSONB (selector paths, rate limits, headers, pagination rules)
    - `is_active`: BOOLEAN DEFAULT true
    - `last_checked_at`: TIMESTAMPTZ
+   - `last_attempted_run_at`: TIMESTAMPTZ
+   - `last_successful_run_at`: TIMESTAMPTZ
+   - `last_discovered_publication_at`: TIMESTAMPTZ
+   - `last_error`: TEXT
+   - `access_restriction_status`: VARCHAR(32) DEFAULT 'ACCESSIBLE'
    - `created_at`, `updated_at`
 
 4. **`source_runs`**
    - `id`: UUID (PK)
    - `source_id`: UUID (FK -> sources.id)
    - `run_type`: VARCHAR(32) (`SCHEDULED`, `MANUAL_TRIGGER`, `DIRECT_UPLOAD`)
-   - `status`: VARCHAR(32) (`STARTED`, `COMPLETED`, `FAILED`, `CANCELLED`)
+   - `status`: VARCHAR(32) (`STARTED`, `COMPLETED`, `FAILED`, `CANCELLED`, `RESTRICTED`)
+   - `pages_inspected`: INTEGER DEFAULT 0
+   - `candidate_links_discovered`: INTEGER DEFAULT 0
+   - `valid_documents_discovered`: INTEGER DEFAULT 0
+   - `downloads_attempted`: INTEGER DEFAULT 0
+   - `downloads_successful`: INTEGER DEFAULT 0
+   - `duplicate_count`: INTEGER DEFAULT 0
    - `discovered_count`: INTEGER DEFAULT 0
    - `downloaded_count`: INTEGER DEFAULT 0
+   - `access_restricted`: BOOLEAN DEFAULT false
+   - `access_restriction_details`: JSONB
+   - `retry_count`: INTEGER DEFAULT 0
    - `error_count`: INTEGER DEFAULT 0
    - `error_log`: TEXT
    - `started_at`, `completed_at`
@@ -56,9 +73,16 @@
 5. **`source_discoveries`**
    - `id`: UUID (PK)
    - `source_run_id`: UUID (FK -> source_runs.id)
+   - `document_id`: UUID (FK -> documents.id, NULLABLE)
    - `source_url`: VARCHAR(1024) NOT NULL
+   - `file_url`: VARCHAR(1024)
+   - `title`: TEXT
+   - `department_code`: VARCHAR(64)
+   - `reference_number`: VARCHAR(128)
+   - `publication_date`: DATE
    - `discovered_metadata`: JSONB
-   - `status`: VARCHAR(32) (`NEW`, `EXISTING_HASH`, `QUEUED`, `PROCESSED`, `FAILED`)
+   - `rejection_reason`: TEXT
+   - `status`: VARCHAR(32) (`DISCOVERED`, `VALIDATED`, `DUPLICATE`, `RESTRICTED`, `COMPLETED`, `REJECTED`)
    - `created_at`
 
 6. **`documents`**

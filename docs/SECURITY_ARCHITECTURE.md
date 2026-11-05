@@ -34,6 +34,18 @@ Financial institutions in Bangladesh adhere to strict confidentiality and superv
 - Security-relevant events (authentication failures, permission changes, publication status changes, task reviews, evidence uploads) are recorded in an append-only `audit_events` table capturing actor, action, timestamp, IP address, and payload diffs (`before_state`, `after_state`).
 
 #### 2.5 Input Sanitization & Anti-Abuse
-- Strict Pydantic models validate all incoming payloads.
-- Uploaded files undergo MIME type verification (magic bytes) and file size limits (50 MB default).
-- Automated crawler adheres to polite crawling etiquette (minimum 3s backoff, robots.txt compliance, standard user-agent identification).
+- Strict Pydantic models validate all incoming payloads (e.g. `UserCreate.password` enforces `min_length=8`).
+- Uploaded files undergo MIME type verification (magic bytes `%PDF-`), a hard 50 MB file size ceiling (`MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024`), and PyMuPDF structural integrity checks to reject corrupt or malformed payloads before persistent storage.
+- File system access paths are deterministically validated via `safe_join` / `resolve().is_relative_to()`, completely preventing directory traversal attacks.
+- Automated crawler adheres to polite crawling etiquette (minimum 3s backoff, standard user-agent identification, anti-bot detection without CAPTCHA bypass).
+
+---
+
+### 3. Independent Security Verification & Automated Test Coverage
+All security controls are verified by automated end-to-end tests:
+- `test_strict_multi_tenant_isolation`: Proves cross-tenant access to registers, tasks, evidence upload, inspection, and raw downloads between two isolated organizations (`Org A` and `Org B`) is strictly blocked with HTTP 403 / 404.
+- `test_password_length_validation`: Verifies passwords under 8 characters are rejected with HTTP 422.
+- `test_expired_token_rejection`: Verifies expired JWTs return HTTP 401.
+- `test_tampered_jwt_signature_rejection`: Verifies modified JWT payloads return HTTP 401.
+- `test_storage_path_traversal_hard_block`: Verifies path traversal sequences (`../../etc/shadow`) are rejected with `ValueError`.
+- `test_oversized_and_corrupt_pdf_rejection`: Verifies zero-byte and corrupt PDFs return HTTP 422.

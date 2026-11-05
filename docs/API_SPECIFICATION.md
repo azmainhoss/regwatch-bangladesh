@@ -27,19 +27,28 @@ Requests and responses use standard JSON with snake_case keys. Timestamps are fo
 
 ### 3. Regulatory Institutions & Sources
 - `GET /institutions` -> List of regulatory institutions (e.g. Bangladesh Bank, NBR, BSEC).
+- `GET /institutions/{id}` -> Specific institution details with active departments.
 - `GET /institutions/{id}/departments` -> List of departments (e.g. BRPD, DOS, FEPD, PSD).
 - `GET /sources` -> List of configured crawling / manual ingestion sources.
+- `GET /sources/{id}` -> Source details including access restriction status and last run.
 - `POST /sources` -> Create a new source connector definition.
-- `POST /sources/{id}/trigger` -> Trigger an ingestion discovery run.
-- `GET /sources/runs` -> List of historical source runs with status and stats.
+- `PATCH /sources/{id}` -> Toggle source active status or update polling parameters.
+- `POST /sources/{id}/trigger` -> Trigger an immediate asynchronous ingestion discovery run.
+- `GET /sources/runs` -> List of historical source runs with status, discovered counts, and WAF restriction details.
+- `GET /sources/runs/{run_id}` -> Granular run statistics and diagnostic logs.
+- `GET /sources/discoveries` -> Discovery review queue filtering by status (`DISCOVERED`, `VALIDATED`, `DUPLICATE`, `RESTRICTED`, `COMPLETED`, `REJECTED`).
+- `POST /sources/discoveries/{discovery_id}/approve` -> Approve candidate and trigger ingestion pipeline.
+- `POST /sources/discoveries/{discovery_id}/reject` -> Reject candidate with operator justification.
 
 ---
 
 ### 4. Document Ingestion & Management
-- `POST /documents/upload` (Multipart Form)
+- `POST /documents/upload` (Multipart Form, Authenticated)
+  - Headers: `Authorization: Bearer <token>`
+  - Constraints: Enforces magic bytes (`%PDF-`), 50MB file size ceiling, and PyMuPDF structure validation.
   - Fields: `file` (PDF), `institution_code`, `department_code?`, `reference_number?`, `title`, `publication_date`, `source_url?`
   - Behavior: Computes SHA-256, verifies duplicate status, stores in `originals/`, creates document and version records, schedules extraction job.
-  - Response: `202 Accepted` with Document and Job ID.
+  - Response: `201 Created` with Document, Version, and page count.
 - `GET /documents`
   - Query params: `institution_id`, `department_id`, `document_type`, `year`, `search`, `publication_status`, `page`, `page_size`
   - Response: Paginated list of regulatory documents with version info and metadata.
@@ -51,6 +60,20 @@ Requests and responses use standard JSON with snake_case keys. Timestamps are fo
   - Specific page text and extraction details.
 - `GET /documents/{id}/pdf`
   - Securely streams the original immutable PDF file from storage with range request support for the PDF viewer.
+
+---
+
+### 5. Compliance & Multi-Tenant Organization Workspace
+- Headers Required: `Authorization: Bearer <token>` and `X-Organization-Id: <org_uuid>`
+- Authorization: Enforced by `get_org_membership` dependency. Requests without valid membership in the targeted organization are rejected with `403 Forbidden`.
+- `POST /organizations` -> Create a new organization tenant (caller assigned `ADMIN` role).
+- `GET /organizations/my` -> List all organizations the authenticated user belongs to.
+- `GET /compliance/registers` -> List compliance registers belonging strictly to the specified tenant.
+- `POST /compliance/registers` -> Create new compliance register scoped to the tenant.
+- `POST /compliance/tasks` -> Create a compliance task under a register.
+- `POST /compliance/tasks/{id}/evidence` (Multipart) -> Submit task evidence file. Evidence is physically isolated at `storage/evidence/{org_id}/{task_id}/`.
+- `GET /compliance/tasks/{task_id}/evidence` -> List all uploaded evidence records for the task.
+- `GET /compliance/evidence/{evidence_id}/download` -> Securely download the evidence file, validating tenant ownership. Cross-tenant access returns `404 Not Found`.
 
 ---
 

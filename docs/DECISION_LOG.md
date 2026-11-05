@@ -45,3 +45,21 @@
 - **Context:** Older Bangladesh Bank circulars (pre-2015 and some scanned recent circulars) use legacy ANSI/Bijoy encoding (e.g. SutonnyMJ font) where characters appear garbled in standard UTF-8 readers.
 - **Decision:** Include `bijoy2unicode` conversion and Tesseract OCR with Bangla (`ben`) and English (`eng`) language models. The extraction pipeline automatically detects ANSI byte patterns and normalizes them to Unicode UTF-8.
 - **Rationale:** Ensures historical circulars are fully searchable and analyzable.
+
+---
+
+### ADR 006: Strict Server-Side Multi-Tenant Isolation
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** Phase 1 audit revealed that compliance registers, tasks, and audit evidence lacked server-side authorization checks, making customer workspaces vulnerable to cross-tenant IDOR attacks.
+- **Decision:** Implement `get_org_membership` FastAPI dependency enforcing active membership and role validation on every organization-scoped request. Customer audit evidence files are physically isolated at `storage/evidence/{org_id}/{task_id}/` with path-traversal prevention. Public circulars remain immutable platform-wide in `storage/originals/`.
+- **Rationale:** Banking regulations demand strict tenant boundaries; no organization may inspect or mutate another organization's compliance evidence or register items under any circumstance.
+
+---
+
+### ADR 007: Anti-Bot Telemetry and Human-in-the-Loop Discovery Review
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** Bangladesh Bank protects its portal with Imperva WAF / TSPD JavaScript challenges. Scraping or bypassing CAPTCHAs violates ethical standards, terms of service, and system guidelines.
+- **Decision:** Detect Imperva TSPD signatures (`bobcmn`, "What code is in the image?", support ID extraction), Cloudflare challenges, and rate limits deterministically. Mark the run as `RESTRICTED`, log diagnostics without bypassing, and record discovered items into a `source_discoveries` review queue. Operators can review candidate links, approve and trigger automated ingestion, or upload files directly.
+- **Rationale:** Ensures complete legal and ethical compliance while providing operators with full visibility into source accessibility and candidate publications.

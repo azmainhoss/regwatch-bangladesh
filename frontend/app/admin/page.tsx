@@ -2,11 +2,27 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { DocumentItem, Institution, fetchDocuments, fetchInstitutions, uploadDocument } from "@/services/api";
+import {
+  DocumentItem,
+  Institution,
+  Source,
+  SourceDiscovery,
+  approveDiscovery,
+  fetchDiscoveries,
+  fetchDocuments,
+  fetchInstitutions,
+  fetchSources,
+  rejectDiscovery,
+  toggleSourceActive,
+  triggerSourceRun,
+  uploadDocument
+} from "@/services/api";
 
 export default function AdminConsolePage() {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [discoveries, setDiscoveries] = useState<SourceDiscovery[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Upload Form State
@@ -22,12 +38,18 @@ export default function AdminConsolePage() {
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const loadData = async () => {
+  // Source Monitoring Trigger State
+  const [triggeringSourceId, setTriggeringSourceId] = useState<string | null>(null);
+  const [monitoringNotice, setMonitoringNotice] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
+
+  const loadAllData = async () => {
     try {
       setLoading(true);
-      const [insts, docs] = await Promise.all([
+      const [insts, docs, srcs, disc] = await Promise.all([
         fetchInstitutions(),
-        fetchDocuments()
+        fetchDocuments(),
+        fetchSources(),
+        fetchDiscoveries()
       ]);
       setInstitutions(insts);
       if (insts.length > 0) {
@@ -37,6 +59,8 @@ export default function AdminConsolePage() {
         }
       }
       setDocuments(docs);
+      setSources(srcs);
+      setDiscoveries(disc);
     } catch (err) {
       console.error(err);
     } finally {
@@ -45,7 +69,7 @@ export default function AdminConsolePage() {
   };
 
   useEffect(() => {
-    loadData();
+    loadAllData();
   }, []);
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -85,13 +109,79 @@ export default function AdminConsolePage() {
       setRefNumber("");
       setTitle("");
       setSourceUrl("");
-      // Reload documents list
       const refreshedDocs = await fetchDocuments();
       setDocuments(refreshedDocs);
     } catch (err: any) {
       setUploadMessage({ type: "error", text: err.message || "Failed to upload document" });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleTriggerRun = async (sourceId: string) => {
+    try {
+      setTriggeringSourceId(sourceId);
+      setMonitoringNotice(null);
+      const run = await triggerSourceRun(sourceId);
+      if (run.access_restricted) {
+        setMonitoringNotice({
+          type: "warning",
+          text: `Run completed with restriction: ${run.access_restriction_details?.challenge_type || "Anti-bot challenge"} detected on Bangladesh Bank portal. Automation halted per non-bypass policy.`
+        });
+      } else {
+        setMonitoringNotice({
+          type: "success",
+          text: `Monitoring complete: Inspected ${run.pages_inspected} pages, discovered ${run.candidate_links_discovered} candidates (${run.valid_documents_discovered} valid, ${run.duplicate_count} duplicates).`
+        });
+      }
+      // Refresh sources and discoveries
+      const [refreshedSources, refreshedDisc] = await Promise.all([
+        fetchSources(),
+        fetchDiscoveries()
+      ]);
+      setSources(refreshedSources);
+      setDiscoveries(refreshedDisc);
+    } catch (err: any) {
+      setMonitoringNotice({ type: "error", text: err.message || "Run failed" });
+    } finally {
+      setTriggeringSourceId(null);
+    }
+  };
+
+  const handleToggleActive = async (source: Source) => {
+    try {
+      await toggleSourceActive(source.id, !source.is_active);
+      const refreshed = await fetchSources();
+      setSources(refreshed);
+    } catch (err: any) {
+      alert("Failed to toggle source status: " + err.message);
+    }
+  };
+
+  const handleApproveDiscovery = async (discoveryId: string) => {
+    try {
+      await approveDiscovery(discoveryId);
+      alert("Discovery approved and queued for ingestion!");
+      const [refreshedDisc, refreshedDocs] = await Promise.all([
+        fetchDiscoveries(),
+        fetchDocuments()
+      ]);
+      setDiscoveries(refreshedDisc);
+      setDocuments(refreshedDocs);
+    } catch (err: any) {
+      alert("Approval error: " + err.message);
+    }
+  };
+
+  const handleRejectDiscovery = async (discoveryId: string) => {
+    const reason = prompt("Enter reason for rejecting this candidate publication:");
+    if (!reason) return;
+    try {
+      await rejectDiscovery(discoveryId, reason);
+      const refreshedDisc = await fetchDiscoveries();
+      setDiscoveries(refreshedDisc);
+    } catch (err: any) {
+      alert("Rejection error: " + err.message);
     }
   };
 
@@ -107,13 +197,13 @@ export default function AdminConsolePage() {
               <span className="text-xs px-2 py-0.5 rounded bg-brand-900/80 text-brand-300 font-mono border border-brand-700/50">
                 ADMIN CONSOLE
               </span>
-              <span className="text-xs text-slate-500 font-mono">Platform Operator Mode</span>
+              <span className="text-xs text-slate-500 font-mono">Platform Operator & Ingestion Hub</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-white mt-1">
-              Source Registry & Document Ingestion Dropzone
+              Source Monitoring & Document Ingestion
             </h1>
             <p className="text-sm text-slate-400 mt-0.5">
-              Manage external source connectors, view crawl logs, and manually submit verified official regulatory PDFs.
+              Live crawler orchestration, WAF restriction telemetry, candidate review queue, and manual dropzone.
             </p>
           </div>
           <Link
@@ -125,13 +215,186 @@ export default function AdminConsolePage() {
         </div>
       </div>
 
+      {/* Global Telemetry Alert */}
+      {monitoringNotice && (
+        <div
+          className={`p-4 rounded-xl border text-xs font-mono ${
+            monitoringNotice.type === "success"
+              ? "bg-emerald-950/80 border-emerald-800 text-emerald-200"
+              : monitoringNotice.type === "warning"
+              ? "bg-amber-950/80 border-amber-800 text-amber-200"
+              : "bg-rose-950/80 border-rose-800 text-rose-200"
+          }`}
+        >
+          {monitoringNotice.text}
+        </div>
+      )}
+
+      {/* Sources Registry Section */}
+      <div className="border border-slate-800 bg-slate-900/40 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">Registered Regulatory Sources ({sources.length})</h2>
+            <p className="text-xs text-slate-400">Official institutional portals monitored for publication releases.</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {sources.map((s) => (
+            <div
+              key={s.id}
+              className="p-4 rounded-xl border border-slate-800 bg-slate-950 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs"
+            >
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-200 text-sm">{s.name}</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-mono text-[10px] border ${
+                      s.is_active
+                        ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                        : "bg-slate-900 text-slate-500 border-slate-800"
+                    }`}
+                  >
+                    {s.is_active ? "ENABLED" : "PAUSED"}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded font-mono text-[10px] ${
+                      s.access_restriction_status === "CLEAR"
+                        ? "bg-slate-900 text-slate-300"
+                        : "bg-amber-950 text-amber-400 border border-amber-800"
+                    }`}
+                  >
+                    STATUS: {s.access_restriction_status}
+                  </span>
+                </div>
+                <div className="text-slate-400 font-mono mt-1 text-[11px] break-all">{s.base_url}</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-500 font-mono mt-2 text-[10px]">
+                  <span>Frequency: Every {s.polling_frequency_minutes}m</span>
+                  <span>Last Attempted: {s.last_attempted_run_at ? new Date(s.last_attempted_run_at).toLocaleString() : "Never"}</span>
+                  <span>Last Successful: {s.last_successful_run_at ? new Date(s.last_successful_run_at).toLocaleString() : "Never"}</span>
+                </div>
+                {s.last_error && (
+                  <div className="text-amber-400/90 font-mono text-[10px] mt-1.5 bg-amber-950/40 p-1.5 rounded border border-amber-900/50">
+                    Warning: {s.last_error}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2 self-start md:self-auto flex-shrink-0">
+                <button
+                  onClick={() => handleToggleActive(s)}
+                  className="px-3 py-1.5 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs transition font-mono"
+                >
+                  {s.is_active ? "Pause" : "Enable"}
+                </button>
+                <button
+                  onClick={() => handleTriggerRun(s.id)}
+                  disabled={triggeringSourceId === s.id}
+                  className="px-4 py-1.5 rounded bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-semibold text-xs transition shadow-sm font-mono"
+                >
+                  {triggeringSourceId === s.id ? "Checking..." : "Trigger Run Now"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Discovery Review Queue */}
+      <div className="border border-slate-800 bg-slate-900/40 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">Discovery Review Queue ({discoveries.length})</h2>
+            <p className="text-xs text-slate-400">Newly identified candidate circulars awaiting editorial approval or verification.</p>
+          </div>
+        </div>
+
+        {discoveries.length === 0 ? (
+          <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg text-slate-500 text-xs">
+            Review queue is clear. No pending candidate publications.
+          </div>
+        ) : (
+          <div className="space-y-2.5 max-h-96 overflow-y-auto">
+            {discoveries.map((disc) => (
+              <div
+                key={disc.id}
+                className="p-3.5 rounded-lg border border-slate-800 bg-slate-950 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-brand-400 font-semibold text-[11px]">
+                      {disc.reference_number || "Reference Unspecified"}
+                    </span>
+                    {disc.department_code && (
+                      <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                        {disc.department_code}
+                      </span>
+                    )}
+                    <span
+                      className={`px-1.5 py-0.5 rounded font-mono text-[10px] ${
+                        disc.status === "VALIDATED"
+                          ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                          : disc.status === "DUPLICATE"
+                          ? "bg-slate-900 text-slate-500"
+                          : disc.status === "REJECTED"
+                          ? "bg-rose-950 text-rose-400 border border-rose-900"
+                          : "bg-brand-950 text-brand-300"
+                      }`}
+                    >
+                      {disc.status}
+                    </span>
+                  </div>
+                  <h4 className="text-slate-200 font-medium mt-1">{disc.title || "Bangladesh Bank Publication"}</h4>
+                  <div className="text-[10px] text-slate-500 font-mono mt-1 break-all">
+                    Link: {disc.file_url || disc.source_url}
+                  </div>
+                  {disc.rejection_reason && (
+                    <div className="text-rose-400 text-[10px] font-mono mt-1">Reason: {disc.rejection_reason}</div>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-2 flex-shrink-0 self-start md:self-auto">
+                  {disc.file_url && (
+                    <a
+                      href={disc.file_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1 text-[11px] rounded border border-slate-800 bg-slate-900 text-slate-400 hover:text-white transition font-mono"
+                    >
+                      Source ↗
+                    </a>
+                  )}
+                  {disc.status === "VALIDATED" && (
+                    <>
+                      <button
+                        onClick={() => handleApproveDiscovery(disc.id)}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded transition font-mono"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleRejectDiscovery(disc.id)}
+                        className="px-3 py-1 bg-slate-800 hover:bg-rose-900 text-slate-300 hover:text-rose-200 text-xs font-medium rounded transition font-mono"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Manual Dropzone & Repository Column */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Official PDF Dropzone Form */}
         <div className="lg:col-span-6 border border-slate-800 bg-slate-900/40 rounded-xl p-6 space-y-6">
           <div>
             <h2 className="text-lg font-semibold text-white">Manual Ingestion Dropzone</h2>
             <p className="text-xs text-slate-400 mt-1">
-              Upload an official circular PDF. The system will compute the SHA-256 hash, store it in immutable storage, and perform page-by-page text extraction.
+              Upload an official circular PDF directly. The system computes SHA-256 hashes, stores immutably in originals namespace, and extracts text page-by-page.
             </p>
           </div>
 
@@ -281,32 +544,8 @@ export default function AdminConsolePage() {
           </form>
         </div>
 
-        {/* Right Column: Source Status & Ingested Document Log */}
+        {/* Right Column: Ingested Document Log */}
         <div className="lg:col-span-6 space-y-6">
-          {/* Source Monitor Card */}
-          <div className="border border-slate-800 bg-slate-900/40 rounded-xl p-6">
-            <h2 className="text-sm font-semibold text-white uppercase tracking-wider font-mono">
-              Registered Source Connectors
-            </h2>
-            <div className="mt-4 space-y-3">
-              <div className="p-3 rounded-lg border border-slate-800 bg-slate-950 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-semibold text-slate-200 block">Bangladesh Bank Official Media Room</span>
-                  <span className="text-[11px] text-slate-500 font-mono block mt-0.5">
-                    https://www.bb.org.bd/en/index.php/mediaroom/circular
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-mono">
-                    CONNECTED
-                  </span>
-                  <span className="text-[10px] text-slate-500 block font-mono mt-1">Interval: 3.0s</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Catalog Review List */}
           <div className="border border-slate-800 bg-slate-900/40 rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-white uppercase tracking-wider font-mono">
@@ -314,7 +553,7 @@ export default function AdminConsolePage() {
               </h2>
             </div>
 
-            <div className="space-y-2.5 max-h-[460px] overflow-y-auto">
+            <div className="space-y-2.5 max-h-[580px] overflow-y-auto">
               {documents.length === 0 ? (
                 <p className="text-xs text-slate-500 py-4 text-center">No publications in database yet.</p>
               ) : (

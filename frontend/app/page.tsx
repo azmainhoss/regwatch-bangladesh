@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { DocumentItem, DocumentPage, fetchDocumentPages, fetchDocuments } from "@/services/api";
+import { DocumentItem, DocumentPage, Institution, fetchDocumentPages, fetchDocuments, fetchInstitutions } from "@/services/api";
 
 export default function ProfessionalFeedPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
@@ -13,11 +14,17 @@ export default function ProfessionalFeedPage() {
   const [loadingPages, setLoadingPages] = useState(false);
   const [selectedPageNo, setSelectedPageNo] = useState<number>(1);
 
-  const loadDocs = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const data = await fetchDocuments({ search });
-      setDocuments(data);
+      const [docs, insts] = await Promise.all([
+        fetchDocuments({ search }),
+        fetchInstitutions().catch(() => []),
+      ]);
+      setDocuments(docs);
+      if (insts.length > 0) {
+        setInstitutions(insts);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -26,8 +33,13 @@ export default function ProfessionalFeedPage() {
   };
 
   useEffect(() => {
-    loadDocs();
+    loadData();
   }, [search]);
+
+  const allDepartments = institutions.flatMap((inst) => inst.departments || []);
+  const deptCodes = allDepartments.map((d) => d.code).slice(0, 6).join(", ") || "BRPD, DOS, FEPD, PSD, DBI, SFD";
+  const totalPages = documents.reduce((sum, d) => sum + (d.versions?.[0]?.page_count || 0), 0);
+  const primaryAuthority = institutions[0]?.name || "Bangladesh Bank";
 
   const handleSelectDoc = async (doc: DocumentItem) => {
     setSelectedDoc(doc);
@@ -75,22 +87,22 @@ export default function ProfessionalFeedPage() {
           <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
             <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Total Ingested</span>
             <span className="text-xl font-bold text-white font-mono mt-1 block">{documents.length}</span>
-            <span className="text-[10px] text-emerald-400 font-mono mt-0.5 block">100% SHA-256 Verified</span>
+            <span className="text-[10px] text-emerald-400 font-mono mt-0.5 block">{totalPages} pages extracted</span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
             <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Departments Monitored</span>
-            <span className="text-xl font-bold text-white font-mono mt-1 block">6</span>
-            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">BRPD, DOS, FEPD, PSD, DBI, SFD</span>
+            <span className="text-xl font-bold text-white font-mono mt-1 block">{allDepartments.length || 6}</span>
+            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block truncate" title={deptCodes}>{deptCodes}</span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
             <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Primary Authority</span>
-            <span className="text-xl font-bold text-brand-300 font-mono mt-1 block">Bangladesh Bank</span>
+            <span className="text-xl font-bold text-brand-300 font-mono mt-1 block truncate" title={primaryAuthority}>{primaryAuthority}</span>
             <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">Official Media Room</span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-3">
             <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wider block">Storage Integrity</span>
             <span className="text-xl font-bold text-emerald-400 font-mono mt-1 block">Immutable</span>
-            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">Zero Modification Policy</span>
+            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">SHA-256 Provenance</span>
           </div>
         </div>
       </div>

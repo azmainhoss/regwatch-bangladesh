@@ -66,15 +66,27 @@ Because financial regulation demands absolute legal certainty and evidentiary au
 ---
 
 ### 4. Ingestion Lifecycle State Machine
-1. `DISCOVERED`: Discovered via connector or uploaded.
-2. `QUEUED`: Queued for extraction.
-3. `DOWNLOADING`: Stream download in progress (for crawler).
-4. `DOWNLOADED`: Stored in `originals/` storage namespace.
-5. `EXTRACTING`: Page-level text extraction and OCR running.
-6. `EXTRACTED`: Pages and raw text stored in `document_pages`.
-7. `ANALYSIS_PENDING`: Queued for AI analysis.
-8. `ANALYZING`: Multi-stage AI pipeline running.
-9. `AWAITING_REVIEW`: Completed AI analysis flagged for human editor review.
-10. `PUBLISHED_MACHINE_PROCESSED`: Published automatically if deterministic quality score >= threshold.
-11. `PUBLISHED_HUMAN_REVIEWED`: Reviewed and approved by regulatory editor.
-12. `FAILED`: Ingestion or extraction failed with error diagnostics recorded in `source_runs`.
+1. `DISCOVERED`: Discovered via connector or uploaded. Candidate record created in `source_discoveries`.
+2. `VALIDATED`: Metadata validated, candidate link verified as PDF/HTML publication.
+3. `RESTRICTED`: WAF/Anti-bot challenge detected (Imperva TSPD / Cloudflare). Diagnostics recorded, run halted cleanly.
+4. `QUEUED`: Queued for extraction.
+5. `DOWNLOADING`: Stream download in progress (for crawler).
+6. `DOWNLOADED`: Stored in `originals/` storage namespace with SHA-256 verification.
+7. `EXTRACTING`: Page-level text extraction and OCR running.
+8. `EXTRACTED`: Pages and raw text stored in `document_pages`.
+9. `ANALYSIS_PENDING`: Queued for AI analysis.
+10. `ANALYZING`: Multi-stage AI pipeline running.
+11. `AWAITING_REVIEW`: Completed AI analysis flagged for human editor review.
+12. `PUBLISHED_MACHINE_PROCESSED`: Published automatically if deterministic quality score >= threshold.
+13. `PUBLISHED_HUMAN_REVIEWED`: Reviewed and approved by regulatory editor.
+14. `FAILED`: Ingestion or extraction failed with error diagnostics recorded in `source_runs`.
+
+---
+
+### 5. Phase 2 Connector & Discovery Review Queue Implementation
+In Phase 2, the source monitoring and connector infrastructure was implemented:
+- **`BaseSourceConnector` (`backend/app/modules/sources/connector/base.py`)**: Abstract base class defining `discover_candidates()`, `download_candidate()`, and `detect_anti_bot_challenge()`.
+- **`BangladeshBankConnector` (`backend/app/modules/sources/connector/bangladesh_bank.py`)**: Concrete crawler targeting Bangladesh Bank Media Room circular portals. Parses circular tables, extracts circular numbers, dates, titles, and download URLs.
+- **Anti-Bot Telemetry**: Detects Imperva TSPD JavaScript challenge signatures (`bobcmn`, "What code is in the image?", support ID), Cloudflare challenges, and HTTP 429/403/503. Preserves diagnostics in `source_runs.access_restriction_details` without attempting to bypass.
+- **`SourceMonitoringService` (`backend/app/modules/sources/service.py`)**: Orchestrates runs, handles SHA-256 deduplication, records candidates into `source_discoveries`, and provides `approve_and_ingest_discovery()` and `reject_discovery()` review queue operations.
+- **Admin Review Queue**: Accessible via `GET /api/v1/sources/discoveries` and the Next.js Admin UI, allowing compliance officers to review candidates, inspect WAF alerts, and approve or reject discovered items.

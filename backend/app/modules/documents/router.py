@@ -2,6 +2,7 @@ from datetime import date
 from io import BytesIO
 from typing import List, Optional
 from uuid import UUID
+import fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
@@ -10,11 +11,15 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.core.storage import storage_service
 from backend.app.database.session import get_async_db
+from backend.app.modules.identity.deps import get_current_user
+from backend.app.modules.identity.models import User
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.documents.schemas import DocumentPageRead, DocumentRead, DocumentUploadResponse, DocumentVersionRead
 from backend.app.modules.documents.service import document_ingestion_service
 
 router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
+
+MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -29,14 +34,17 @@ async def upload_document(
     document_type: str = Form("CIRCULAR"),
     effective_date: Optional[date] = Form(None),
     source_url: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Direct document dropzone and manual submission endpoint:
-    Accepts an official regulatory PDF, computes SHA-256 hash,
-    stores in immutable storage, extracts page-by-page, and updates catalog.
+    Requires authentication.
+    Validates PDF magic bytes, enforces 50MB file size limit,
+    computes SHA-256 hash, stores in immutable storage,
+    extracts page-by-page, and updates catalog.
     """
-    if not file.filename.lower().endswith(".pdf"):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only PDF documents are supported for regulatory ingestion."
@@ -47,6 +55,35 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty file uploaded."
+        )
+
+    if len(content) > MAX_DOCUMENT_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed size of {MAX_DOCUMENT_SIZE_BYTES // (1024*1024)}MB."
+        )
+
+    # Magic bytes check: PDF header must begin with %PDF-
+    if not content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file format: file does not have a valid PDF header signature."
+        )
+
+    # Verify structural integrity of PDF
+    try:
+        test_doc = fitz.open(stream=content, filetype="pdf")
+        if len(test_doc) == 0:
+            test_doc.close()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Malformed PDF: document contains 0 pages."
+            )
+        test_doc.close()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Malformed or corrupt PDF document: {str(e)}"
         )
 
     doc, version, page_count = await document_ingestion_service.ingest_document(
@@ -144,6 +181,7 @@ async def stream_document_pdf(
     """
     Streams the original immutable PDF file directly from storage
     to power side-by-side verification and in-browser reading.
+    Public regulatory circulars are publicly accessible, but protected by existence checks.
     """
     if version_id:
         version = await db.get(DocumentVersion, version_id)
