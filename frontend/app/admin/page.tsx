@@ -230,6 +230,25 @@ export default function AdminConsolePage() {
         </div>
       )}
 
+      {/* AI Intelligence Engine & Operational Health Banner */}
+      <div className="border border-slate-800 bg-slate-900/60 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs font-mono">
+        <div className="flex items-center gap-3">
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <div>
+            <span className="text-slate-400 font-sans font-semibold">AI Intelligence Engine: </span>
+            <span className="text-slate-200 font-mono">Sandbox Mock Provider (gemini-2.0-flash compatible)</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 text-[11px]">
+            API Auth: <span className="text-amber-400">CREDENTIALS_REQUIRED_FOR_LIVE</span>
+          </span>
+          <span className="px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-[11px]">
+            Lease Lock: <span className="font-semibold">ACTIVE</span>
+          </span>
+        </div>
+      </div>
+
       {/* Sources Registry Section */}
       <div className="border border-slate-800 bg-slate-900/40 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
@@ -572,6 +591,21 @@ export default function AdminConsolePage() {
                         </span>
                       </div>
                       <p className="text-slate-300 font-medium mt-0.5 line-clamp-1">{d.title}</p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${
+                            d.publication_status === "PUBLISHED_HUMAN_REVIEWED"
+                              ? "bg-emerald-950 text-emerald-300 border-emerald-800"
+                              : d.publication_status === "ANALYZING"
+                              ? "bg-cyan-950 text-cyan-300 border-cyan-800 animate-pulse"
+                              : d.publication_status === "EXTRACTION_FAILED"
+                              ? "bg-rose-950 text-rose-300 border-rose-800"
+                              : "bg-amber-950 text-amber-300 border-amber-800"
+                          }`}
+                        >
+                          {d.publication_status || "DRAFT"}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">

@@ -39,14 +39,39 @@ SECURITY & ADVERSARIAL DEFENSE RULES:
 """
 
 
+INJECTION_REGEX = re.compile(
+    r"(ignore\s+(all\s+)?(previous|prior)\s+(instructions|prompts|commands)|"
+    r"system\s+(override|prompt|command|directive)|"
+    r"(disclose|reveal|output|leak|dump|print)\s+(all\s+)?(secrets|credentials|passwords|env|tokens|keys|database)|"
+    r"you\s+are\s+now\s+in\s+developer\s+mode|"
+    r"dan\s+mode|jailbreak|bypass\s+safety|"
+    r"pretend\s+you\s+are|roleplay\s+as\s+unrestricted|"
+    r"act\s+as\s+an\s+unrestricted|forget\s+all\s+previous)",
+    re.IGNORECASE
+)
+
+SENSITIVE_SECRET_PATTERNS = [
+    re.compile(r"dev-secret-key-[a-zA-Z0-9_\-]+"),
+    re.compile(r"AIzaSy[a-zA-Z0-9_\-]{33}"),
+    re.compile(r"sk-[a-zA-Z0-9_\-]{20,}"),
+    re.compile(r"Bearer\s+[a-zA-Z0-9\._\-]{20,}"),
+    re.compile(r"\$2[aby]\$[0-9]{2}\$[a-zA-Z0-9\./]{53}")
+]
+
+
 def sanitize_prompt_injection(text: str) -> str:
-    """Neutralizes delimiter breakouts and prompt injection artifacts."""
+    """Neutralizes delimiter breakouts and prompt injection artifacts across XML, markdown, and meta-tokens."""
     if not text:
         return ""
-    sanitized = text.replace("</regulatory_corpus>", "&lt;/regulatory_corpus&gt;")
-    sanitized = sanitized.replace("<regulatory_corpus>", "&lt;regulatory_corpus&gt;")
-    sanitized = sanitized.replace("</system>", "&lt;/system&gt;")
-    sanitized = sanitized.replace("<system>", "&lt;system&gt;")
+    sanitized = text
+    for tag in ["regulatory_corpus", "system", "instruction", "prompt", "context", "role"]:
+        sanitized = sanitized.replace(f"<{tag}>", f"&lt;{tag}&gt;")
+        sanitized = sanitized.replace(f"</{tag}>", f"&lt;/{tag}&gt;")
+    sanitized = sanitized.replace("[SYSTEM]", "&#91;SYSTEM&#93;")
+    sanitized = sanitized.replace("[/SYSTEM]", "&#91;/SYSTEM&#93;")
+    sanitized = sanitized.replace("<<SYS>>", "&lt;&lt;SYS&gt;&gt;")
+    sanitized = sanitized.replace("<</SYS>>", "&lt;&lt;/SYS&gt;&gt;")
+    sanitized = sanitized.replace("```", "'''")
     return sanitized
 
 
@@ -60,7 +85,18 @@ class ResearchService:
     ) -> ResearchQueryResponse:
         """
         Executes a grounded source search and generates an evidentiary answer.
+        Includes layered defenses against direct/indirect prompt injection and credential leaks.
         """
+        # Layer 1: Prompt Injection Guard
+        if INJECTION_REGEX.search(query):
+            return ResearchQueryResponse(
+                query=query,
+                answer="I could not verify this from the available regulatory documents.",
+                is_grounded=False,
+                citations=[],
+                caveats=["Security Guard: Adversarial instruction or out-of-scope query pattern detected. Execution declined."]
+            )
+
         # Step 1: Retrieve candidate documents and pages
         doc_stmt = select(Document).options(selectinload(Document.versions))
         if document_id:
@@ -159,6 +195,12 @@ Provide a grounded regulatory answer citing exact pages and references."""
             )
         else:
             answer_text = llm_resp.raw_content or "I could not verify this from the available regulatory documents."
+
+        # Layer 4: Sensitive Data Filtering
+        for sec_pattern in SENSITIVE_SECRET_PATTERNS:
+            if sec_pattern.search(answer_text):
+                logger.critical("Sensitive credential pattern detected in research assistant output! Redacting.")
+                answer_text = sec_pattern.sub("[REDACTED_CREDENTIAL]", answer_text)
 
         return ResearchQueryResponse(
             query=query,

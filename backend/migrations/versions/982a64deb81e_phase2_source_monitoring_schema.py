@@ -21,10 +21,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    insp = sa.inspect(bind)
+    try:
+        insp = sa.inspect(bind)
+        get_cols = lambda t: {c["name"] for c in insp.get_columns(t)} if insp.has_table(t) else set()
+    except Exception:
+        get_cols = lambda t: set()
 
     # 1. source_discoveries
-    existing_disc = {c["name"] for c in insp.get_columns("source_discoveries")} if insp.has_table("source_discoveries") else set()
+    existing_disc = get_cols("source_discoveries")
     with op.batch_alter_table('source_discoveries', schema=None) as batch_op:
         if 'document_id' not in existing_disc:
             batch_op.add_column(sa.Column('document_id', backend.app.database.base.GUID(), nullable=True))
@@ -42,7 +46,7 @@ def upgrade() -> None:
             batch_op.add_column(sa.Column('rejection_reason', sa.Text(), nullable=True))
 
     # 2. source_runs
-    existing_runs = {c["name"] for c in insp.get_columns("source_runs")} if insp.has_table("source_runs") else set()
+    existing_runs = get_cols("source_runs")
     with op.batch_alter_table('source_runs', schema=None) as batch_op:
         if 'pages_inspected' not in existing_runs:
             batch_op.add_column(sa.Column('pages_inspected', sa.Integer(), server_default='0', nullable=False))
@@ -64,7 +68,7 @@ def upgrade() -> None:
             batch_op.add_column(sa.Column('retry_count', sa.Integer(), server_default='0', nullable=False))
 
     # 3. sources
-    existing_sources = {c["name"] for c in insp.get_columns("sources")} if insp.has_table("sources") else set()
+    existing_sources = get_cols("sources")
     with op.batch_alter_table('sources', schema=None) as batch_op:
         if 'department_id' not in existing_sources:
             batch_op.add_column(sa.Column('department_id', backend.app.database.base.GUID(), nullable=True))
@@ -86,8 +90,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table('sources', schema=None) as batch_op:
-        batch_op.drop_constraint('fk_sources_department_id', type_='foreignkey')
-        batch_op.drop_index(batch_op.f('ix_sources_department_id'))
         batch_op.drop_column('access_restriction_status')
         batch_op.drop_column('last_error')
         batch_op.drop_column('last_discovered_publication_at')
@@ -109,8 +111,6 @@ def downgrade() -> None:
         batch_op.drop_column('pages_inspected')
 
     with op.batch_alter_table('source_discoveries', schema=None) as batch_op:
-        batch_op.drop_constraint('fk_source_discoveries_document_id', type_='foreignkey')
-        batch_op.drop_index(batch_op.f('ix_source_discoveries_document_id'))
         batch_op.drop_column('rejection_reason')
         batch_op.drop_column('publication_date')
         batch_op.drop_column('reference_number')

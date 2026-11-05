@@ -53,3 +53,17 @@ class ClaimCitation(Base):
 
     claim = relationship("AnalysisClaim", back_populates="citations")
     page = relationship("DocumentPage")
+
+
+class AnalysisLease(Base):
+    __tablename__ = "analysis_leases"
+
+    document_id = Column(GUID(), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    owner_worker_id = Column(String(128), nullable=False)
+    lease_token = Column(String(64), nullable=False)
+    acquired_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    heartbeat_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String(32), default="ACTIVE", nullable=False)  # ACTIVE, RELEASED, EXPIRED, FAILED
+
+    document = relationship("Document")

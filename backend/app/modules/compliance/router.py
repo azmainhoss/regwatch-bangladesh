@@ -50,6 +50,12 @@ async def create_register(
     membership: OrganizationMember = Depends(get_org_membership),
     db: AsyncSession = Depends(get_async_db)
 ):
+    if membership.role not in ["ORG_ADMIN", "COMPLIANCE_HEAD"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: Only Organization Admins or Compliance Heads can create compliance registers."
+        )
+
     register = ComplianceRegister(
         organization_id=organization_id,
         title=payload.title,
@@ -87,6 +93,12 @@ async def create_compliance_item(
     membership: OrganizationMember = Depends(get_org_membership),
     db: AsyncSession = Depends(get_async_db)
 ):
+    if membership.role not in ["ORG_ADMIN", "COMPLIANCE_HEAD", "COMPLIANCE_OFFICER"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: Only Compliance Officers, Heads, or Admins can create compliance items."
+        )
+
     # Verify register belongs to this organization
     register = await db.get(ComplianceRegister, payload.register_id)
     if not register or register.organization_id != organization_id:
@@ -137,6 +149,12 @@ async def create_task(
     membership: OrganizationMember = Depends(get_org_membership),
     db: AsyncSession = Depends(get_async_db)
 ):
+    if membership.role not in ["ORG_ADMIN", "COMPLIANCE_HEAD", "COMPLIANCE_OFFICER", "DEPARTMENT_LEAD"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: Only Department Leads, Compliance Officers, or Admins can assign tasks."
+        )
+
     item = await db.get(ComplianceItem, payload.compliance_item_id)
     if not item or item.organization_id != organization_id:
         raise HTTPException(status_code=400, detail="Compliance item does not belong to this organization.")
@@ -205,6 +223,15 @@ async def submit_task_evidence(
     task = await db.get(ComplianceTask, task_id)
     if not task or task.organization_id != organization_id:
         raise HTTPException(status_code=404, detail="Task not found in this organization.")
+
+    if (
+        membership.role not in ["ORG_ADMIN", "COMPLIANCE_HEAD", "COMPLIANCE_OFFICER", "DEPARTMENT_LEAD"]
+        and task.assigned_to_user_id != current_user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: Only the assigned user, department leads, or compliance officers can submit evidence."
+        )
 
     content = await file.read()
     if len(content) == 0:

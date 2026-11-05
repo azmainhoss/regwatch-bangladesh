@@ -102,19 +102,68 @@ class EvaluationCorpusRegistry:
             except Exception:
                 p_count = 0
 
+            dept = "UNKNOWN"
+            circ_no = None
+            pub_date = None
+            doc_title = p.stem.replace("_", " ").title()
+            source_url = "https://www.bb.org.bd"
+
+            if "smespd" in p.name.lower():
+                dept = "SMESPD"
+                circ_no = "SMESPD Circular No. 05"
+                pub_date = "2026-09-13"
+                doc_title = "উদ্যোগ (UDYOG): উপজেলাভিত্তিক তরুণ উদ্যোক্তা অনুসন্ধান, চিহ্নিতকরণ ও অর্থায়ন কর্মসূচি সংক্রান্ত নীতিমালা"
+            elif "brpd" in p.name.lower():
+                dept = "BRPD"
+                circ_no = "BRPD Circular No. 15"
+                pub_date = "2024-10-20"
+                doc_title = "Master Circular on Loan Classification and Provisioning"
+
             prov = DocumentProvenance(
                 filename=p.name,
                 provenance_type="GENUINE_REGULATORY_DOCUMENT",
                 authority="Bangladesh Bank",
-                department="UNKNOWN",
-                title=p.stem.replace("_", " ").title(),
+                department=dept,
+                circular_number=circ_no,
+                publication_date=pub_date,
+                title=doc_title,
                 page_count=p_count,
                 file_sha256=file_sha,
+                source_url=source_url,
                 acquisition_method="MANUAL_DEPOSIT",
                 manual_verification_level="UNVERIFIED",
-                known_limitations="Awaiting human ground-truth labeling."
+                known_limitations="Awaiting certified human ground-truth labeling."
             )
             self._registry[p.name] = DocumentGroundTruth(provenance=prov)
+
+    def set_ground_truth_page(self, filename: str, page_number: int, text: str) -> None:
+        """Stores certified human-transcribed ground truth text for a specific page."""
+        gt = self._registry.get(filename)
+        if not gt:
+            raise ValueError(f"Document {filename} not registered.")
+        gt.ground_truth_pages[page_number] = text
+
+    def add_ground_truth_clause(self, filename: str, clause: GroundTruthClause) -> None:
+        """Appends a human-verified clause to the ground truth annotations."""
+        gt = self._registry.get(filename)
+        if not gt:
+            raise ValueError(f"Document {filename} not registered.")
+        gt.ground_truth_clauses.append(clause)
+
+    def add_ground_truth_table(self, filename: str, table: GroundTruthTable) -> None:
+        """Appends a human-verified table to the ground truth annotations."""
+        gt = self._registry.get(filename)
+        if not gt:
+            raise ValueError(f"Document {filename} not registered.")
+        gt.ground_truth_tables.append(table)
+
+    def certify_ground_truth(self, filename: str, reviewer: str, level: str = "GOLD_HUMAN_VERIFIED") -> None:
+        """Promotes ground-truth status after formal human compliance review."""
+        gt = self._registry.get(filename)
+        if not gt:
+            raise ValueError(f"Document {filename} not registered.")
+        gt.provenance.manual_verification_level = level
+        gt.provenance.known_limitations = f"Certified by reviewer: {reviewer}"
 
     def register_genuine_document(
         self,

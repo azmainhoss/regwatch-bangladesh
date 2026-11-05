@@ -27,6 +27,18 @@ from backend.app.modules.relationships.models import DocumentRelationship
 router = APIRouter(prefix="/documents", tags=["AI Intelligence & Analysis"])
 
 
+@router.get("/provider-status")
+async def get_provider_status(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Returns the active AI provider, model identifier, and configuration health.
+    Accessible to authenticated operators/administrators.
+    """
+    from backend.app.modules.analysis.providers.factory import get_active_provider_info
+    return get_active_provider_info()
+
+
 @router.post("/{document_id}/analyze", response_model=DocumentAnalysisRead, status_code=status.HTTP_200_OK)
 async def analyze_document(
     document_id: UUID,

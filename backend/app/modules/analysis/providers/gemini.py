@@ -39,8 +39,11 @@ class GeminiAIProvider(BaseAIProvider):
                 error="GEMINI_API_KEY is not configured in environment or settings."
             )
 
-        endpoint = f"{self.BASE_URL}/{self.model_name}:generateContent?key={self.api_key}"
-        headers = {"Content-Type": "application/json"}
+        endpoint = f"{self.BASE_URL}/{self.model_name}:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
+        }
 
         # Construct Gemini API payload
         payload = {

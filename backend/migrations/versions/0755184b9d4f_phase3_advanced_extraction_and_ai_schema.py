@@ -19,9 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    insp = sa.inspect(bind)
+    try:
+        insp = sa.inspect(bind)
+        get_cols = lambda t: {c["name"] for c in insp.get_columns(t)} if insp.has_table(t) else set()
+        has_table = insp.has_table
+    except Exception:
+        get_cols = lambda t: set()
+        has_table = lambda t: False
 
-    existing_analyses = {c["name"] for c in insp.get_columns("document_analyses")} if insp.has_table("document_analyses") else set()
+    existing_analyses = get_cols("document_analyses")
     with op.batch_alter_table('document_analyses', schema=None) as batch_op:
         if 'raw_model_response' not in existing_analyses:
             batch_op.add_column(sa.Column('raw_model_response', sa.Text(), nullable=True))
@@ -42,7 +48,7 @@ def upgrade() -> None:
         if 'review_notes' not in existing_analyses:
             batch_op.add_column(sa.Column('review_notes', sa.Text(), nullable=True))
 
-    existing_pages = {c["name"] for c in insp.get_columns("document_pages")} if insp.has_table("document_pages") else set()
+    existing_pages = get_cols("document_pages")
     with op.batch_alter_table('document_pages', schema=None) as batch_op:
         if 'quality_status' not in existing_pages:
             batch_op.add_column(sa.Column('quality_status', sa.String(length=32), nullable=False, server_default='SUCCESS_NATIVE'))
@@ -59,8 +65,68 @@ def upgrade() -> None:
         if 'is_human_corrected' not in existing_pages:
             batch_op.add_column(sa.Column('is_human_corrected', sa.Boolean(), nullable=False, server_default='0'))
 
+    # 3. Create analysis_claims table
+    if not has_table('analysis_claims'):
+        op.create_table(
+            'analysis_claims',
+            sa.Column('id', backend.app.database.base.GUID(), primary_key=True),
+            sa.Column('analysis_id', backend.app.database.base.GUID(), sa.ForeignKey('document_analyses.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('claim_type', sa.String(length=64), nullable=False),
+            sa.Column('statement', sa.Text(), nullable=False),
+            sa.Column('verification_status', sa.String(length=32), nullable=False, server_default='VERIFIED'),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        )
+        op.create_index('ix_analysis_claims_analysis_id', 'analysis_claims', ['analysis_id'])
+
+    # 4. Create claim_citations table
+    if not has_table('claim_citations'):
+        op.create_table(
+            'claim_citations',
+            sa.Column('id', backend.app.database.base.GUID(), primary_key=True),
+            sa.Column('claim_id', backend.app.database.base.GUID(), sa.ForeignKey('analysis_claims.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('page_id', backend.app.database.base.GUID(), sa.ForeignKey('document_pages.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('quoted_text', sa.Text(), nullable=False),
+            sa.Column('match_score', sa.Float(), nullable=False, server_default='1.0'),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        )
+        op.create_index('ix_claim_citations_claim_id', 'claim_citations', ['claim_id'])
+        op.create_index('ix_claim_citations_page_id', 'claim_citations', ['page_id'])
+
+    # 5. Create analysis_leases table for distributed lease locking
+    if not has_table('analysis_leases'):
+        op.create_table(
+            'analysis_leases',
+            sa.Column('document_id', backend.app.database.base.GUID(), sa.ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True),
+            sa.Column('owner_worker_id', sa.String(length=128), nullable=False),
+            sa.Column('lease_token', sa.String(length=64), nullable=False),
+            sa.Column('acquired_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('heartbeat_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('status', sa.String(length=32), nullable=False, server_default='ACTIVE'),
+            sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+            sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        )
+
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    try:
+        insp = sa.inspect(bind)
+        has_table = insp.has_table
+    except Exception:
+        has_table = lambda t: True
+
+    if has_table('analysis_leases'):
+        op.drop_table('analysis_leases')
+
+    if has_table('claim_citations'):
+        op.drop_table('claim_citations')
+
+    if has_table('analysis_claims'):
+        op.drop_table('analysis_claims')
+
     with op.batch_alter_table('document_pages', schema=None) as batch_op:
         batch_op.drop_column('is_human_corrected')
         batch_op.drop_column('human_corrected_text')
@@ -71,7 +137,6 @@ def downgrade() -> None:
         batch_op.drop_column('quality_status')
 
     with op.batch_alter_table('document_analyses', schema=None) as batch_op:
-        batch_op.drop_constraint('fk_document_analyses_reviewed_by_users', type_='foreignkey')
         batch_op.drop_column('review_notes')
         batch_op.drop_column('reviewed_at')
         batch_op.drop_column('reviewed_by')

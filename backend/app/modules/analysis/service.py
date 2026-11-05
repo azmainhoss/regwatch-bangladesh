@@ -1,11 +1,13 @@
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.logging import logger
+from backend.app.modules.analysis.leases import AnalysisLeaseManager
 from backend.app.modules.analysis.models import AnalysisClaim, ClaimCitation, DocumentAnalysis
 from backend.app.modules.analysis.pipeline import RegulatoryIntelligencePipeline, PipelineExecutionResult
 from backend.app.modules.analysis.providers.factory import get_ai_provider
@@ -45,17 +47,20 @@ class AnalysisService:
         if not version or not version.pages:
             raise ValueError("Document version or its pages are missing.")
 
-        # Concurrency / Idempotency check: prevent duplicate processing
-        if doc.publication_status == "ANALYZING":
-            now = datetime.now(timezone.utc)
-            updated_at = doc.updated_at
-            if updated_at and updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
-            if updated_at and (now - updated_at).total_seconds() < 300:
-                raise ValueError("Document analysis is already in progress. Duplicate execution prevented.")
-            logger.warning(f"Document {doc.id} was stuck in ANALYZING; recovering and restarting pipeline.")
+        # Check for active concurrent processing (prevent duplicate pipeline runs)
+        now = datetime.now(timezone.utc)
+        updated_at = doc.updated_at
+        if updated_at and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
 
+        if doc.publication_status == "ANALYZING" and updated_at and (now - updated_at).total_seconds() < 300:
+            raise ValueError(f"Document analysis already in progress (started at {updated_at}).")
+
+        # Acquire durable database-backed lease across all workers/processes
+        worker_id = f"worker-{os.getpid()}-{uuid4().hex[:6]}"
+        lease_token = await AnalysisLeaseManager.acquire_lease(db, doc.id, worker_id)
         doc.publication_status = "ANALYZING"
+        doc.updated_at = now
         await db.commit()
 
         # Clean up any previous analysis artifacts for this version
@@ -87,6 +92,7 @@ class AnalysisService:
 
         if not result.success:
             doc.publication_status = "EXTRACTION_FAILED"
+            await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="FAILED")
             await db.commit()
             raise RuntimeError(f"AI analysis pipeline failed: {result.error}")
 
@@ -206,8 +212,9 @@ class AnalysisService:
             )
             db.add(citation)
 
-        # Update Document publication status
+        # Update Document publication status and release durable lease
         doc.publication_status = result.publication_status
+        await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="RELEASED")
         await db.commit()
         await db.refresh(analysis)
 

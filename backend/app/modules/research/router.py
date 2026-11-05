@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_async_db
+from backend.app.modules.identity.deps import get_current_user
+from backend.app.modules.identity.models import User
 from backend.app.modules.research.service import ResearchQueryResponse, ResearchService
 
 router = APIRouter(prefix="/research", tags=["Regulatory Research Assistant"])
@@ -19,6 +21,7 @@ class ResearchQueryRequest(BaseModel):
 @router.post("/query", response_model=ResearchQueryResponse)
 async def query_regulatory_assistant(
     payload: ResearchQueryRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """

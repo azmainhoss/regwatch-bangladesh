@@ -51,13 +51,21 @@ class ExtractionBenchmarkMetrics(BaseModel):
     document_filename: str
     provenance_type: str
     page_completeness_ratio: float
+    character_error_rate: Optional[float] = None
     text_accuracy_score: Optional[float] = None
     bengali_ocr_accuracy: Optional[float] = None
     english_ocr_accuracy: Optional[float] = None
+    clause_precision: Optional[float] = None
+    clause_recall: Optional[float] = None
     clause_number_recognition_rate: Optional[float] = None
     clause_hierarchy_accuracy: Optional[float] = None
     table_cell_accuracy: Optional[float] = None
     financial_figure_accuracy: Optional[float] = None
     date_reference_accuracy: Optional[float] = None
+    obligation_precision: Optional[float] = None
+    obligation_recall: Optional[float] = None
+    citation_page_accuracy: Optional[float] = None
+    relationship_precision: Optional[float] = None
+    relationship_recall: Optional[float] = None
     status: str = "MEASURED"  # MEASURED, NOT_YET_ESTABLISHED
     status_reason: Optional[str] = None
