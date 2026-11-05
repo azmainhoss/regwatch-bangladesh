@@ -1,0 +1,51 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+# Install system dependencies including Tesseract, Poppler, and Bengali OCR support
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    libpq-dev \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-ben \
+    tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml* setup.py* requirements.txt* ./
+
+# Install python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    sqlalchemy[asyncio] \
+    alembic \
+    pydantic \
+    pydantic-settings \
+    email-validator \
+    python-multipart \
+    psycopg2-binary \
+    asyncpg \
+    pymupdf \
+    pdfplumber \
+    pytesseract \
+    pillow \
+    bijoy2unicode \
+    reportlab \
+    bcrypt \
+    pyjwt \
+    greenlet \
+    httpx
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
