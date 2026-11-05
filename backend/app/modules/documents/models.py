@@ -61,11 +61,18 @@ class DocumentPage(Base):
     page_number = Column(Integer, nullable=False, index=True)
     raw_text = Column(Text, nullable=False)
     cleaned_text = Column(Text, nullable=True)
-    extraction_method = Column(String(32), default="PYMUPDF_NATIVE", nullable=False)  # PYMUPDF_NATIVE, OCR_TESSERACT, BIJOY_UNICODE_CONVERTED
+    extraction_method = Column(String(32), default="PYMUPDF_NATIVE", nullable=False)  # PYMUPDF_NATIVE, OCR_TESSERACT, BIJOY_UNICODE_CONVERTED, HUMAN_CORRECTED
     ocr_confidence = Column(Float, nullable=True)
     has_tables = Column(Boolean, default=False, nullable=False)
     extracted_tables = Column(JSON, default=list, nullable=False)
     page_image_path = Column(String(512), nullable=True)
+    quality_status = Column(String(32), default="SUCCESS_NATIVE", nullable=False)
+    quality_score = Column(Float, default=1.0, nullable=False)
+    layout_hierarchy = Column(JSON, default=dict, nullable=False)
+    native_text = Column(Text, nullable=True)
+    ocr_text = Column(Text, nullable=True)
+    human_corrected_text = Column(Text, nullable=True)
+    is_human_corrected = Column(Boolean, default=False, nullable=False)
 
     version = relationship("DocumentVersion", back_populates="pages")
     provisions = relationship("Provision", back_populates="page")

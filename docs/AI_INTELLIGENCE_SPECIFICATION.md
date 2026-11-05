@@ -1,66 +1,78 @@
 # AI Intelligence Specification
-## Multi-Stage Regulatory Intelligence Engine
+## Multi-Stage Regulatory Intelligence Engine & Citation Grounding
 
 ### 1. Design Principles
 1. **Multi-Stage Processing:** We deliberately avoid "single mega-prompts". Breaking analysis into discrete stages guarantees schema compliance, prevents context exhaustion, and enables independent auditing of each inference step.
-2. **Provider Agnostic:** The engine abstracts LLM calls through a unified `BaseAIProvider` interface. Implementations support Google Gemini, OpenAI, Anthropic, or Local/Mock models for testing.
+2. **Provider Agnostic Architecture (`BaseAIProvider`):** The engine abstracts LLM calls through a unified provider interface. Implementations support Google Gemini (`GeminiAIProvider`), OpenAI, Anthropic, or deterministic local models (`MockAIProvider`) for testing.
 3. **Structured Outputs:** All stages output strictly validated Pydantic models. Unstructured free-form answers are rejected.
-4. **Citation Validation Guardrail:** Any extracted obligation or relationship claim MUST include an exact string quotation and page reference. A deterministic citation validator verifies that the quotation exists on the claimed page of `document_pages`. If the excerpt cannot be verified, the claim is flagged with `CITATION_UNVERIFIED`.
+4. **Mandatory Deterministic Citation Validation:** Any extracted obligation or relationship claim MUST include an exact string quotation and page reference. `CitationValidator` deterministically verifies that the quotation exists on the claimed page of `document_pages`. If the excerpt cannot be verified, the claim is flagged with `UNVERIFIED` and publication is withheld.
+5. **Prompt Injection Defense:** Untrusted document text is enclosed inside inert `<regulatory_document_content>` delimiters with system-level instruction boundaries prohibiting command execution.
 
 ---
 
-### 2. The 7 Processing Stages
+### 2. Multi-Stage Pipeline Stages (Stages 1 - 10)
 
-#### Stage 1: Document Classification & Metadata Verification
-- **Input:** First 2 pages and last page of the document.
-- **Output:** Institution, department, reference number, publication date, effective date, document type (Circular, Circular Letter, Guideline), primary language (bn, en, mixed).
+#### Stage 1: Document Classification & Metadata Extraction
+- **Input:** Document pages.
+- **Output:** Category (Circular, Circular Letter, Guideline, Notification, Policy, Directive, Instruction, Notice, Order), institution, department, reference number, publication date, language, regulatory topic.
 
 #### Stage 2: Executive Summary & Context
-- **Input:** Full document text (cleaned).
 - **Output:**
-  - Executive summary (2-3 paragraphs).
+  - Executive summary (concise overview).
   - Regulatory objective/purpose.
-  - Historical background.
+  - Historical background and statutory powers.
   - Core changes compared to existing regime.
-  - Affected operational domains (Credit, Capital Adequacy, FX, AML, IT).
+  - Affected stakeholders and operational domains.
 
-#### Stage 3: Provision Segmentation
-- **Input:** Page-by-page text.
-- **Output:** List of discrete provisions/clauses:
-  - Provision number (e.g., `Para 2(iv)`, `Section 4.1`).
+#### Stage 3: Provision and Clause Extraction
+- **Output:** Hierarchical clause tree:
+  - Provision number (e.g. `1.`, `1.1`, `1.2(a)`).
   - Heading.
   - Verbatim text.
   - Page number.
+  - Parent clause relationship.
 
-#### Stage 4: Obligation Extraction
-- **Input:** Extracted provisions.
+#### Stage 4: Regulatory Obligation Extraction
 - **Output:** Categorized obligations:
   - Obligation Type: `MANDATORY`, `CONDITIONAL`, `PROHIBITION`, `PERMISSION`, `RECOMMENDATION`, `REPORTING`, `RECORD_RETENTION`, `APPROVAL`, `DISCLOSURE`.
-  - Plain-English requirement description.
-  - Verbatim supporting text.
-  - Exact page number.
-  - Applicability criteria (e.g., "All Scheduled Commercial Banks", "Islamic Banks only", "AD Branches").
+  - Detailed requirement description.
+  - Verbatim supporting quotation.
+  - Page number and clause reference.
+  - Responsible entity (e.g. Scheduled Commercial Banks, NBFIs).
   - Explicit compliance deadline (or `NULL` if not specified).
-  - Inferred responsible department (e.g., "Treasury", "Risk Management Unit"). Marked clearly with `is_inferred: true`.
+  - Required evidence and statutory sanctions.
 
-#### Stage 5: Regulatory Relationship Discovery
-- **Input:** Document title, reference number, text passages containing keywords (`amends`, `supersedes`, `repeals`, `in continuation of`, `in supersession of`, `clarification of`, `cites`).
-- **Output:**
-  - Relationship Type: `AMENDS`, `REPEALS`, `SUPERSEDES`, `REPLACES`, `CLARIFIES`, `REFERENCES`, `IMPLEMENTS`.
-  - Target reference string (e.g., `BRPD Circular No. 04 dated 18 February 2024`).
-  - Supporting excerpt from document.
-  - Source page number.
-  - Confidence score.
+#### Stage 5: Applicability Analysis
+- **Output:** Covered institutions, universal vs specialized rules, explicit exemptions, conditional applicability rules.
 
-#### Stage 6: Impact Assessment
-- **Input:** Summary and obligations.
-- **Output:**
-  - Entity-level operational impact breakdown (Core Banking, Risk Rating, Liquidity ratios, Board governance).
-  - Financial impact classification (Direct capital charge, Provisioning cost, Operational expense, Neutral).
+#### Stage 6: Deadline and Effective-Date Extraction
+- **Output:** Publication date, effective date, compliance deadline, reporting frequency, trigger events.
 
-#### Stage 7: Deterministic Citation Validation
-- **Input:** Generated obligations, relationships, and raw `document_pages`.
+#### Stage 7: Regulatory Relationship Discovery
+- **Input:** Document text citing earlier circulars (`amends`, `supersedes`, `repeals`, `in continuation of`).
+- **Output:** Relationship type (`AMENDS`, `REPEALS`, `SUPERSEDES`, `REPLACES`, `CLARIFIES`, `REFERENCES`), target circular hint, verbatim supporting quote, page number, confidence.
+- **Strict Rule:** Never infer legal amendment from semantic similarity alone! Explicit citation language is strictly required.
+
+#### Stage 8: Business & Regulatory Impact Assessment
+- **Output:** Breakdown across Banking Operations, Credit, Compliance, Risk Management, Technology, and Governance.
+
+#### Stage 9: Deterministic Citation Validation
+- **Input:** All claims, provisions, obligations, and relationships against stored `document_pages`.
 - **Validation Rule:**
   $$\text{Coverage} = \frac{\sum \text{Verified Quotes}}{\text{Total Claims}}$$
-- Computes `citation_coverage_score` (0.0 to 1.0).
-- If coverage < 0.85, the document publication status is held in `AWAITING_REVIEW`.
+- Evaluates exact substring matching, whitespace-normalized matching, and high-confidence fuzzy matching (>= 0.92).
+- Flags any unlocated quote as `UNVERIFIED`.
+
+#### Stage 10: Consolidated Intelligence Record & Publication Check
+- Aggregates validated results, stores token usage, latency, and estimated cost.
+- Sets publication status: `PUBLISHED_MACHINE_PROCESSED` (if coverage >= 95% and zero unverified claims) or `AWAITING_REVIEW`.
+
+---
+
+### 3. Publication State Machine & Human Review Workflow
+- **`PROCESSING`**: Analysis in flight.
+- **`EXTRACTION_FAILED`**: Text extraction or OCR failed.
+- **`AWAITING_REVIEW`**: High-impact circular, amendment/repeal detected, or unverified claims present.
+- **`PUBLISHED_MACHINE_PROCESSED`**: Deterministically passed 100% citation coverage.
+- **`PUBLISHED_HUMAN_REVIEWED`**: Verified and approved by a compliance officer or regulatory research editor.
+- **`CORRECTED`**: Human corrections applied to page text or obligations.

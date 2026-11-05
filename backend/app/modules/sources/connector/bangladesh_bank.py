@@ -181,3 +181,4 @@ class BangladeshBankConnector(BaseSourceConnector):
                     status_code=0,
                     details=f"Network exception downloading file: {str(e)}"
                 )
+

@@ -13,6 +13,8 @@ from backend.app.modules.identity.router import router as auth_router
 from backend.app.modules.institutions.router import router as institutions_router
 from backend.app.modules.sources.router import router as sources_router
 from backend.app.modules.documents.router import router as documents_router
+from backend.app.modules.analysis.router import router as analysis_router
+from backend.app.modules.research.router import router as research_router
 from backend.app.modules.organizations.router import router as organizations_router
 from backend.app.modules.compliance.router import router as compliance_router
 
@@ -85,5 +87,7 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(institutions_router, prefix=settings.API_V1_STR)
 app.include_router(sources_router, prefix=settings.API_V1_STR)
 app.include_router(documents_router, prefix=settings.API_V1_STR)
+app.include_router(analysis_router, prefix=settings.API_V1_STR)
+app.include_router(research_router, prefix=settings.API_V1_STR)
 app.include_router(organizations_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_router, prefix=settings.API_V1_STR)

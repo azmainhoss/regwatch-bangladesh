@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 from backend.app.database.base import Base, GUID
 
@@ -16,9 +16,19 @@ class DocumentAnalysis(Base):
     prompt_version = Column(String(32), nullable=False)
     structured_payload = Column(JSON, default=dict, nullable=False)
     citation_coverage_score = Column(Float, default=1.0, nullable=False)
+    raw_model_response = Column(Text, nullable=True)
+    validation_errors = Column(JSON, default=list, nullable=False)
+    tokens_used = Column(Integer, default=0, nullable=False)
+    estimated_cost_usd = Column(Float, default=0.0, nullable=False)
+    processing_time_ms = Column(Integer, default=0, nullable=False)
+    publication_decision = Column(String(32), default="AWAITING_REVIEW", nullable=False)  # AWAITING_REVIEW, APPROVED, REJECTED, NEEDS_REVISION
+    reviewed_by = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_notes = Column(Text, nullable=True)
 
     version = relationship("DocumentVersion", back_populates="analyses")
     claims = relationship("AnalysisClaim", back_populates="analysis", cascade="all, delete-orphan")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
 
 
 class AnalysisClaim(Base):

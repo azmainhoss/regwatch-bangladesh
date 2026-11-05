@@ -13,8 +13,18 @@ class DocumentPageRead(BaseModel):
     ocr_confidence: Optional[float] = None
     has_tables: bool
     extracted_tables: List[Any] = []
+    quality_status: str = "SUCCESS_NATIVE"
+    quality_score: float = 1.0
+    layout_hierarchy: Dict[str, Any] = {}
+    human_corrected_text: Optional[str] = None
+    is_human_corrected: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PageCorrectionRequest(BaseModel):
+    corrected_text: str
+    correction_notes: Optional[str] = None
 
 
 class DocumentVersionRead(BaseModel):

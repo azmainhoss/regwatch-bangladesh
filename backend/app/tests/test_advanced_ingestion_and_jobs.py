@@ -71,3 +71,4 @@ async def test_oversized_and_corrupt_pdf_rejection():
         resp_corrupt = await client.post("/api/v1/documents/upload", headers=headers, files=files_corrupt, data=data)
         assert resp_corrupt.status_code == 422
         assert "Malformed or corrupt PDF" in resp_corrupt.json()["detail"]
+

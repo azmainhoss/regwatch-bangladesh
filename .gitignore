@@ -45,6 +45,8 @@ storage/evidence/*
 data/*.db
 data/*.sqlite
 *.sqlite3
+data/tessdata/*.traineddata
+!data/tessdata/.gitkeep
 
 # Environment and secrets
 .env

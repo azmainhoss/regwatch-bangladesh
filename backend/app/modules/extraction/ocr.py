@@ -1,0 +1,145 @@
+import io
+import os
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+import fitz  # PyMuPDF
+from PIL import Image
+import pytesseract
+
+from backend.app.core.config import settings
+from backend.app.core.logging import logger
+
+
+class OCRManager:
+    def __init__(self):
+        self._initialized = False
+        self._available_languages: List[str] = []
+        self._setup_tesseract()
+
+    def _setup_tesseract(self) -> None:
+        # Check Tesseract binary
+        tess_bin = settings.TESSERACT_CMD
+        if Path(tess_bin).exists():
+            pytesseract.pytesseract.tesseract_cmd = tess_bin
+        elif Path("/usr/bin/tesseract").exists():
+            pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
+        # Check TESSDATA_PREFIX candidates
+        project_root = Path(__file__).resolve().parents[4]
+        candidate_tessdata = [
+            project_root / "data" / "tessdata",
+            Path(settings.TESSDATA_PREFIX) if settings.TESSDATA_PREFIX else None,
+            Path("/opt/homebrew/share/tessdata"),
+            Path("/usr/share/tesseract-ocr/5/tessdata"),
+            Path("/usr/share/tesseract-ocr/4.00/tessdata"),
+            Path("/usr/share/tessdata"),
+        ]
+
+        for p in candidate_tessdata:
+            if p and p.exists() and (p / "eng.traineddata").exists():
+                os.environ["TESSDATA_PREFIX"] = str(p)
+                logger.info(f"Tesseract tessdata directory configured at: {p}")
+                break
+
+        try:
+            self._available_languages = pytesseract.get_languages()
+            self._initialized = True
+            logger.info(f"Tesseract OCR initialized. Available languages: {self._available_languages}")
+        except Exception as e:
+            logger.warning(f"Tesseract initialization check encountered issue: {e}")
+            self._available_languages = ["eng"]
+
+    @property
+    def has_bengali_support(self) -> bool:
+        return "ben" in self._available_languages
+
+    @property
+    def has_english_support(self) -> bool:
+        return "eng" in self._available_languages
+
+    def select_ocr_language(self, hint: str = "auto") -> str:
+        """
+        Determines the optimal OCR language configuration.
+        hint: 'en', 'bn', 'mixed', or 'auto'
+        """
+        has_ben = self.has_bengali_support
+        has_eng = self.has_english_support
+
+        if hint == "bn" and has_ben:
+            return "ben"
+        if hint == "en" and has_eng:
+            return "eng"
+        if (hint == "mixed" or hint == "auto") and has_ben and has_eng:
+            return "ben+eng"
+        if has_eng:
+            return "eng"
+        if has_ben:
+            return "ben"
+        return settings.OCR_DEFAULT_LANG
+
+    def render_page_to_image(self, page: fitz.Page, dpi: int = 200) -> Image.Image:
+        """Renders a PyMuPDF PDF page into a PIL Image."""
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        return Image.open(io.BytesIO(pix.tobytes("png")))
+
+    def perform_page_ocr(
+        self,
+        page: fitz.Page,
+        language_hint: str = "auto",
+        dpi: int = 200
+    ) -> Dict[str, Any]:
+        """
+        Executes OCR on a single PDF page.
+        Returns:
+        {
+            "ocr_text": str,
+            "mean_confidence": float (0.0 to 1.0),
+            "word_confidences": List[float],
+            "language_used": str,
+            "success": bool,
+            "error": Optional[str]
+        }
+        """
+        lang = self.select_ocr_language(language_hint)
+        try:
+            img = self.render_page_to_image(page, dpi=dpi)
+
+            # Extract detailed word-level data to compute genuine confidence metrics
+            ocr_data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
+            confs = []
+            for c in ocr_data.get("conf", []):
+                try:
+                    c_float = float(c)
+                    if c_float >= 0:
+                        confs.append(c_float / 100.0)  # scale 0..1
+                except (ValueError, TypeError):
+                    continue
+
+            mean_conf = float(sum(confs) / len(confs)) if confs else 0.0
+
+            # Extract full text
+            ocr_text = pytesseract.image_to_string(img, lang=lang).strip()
+
+            return {
+                "ocr_text": ocr_text,
+                "mean_confidence": round(mean_conf, 4),
+                "word_confidences": confs,
+                "language_used": lang,
+                "success": True,
+                "error": None
+            }
+        except Exception as err:
+            logger.error(f"OCR failed for page {page.number + 1}: {err}")
+            return {
+                "ocr_text": "",
+                "mean_confidence": 0.0,
+                "word_confidences": [],
+                "language_used": lang,
+                "success": False,
+                "error": str(err)
+            }
+
+
+ocr_manager = OCRManager()

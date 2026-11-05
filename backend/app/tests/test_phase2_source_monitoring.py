@@ -169,3 +169,4 @@ async def test_source_monitoring_run_with_mocked_network():
         assert toggle_resp.status_code == 200
         assert toggle_resp.json()["is_active"] is False
         assert toggle_resp.json()["polling_frequency_minutes"] == 120
+

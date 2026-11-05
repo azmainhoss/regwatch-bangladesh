@@ -122,11 +122,18 @@ class DocumentIngestionService:
                 document_version_id=version.id,
                 page_number=p["page_number"],
                 raw_text=p["raw_text"],
+                native_text=p.get("native_text"),
+                ocr_text=p.get("ocr_text"),
                 cleaned_text=p["cleaned_text"],
                 extraction_method=p["extraction_method"],
                 ocr_confidence=p["ocr_confidence"],
                 has_tables=p["has_tables"],
-                extracted_tables=p["extracted_tables"]
+                extracted_tables=p["extracted_tables"],
+                quality_status=p.get("quality_status", "SUCCESS_NATIVE"),
+                quality_score=p.get("quality_score", 1.0),
+                layout_hierarchy=p.get("layout_hierarchy", {}),
+                human_corrected_text=None,
+                is_human_corrected=False
             )
             db.add(page_record)
 

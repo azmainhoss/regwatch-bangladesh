@@ -79,3 +79,4 @@ class BaseSourceConnector(ABC):
             )
 
         return None
+

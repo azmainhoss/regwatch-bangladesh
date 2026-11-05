@@ -232,3 +232,157 @@ export async function rejectDiscovery(discoveryId: string, reason: string): Prom
   }
   return res.json();
 }
+
+// Phase 3: AI Intelligence & Extraction Interfaces & APIs
+
+export interface ProvisionItem {
+  id: string;
+  page_id: string;
+  provision_number?: string;
+  heading?: string;
+  verbatim_text: string;
+  order_index: number;
+}
+
+export interface ObligationItem {
+  id: string;
+  page_id: string;
+  provision_id?: string;
+  obligation_type: string;
+  title: string;
+  requirement_description: string;
+  supporting_text: string;
+  applicability_summary: string;
+  explicit_deadline?: string;
+  frequency: string;
+  verification_status: string;
+}
+
+export interface RelationshipItem {
+  id: string;
+  source_document_id: string;
+  target_document_id?: string;
+  target_reference_hint?: string;
+  relationship_type: string;
+  supporting_quote: string;
+  confidence: number;
+  verification_status: string;
+}
+
+export interface DocumentAnalysisData {
+  id: string;
+  document_version_id: string;
+  executive_summary: string;
+  purpose?: string;
+  background?: string;
+  key_changes: string[];
+  impact_summary: Record<string, any>;
+  model_name: string;
+  prompt_version: string;
+  structured_payload: Record<string, any>;
+  citation_coverage_score: number;
+  tokens_used: number;
+  estimated_cost_usd: number;
+  processing_time_ms: number;
+  publication_decision: string;
+  reviewed_at?: string;
+  review_notes?: string;
+}
+
+export async function triggerDocumentAnalysis(documentId: string, provider: string = "mock"): Promise<DocumentAnalysisData> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analyze`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ provider }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to run AI analysis");
+  }
+  return res.json();
+}
+
+export async function fetchDocumentAnalysis(documentId: string): Promise<DocumentAnalysisData | null> {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analysis`, { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error("Failed to fetch document analysis");
+  return res.json();
+}
+
+export async function fetchDocumentProvisions(documentId: string): Promise<ProvisionItem[]> {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/provisions`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchDocumentObligations(documentId: string): Promise<ObligationItem[]> {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/obligations`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchDocumentRelationships(documentId: string): Promise<RelationshipItem[]> {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/relationships`, { cache: "no-store" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchDocumentExtractionReport(documentId: string, versionId: string): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/versions/${versionId}/report`, { cache: "no-store" });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function reviewDocumentAnalysis(
+  documentId: string,
+  decision: string,
+  reviewNotes?: string
+): Promise<any> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/publish`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ decision, review_notes: reviewNotes }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to submit review");
+  }
+  return res.json();
+}
+
+export async function submitPageCorrection(
+  documentId: string,
+  versionId: string,
+  pageNo: number,
+  correctedText: string,
+  notes?: string
+): Promise<any> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/versions/${versionId}/pages/${pageNo}/correct`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ corrected_text: correctedText, correction_notes: notes }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to submit correction");
+  }
+  return res.json();
+}
+
+export async function queryResearchAssistant(query: string, documentId?: string): Promise<{
+  query: string;
+  answer: string;
+  is_grounded: boolean;
+  citations: Array<{ document_title: string; reference_number?: string; page_number: number; verbatim_excerpt: string }>;
+}> {
+  const res = await fetch(`${API_BASE_URL}/research/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, document_id: documentId }),
+  });
+  if (!res.ok) throw new Error("Research query failed");
+  return res.json();
+}

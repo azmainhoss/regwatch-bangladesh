@@ -144,3 +144,4 @@ async def list_organization_members(
     )
     result = await db.execute(query)
     return result.scalars().all()
+

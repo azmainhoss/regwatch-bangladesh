@@ -63,3 +63,21 @@
 - **Context:** Bangladesh Bank protects its portal with Imperva WAF / TSPD JavaScript challenges. Scraping or bypassing CAPTCHAs violates ethical standards, terms of service, and system guidelines.
 - **Decision:** Detect Imperva TSPD signatures (`bobcmn`, "What code is in the image?", support ID extraction), Cloudflare challenges, and rate limits deterministically. Mark the run as `RESTRICTED`, log diagnostics without bypassing, and record discovered items into a `source_discoveries` review queue. Operators can review candidate links, approve and trigger automated ingestion, or upload files directly.
 - **Rationale:** Ensures complete legal and ethical compliance while providing operators with full visibility into source accessibility and candidate publications.
+
+---
+
+### ADR 008: Layout-Aware Clause Hierarchy & Dual Table Extraction
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** Central bank circulars present critical financial data (provisioning schedules, CAR ratios) in tables and structure obligations across nested numbered clauses (`1.`, `1.1`, `1.2(a)`). Flattening these into unformatted prose destroys regulatory meaning.
+- **Decision:** Implement `LayoutAwareExtractor` to preserve clause-subclause trees and `TableExtractor` with dual strategies: vector line grid extraction (pdfplumber) and ASCII text-aligned rule grid parsing.
+- **Rationale:** Preserves financial thresholds, percentages, and clause hierarchies for precise compliance mapping.
+
+---
+
+### ADR 009: Mandatory Deterministic Citation Validation
+- **Date:** 2026-11-05
+- **Status:** Accepted
+- **Context:** LLMs are prone to hallucinating or subtly misquoting regulatory text, creating catastrophic legal liability in banking compliance.
+- **Decision:** Make Stage 9 (Citation Validation) a non-negotiable deterministic gate. Every generated claim, provision, obligation, and relationship quotation is verified against the stored page text via exact, normalized, and high-confidence fuzzy matching. Any unverified quote blocks automated publication and flags the document for human review.
+- **Rationale:** Financial compliance cannot rely on self-reported LLM confidence; only cryptographic and verbatim page grounding guarantees evidentiary integrity.

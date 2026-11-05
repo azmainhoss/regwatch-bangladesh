@@ -59,3 +59,4 @@ async def test_storage_path_traversal_hard_block(tmp_path):
         storage.get_file_bytes("../../../etc/shadow")
     with pytest.raises(PermissionError):
         storage.get_file_bytes("/etc/passwd")
+
