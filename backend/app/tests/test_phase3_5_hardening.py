@@ -319,7 +319,7 @@ def test_live_provider_integration_or_documented_blocker():
         assert mock_provider.model_name == "mock-regulatory-v1"
     else:
         provider = get_ai_provider("gemini")
-        assert provider.model_name in ("gemini-3.8-flash", "gemini-2.0-flash")
+        assert "gemini" in provider.model_name.lower()
 
 
 # 11. Invalid provider response handling

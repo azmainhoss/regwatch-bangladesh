@@ -103,3 +103,4 @@ def test_factory_rejection_of_silent_fallback():
         with patch.object(settings, "GEMINI_API_KEY", None):
             with pytest.raises(ValueError, match="Silent fallback to mock is forbidden"):
                 get_ai_provider("gemini")
+
