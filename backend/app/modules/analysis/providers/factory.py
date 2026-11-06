@@ -20,7 +20,8 @@ def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
                 "Silent fallback to mock is forbidden in production/pilot. "
                 "Please configure GEMINI_API_KEY or set AI_PROVIDER='mock' explicitly for local testing."
             )
-        return GeminiAIProvider(model_name=settings.DEFAULT_AI_MODEL)
+        model = settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL
+        return GeminiAIProvider(model_name=model)
     
     if selected == "mock":
         return MockAIProvider()
@@ -32,12 +33,14 @@ def get_active_provider_info() -> dict:
     """Returns safe metadata regarding active AI provider for operator consoles."""
     selected = settings.AI_PROVIDER
     has_gemini_key = bool(settings.GEMINI_API_KEY)
+    active_model = (settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL) if selected == "gemini" else "mock-regulatory-v1"
     
     return {
         "configured_provider": selected,
-        "default_model": settings.DEFAULT_AI_MODEL,
+        "default_model": active_model,
         "gemini_api_key_configured": has_gemini_key,
         "status": "LIVE_VERIFIED" if (selected == "gemini" and has_gemini_key) else ("MOCK_SANDBOX" if selected == "mock" else "NOT_VERIFIED_MISSING_CREDENTIALS"),
         "timeout_seconds": settings.AI_TIMEOUT_SECONDS,
-        "max_retries": settings.AI_MAX_RETRIES
+        "max_retries": settings.AI_MAX_RETRIES,
+        "billing_policy": "ZERO_COST_FREE_TIER"
     }

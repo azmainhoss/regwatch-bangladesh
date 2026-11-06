@@ -17,7 +17,7 @@ class GeminiAIProvider(BaseAIProvider):
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def __init__(self, model_name: Optional[str] = None, api_key: Optional[str] = None):
-        model = model_name or settings.DEFAULT_AI_MODEL
+        model = model_name or settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL
         super().__init__(model_name=model)
         self.api_key = api_key or settings.GEMINI_API_KEY
 
@@ -36,7 +36,7 @@ class GeminiAIProvider(BaseAIProvider):
                 model_name=self.model_name,
                 latency_ms=0,
                 success=False,
-                error="GEMINI_API_KEY is not configured in environment or settings."
+                error="GEMINI_API_KEY is not configured in backend/.env or environment."
             )
 
         endpoint = f"{self.BASE_URL}/{self.model_name}:generateContent"
@@ -94,8 +94,8 @@ class GeminiAIProvider(BaseAIProvider):
                     cand_toks = usage.get("candidatesTokenCount", 0)
                     tot_toks = usage.get("totalTokenCount", 0)
                     
-                    # Estimated cost for Gemini 2.0 Flash (~$0.10 / 1M prompt tokens, ~$0.40 / 1M completion)
-                    est_cost = (prompt_toks * 0.0000001) + (cand_toks * 0.0000004)
+                    # Strictly Zero-Cost for Google AI Studio Free Tier
+                    est_cost = 0.0
 
                     try:
                         parsed = json.loads(raw_text)
@@ -106,7 +106,7 @@ class GeminiAIProvider(BaseAIProvider):
                                 prompt_tokens=prompt_toks,
                                 completion_tokens=cand_toks,
                                 total_tokens=tot_toks,
-                                estimated_cost_usd=round(est_cost, 6)
+                                estimated_cost_usd=est_cost
                             ),
                             model_name=self.model_name,
                             latency_ms=elapsed_ms,
@@ -123,9 +123,27 @@ class GeminiAIProvider(BaseAIProvider):
                             success=False,
                             error=f"JSON parsing error: {jde}"
                         )
-                else:
-                    error_msg = f"Gemini API returned status {resp.status_code}: {resp.text}"
-                    logger.warning(f"Gemini API attempt {attempt + 1} failed: {error_msg}")
+                elif resp.status_code == 429:
+                    error_msg = (
+                        "Gemini free-tier quota exhausted or rate limit reached (HTTP 429). "
+                        "Execution halted to strictly honor Zero-Cost policy. Please retry after quota reset."
+                    )
+                    logger.warning(f"Gemini API attempt {attempt + 1}: {error_msg}")
+                    return LLMResponse(
+                        raw_content=resp.text,
+                        parsed_json=None,
+                        token_usage=TokenUsage(),
+                        model_name=self.model_name,
+                        latency_ms=elapsed_ms,
+                        success=False,
+                        error=error_msg
+                    )
+                elif resp.status_code == 503:
+                    error_msg = (
+                        "Gemini free-tier service temporarily overloaded (HTTP 503). "
+                        "Zero-cost policy prevents paid fallback. Please retry shortly."
+                    )
+                    logger.warning(f"Gemini API attempt {attempt + 1}: {error_msg}")
                     if attempt == max_retries - 1:
                         return LLMResponse(
                             raw_content=resp.text,
@@ -136,8 +154,38 @@ class GeminiAIProvider(BaseAIProvider):
                             success=False,
                             error=error_msg
                         )
+                elif resp.status_code in (401, 403):
+                    error_msg = (
+                        f"Gemini authentication failed (HTTP {resp.status_code}). "
+                        "Please verify your Google AI Studio API key in backend/.env."
+                    )
+                    logger.error(error_msg)
+                    return LLMResponse(
+                        raw_content="[REDACTED_AUTH_ERROR]",
+                        parsed_json=None,
+                        token_usage=TokenUsage(),
+                        model_name=self.model_name,
+                        latency_ms=elapsed_ms,
+                        success=False,
+                        error=error_msg
+                    )
+                else:
+                    clean_text = resp.text.replace(self.api_key, "[REDACTED]") if self.api_key else resp.text
+                    error_msg = f"Gemini API returned status {resp.status_code}: {clean_text}"
+                    logger.warning(f"Gemini API attempt {attempt + 1} failed: {error_msg}")
+                    if attempt == max_retries - 1:
+                        return LLMResponse(
+                            raw_content=clean_text,
+                            parsed_json=None,
+                            token_usage=TokenUsage(),
+                            model_name=self.model_name,
+                            latency_ms=elapsed_ms,
+                            success=False,
+                            error=error_msg
+                        )
             except Exception as e:
-                logger.error(f"Gemini API request error on attempt {attempt + 1}: {e}")
+                clean_err = str(e).replace(self.api_key, "[REDACTED]") if self.api_key else str(e)
+                logger.error(f"Gemini API request error on attempt {attempt + 1}: {clean_err}")
                 if attempt == max_retries - 1:
                     return LLMResponse(
                         raw_content="",

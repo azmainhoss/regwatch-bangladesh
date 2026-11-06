@@ -44,9 +44,10 @@ class Settings(BaseSettings):
     # AI Provider Configuration
     AI_PROVIDER: str = "mock"  # mock, gemini, openai, anthropic
     GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
-    DEFAULT_AI_MODEL: str = "gemini-2.0-flash"
+    DEFAULT_AI_MODEL: str = "gemini-3.8-flash"
     AI_MAX_RETRIES: int = 3
     AI_TIMEOUT_SECONDS: int = 60
 
@@ -59,7 +60,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     model_config = {
-        "env_file": ".env",
+        "env_file": [".env", "backend/.env"],
         "case_sensitive": True,
         "extra": "ignore"
     }

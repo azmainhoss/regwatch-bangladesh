@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: 'class',
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -8,27 +9,43 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: "#f0f6fa",
-          100: "#e0edf5",
-          200: "#bad7eb",
-          300: "#80b6db",
-          400: "#3e90c7",
-          500: "#1b73ad",
-          600: "#10598f",
-          700: "#0c4673",
-          800: "#0b3c61",
-          900: "#0c3352",
-          950: "#062035",
+        // Visual Direction 04: Deep Teal + Turquoise
+        tealNavy: {
+          950: "#101B24", // Deep navy-teal background
+          900: "#142A32", // Dark teal cards
+          850: "#19313A", // Elevated surface
+          800: "#203B44", // Secondary surface
+          700: "#29464E", // Border
+          600: "#365963",
+          500: "#497480",
         },
-        slate: {
-          850: "#172033",
-          950: "#0b0f19",
+        turquoise: {
+          DEFAULT: "#2DD4BF", // Primary accent
+          bright: "#5EEAD4",  // Bright turquoise highlight
+          soft: "#99F6E4",    // Soft teal
+          dark: "#134E4A",    // Deep teal accent
+          50: "#F0FDFA",
+          100: "#CCFBF1",
+          200: "#99F6E4",
+          300: "#5EEAD4",
+          400: "#2DD4BF",
+          500: "#14B8A6",
+          600: "#0D9488",
+          700: "#0F766E",
+          800: "#115E59",
+          900: "#134E4A",
+          950: "#042F2E",
+        },
+        semantic: {
+          success: "#34D399",
+          warning: "#FBBF24",
+          danger: "#F87171",
+          info: "#60A5FA",
         }
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["var(--font-jetbrains-mono)", "monospace"],
+        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+        mono: ["SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"],
       }
     },
   },

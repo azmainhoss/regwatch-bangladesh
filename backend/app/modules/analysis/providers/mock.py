@@ -69,6 +69,13 @@ class MockAIProvider(BaseAIProvider):
         # Check for specific circular context
         is_ifrs9 = "IFRS 9" in user_prompt or "15" in ref_no
         is_ubo = "Beneficial Ownership" in user_prompt or "16" in ref_no
+        is_smespd = (
+            "SMESPD" in user_prompt
+            or "05" in user_prompt
+            or "উদ্যোক্তা" in user_prompt
+            or "UDYOG" in user_prompt
+            or "উদ্যোগ" in user_prompt
+        )
 
         if is_ifrs9:
             response_dict = {
@@ -202,6 +209,147 @@ class MockAIProvider(BaseAIProvider):
                     "credit": "Increased provisioning buffer required for Stage 2 loans.",
                     "compliance": "Mandatory tracking of 30-day delinquency triggers.",
                     "risk_management": "Model calibration for Significant Increase in Credit Risk (SICR)."
+                }
+            }
+        elif is_smespd:
+            response_dict = {
+                "classification": {
+                    "document_type": "CIRCULAR",
+                    "institution": "Bangladesh Bank",
+                    "department": "SMESPD",
+                    "reference_number": "SMESPD Circular No. 05/2026",
+                    "publication_date": "2026-09-13",
+                    "subject": "নীতিমালা — উদ্যোক্তা উন্নয়ন কর্মসূচি (ব্যাংক ও আর্থিক প্রতিষ্ঠান সমূহের জন্য প্রশিক্ষণ নির্দেশিকা)",
+                    "language": "bn",
+                    "regulatory_topic": "SME & Youth Entrepreneurship Financing (UDYOG Programme)"
+                },
+                "executive_summary": {
+                    "short_summary": "বাংলাদেশ ব্যাংক কর্তৃক উপজেলাভিত্তিক সম্ভাবনাময় তরুণ উদ্যোক্তা অনুসন্ধান, চিহ্নিতকরণ ও অর্থায়ন নিশ্চিতে 'উদ্যোগ (UDYOG)' শীর্ষক কর্মসূচি ও প্রশিক্ষণ নীতিমালা জারি করা হয়েছে।",
+                    "detailed_summary": "তফসিলি ব্যাংকসমূহের মাধ্যমে উপজেলা পর্যায়ে তরুণ উদ্যোক্তাদের আবেদন গ্রহণ, বাছাই এবং সর্বোচ্চ ১০ লাখ টাকা পর্যন্ত ঋণ-অনুদানের সমন্বিত প্যাকেজ (৫০:৫০ অনুপাতে) প্রদানের নির্দেশ দেওয়া হয়েছে। বিতরণকৃত ঋণের বিপরীতে বাংলাদেশ ব্যাংকের সংশ্লিষ্ট স্কিম হতে পুনঃঅর্থায়ন সুবিধা প্রাপ্য হবে।",
+                    "background": "ব্যাংক কোম্পানি আইন, ১৯৯১ এর ৪৫ ধারায় প্রদত্ত ক্ষমতাবলে এ নির্দেশনা জারি করা হয়েছে যা অবিলম্বে কার্যকর হবে।",
+                    "purpose": "উপজেলা পর্যায়ে সম্ভাবনাময় তরুণ উদ্যোক্তাদের চিহ্নিত করে প্রশিক্ষণ প্রদান এবং সহজ শর্তে প্রাতিষ্ঠানিক অর্থায়ন নিশ্চিতকরণ।",
+                    "key_changes": [
+                        "প্রতিটি উপজেলায় তফসিলি ব্যাংকসমূহের মাধ্যমে সম্ভাবনাময় তরুণ উদ্যোক্তা অনুসন্ধান ও আবেদন গ্রহণ",
+                        "ঋণ-অনুদান অনুপাত ৫০:৫০ (সর্বোচ্চ ১০ লাখ টাকা পর্যন্ত সমন্বিত অর্থায়ন প্যাকেজ)",
+                        "বিতরণকৃত ঋণের বিপরীতে বাংলাদেশ ব্যাংকের স্কিম হতে পুনঃঅর্থায়ন সুবিধা প্রদান",
+                        "জাতীয় পরিচয়পত্র, সিআইবি ও কেওয়াইসি যাচাই বাধ্যতামূলক; ঋণ খেলাপী ব্যক্তি অযোগ্য"
+                    ],
+                    "affected_stakeholders": ["Scheduled Commercial Banks", "Non-Bank Financial Institutions", "Youth Entrepreneurs"],
+                    "important_dates": ["2026-09-13: Circular issue and immediate enforcement date"]
+                },
+                "provisions": [
+                    {
+                        "provision_number": "৪.১",
+                        "parent_provision": "৪.",
+                        "heading": "উদ্যোক্তা অনুসন্ধান ও আবেদন গ্রহণ পরিচালনা",
+                        "verbatim_text": "উদ্যোক্তো অনুসন্ধোদনর কমযসূতচতর্ িফতসতল ব্াাংকসমূদহর মাধ্দম পতরচাতলি হদব। বযোাংদকর েোখোগুদলো স্থোনীয় পেথোদয় প্রিোর, \nউদ্যোক্তোগণ হদি আদব্ন িেণ, প্রকৃি উদে্াক্তা েনোক্তকরণ এবাং েোিোইকরদণ সভিয় িূভর্কো পোলন করদব;",
+                        "page_number": 2,
+                        "provision_type": "MANDATORY_REQUIREMENT",
+                        "normalized_explanation": "তফসিলি ব্যাংকসমূহের স্থানীয় শাখা কর্তৃক উদ্যোক্তা অনুসন্ধান, প্রচার ও আবেদন গ্রহণ পরিচালনা বাধ্যতামূলক।"
+                    },
+                    {
+                        "provision_number": "৭.১",
+                        "parent_provision": "৭.",
+                        "heading": "ঋণ সুবিধা ও পুনঃঅর্থায়ন প্রাপ্যতা",
+                        "verbatim_text": "তিভসভল বযোাংকসর্ূে ভনবথোভিত উদ্যোক্তোদ্র অনুকূদল ঋণ প্র্োন করদব এবাং বযবসোদয়র ধ্রণ বো খোত অনুেোয়ী বোাংলোদ্ে \nবযোাংদকর সাংভিি পুনঃঅর্থোয়ন ভির্সমূহ গর্দক পুনঃ অর্থোয়ন সুভবধ্ো প্রোপয েদব;",
+                        "page_number": 3,
+                        "provision_type": "OPERATIONAL_MANDATE",
+                        "normalized_explanation": "নির্বাচিত উদ্যোক্তাদের ঋণ প্রদান এবং বাংলাদেশ ব্যাংক থেকে পুনঃঅর্থায়ন প্রাপ্তির বিধান।"
+                    },
+                    {
+                        "provision_number": "১১.১",
+                        "parent_provision": "১১.",
+                        "heading": "উপজেলা পর্যায়ে ব্যাংকের প্রচার দায়িত্ব",
+                        "verbatim_text": "উদ্যোক্তো অনুসন্ধোন ও প্রিোর: কর্থসূভির আওতোিুক্ত উপদেলোয় অবভস্থত প্রভতভট তিভসভল বযোাংদকর েোখো স্থোনীয় পেথোদয় \nসম্ভোবনোর্য় তরুণ উদ্যোক্তো অনুসন্ধোন কর্থসূভির প্রিোর এবাং আদবেন গ্রহণ সাংিোন্ত কোেথির্ পভরিোলনো করদব।",
+                        "page_number": 4,
+                        "provision_type": "OPERATIONAL_MANDATE",
+                        "normalized_explanation": "উপজেলা পর্যায়ে অবস্থিত ব্যাংক শাখা কর্তৃক তরুণ উদ্যোক্তা অনুসন্ধানের প্রচার পরিচালনা।"
+                    },
+                    {
+                        "provision_number": "১৩.৩",
+                        "parent_provision": "১৩.",
+                        "heading": "উদ্যোক্তার বিস্তারিত তথ্য ও এনআইডি সংরক্ষণ",
+                        "verbatim_text": "প্রভতভট বযোাংকদক তনবযাতচি উদ্যোক্তোর েোতীয় পভরিয়পত্র নম্বর, নোর্, বয়স, ভলি, ভিকোনো, উপদেলো, ভেযো/প্রভেযণ, বযবসোর \nধ্রণ, ভনেস্ব ভবভনদয়োগ, অনুদর্োভ্ত ঋণ ও অনু্োদনর পভরর্োণ, ঋদণর গর্য়ো্, ভবতরদণর তোভরখ, পুনঃ অর্থোয়ন, ঋণ",
+                        "page_number": 5,
+                        "provision_type": "RECORD_KEEPING",
+                        "normalized_explanation": "নির্বাচিত উদ্যোক্তার জাতীয় পরিচয়পত্র নম্বর, বিতরণকৃত ঋণ ও পুনঃঅর্থায়ন সংক্রান্ত তথ্য সংরক্ষণ।"
+                    },
+                    {
+                        "provision_number": "১৬",
+                        "parent_provision": None,
+                        "heading": "আইনি ভিত্তি ও অবিলম্বে কার্যকরের নির্দেশনা",
+                        "verbatim_text": "ব্াাংক স্পকাম্পাতন আইন, ১৯৯১ এর ৪৫ ধারায় প্রেি যমিাবদল এ তনদেযশনা োতর করা হদলা র্া অতবলদম্ব কার্যকর হদব।",
+                        "page_number": 5,
+                        "provision_type": "LEGAL_AUTHORITY",
+                        "normalized_explanation": "ব্যাংক কোম্পানি আইন, ১৯৯১ এর ৪৫ ধারায় প্রদত্ত ক্ষমতাবলে অবিলম্বে কার্যকর।"
+                    }
+                ],
+                "obligations": [
+                    {
+                        "title": "তফসিলি ব্যাংক কর্তৃক উদ্যোক্তা অনুসন্ধান ও আবেদন গ্রহণ",
+                        "obligation_type": "MANDATORY",
+                        "requirement_description": "তফসিলি ব্যাংকসমূহকে তাদের স্থানীয় শাখার মাধ্যমে উপজেলা পর্যায়ে সম্ভাবনাময় তরুণ উদ্যোক্তা অনুসন্ধান, প্রচার এবং আবেদন গ্রহণ নিশ্চিত করতে হবে।",
+                        "verbatim_quote": "উদ্যোক্তো অনুসন্ধোদনর কমযসূতচতর্ িফতসতল ব্াাংকসমূদহর মাধ্দম পতরচাতলি হদব। বযোাংদকর েোখোগুদলো স্থোনীয় পেথোদয় প্রিোর, \nউদ্যোক্তোগণ হদি আদব্ন িেণ, প্রকৃি উদে্াক্তা েনোক্তকরণ এবাং েোিোইকরদণ সভিয় িূভর্কো পোলন করদব;",
+                        "page_number": 2,
+                        "clause_reference": "৪.১",
+                        "responsible_entity": "Scheduled Commercial Banks (Upazila Branches)",
+                        "applicability_conditions": "All scheduled commercial banks operating in upazilas under UDYOG programme",
+                        "effective_date": "2026-09-13",
+                        "explicit_deadline": None,
+                        "reporting_frequency": "CONTINUOUS",
+                        "required_evidence": "Applicant intake register and local campaign records",
+                        "consequence": "Regulatory action under Section 45 of the Bank Company Act, 1991"
+                    },
+                    {
+                        "title": "নির্বাচিত উদ্যোক্তাদের অনুকূলে ঋণ বিতরণ ও পুনঃঅর্থায়ন আবেদন",
+                        "obligation_type": "OPERATIONAL",
+                        "requirement_description": "নির্বাচিত উদ্যোক্তাদের ব্যবসায়িক চাহিদা অনুযায়ী সর্বোচ্চ ১০ লাখ টাকা পর্যন্ত ঋণ-অনুদানের প্যাকেজ ৫০:৫০ অনুপাতে বিতরণ করতে হবে এবং বাংলাদেশ ব্যাংক হতে পুনঃঅর্থায়ন সুবিধা গ্রহণ করতে হবে।",
+                        "verbatim_quote": "তিভসভল বযোাংকসর্ূে ভনবথোভিত উদ্যোক্তোদ্র অনুকূদল ঋণ প্র্োন করদব এবাং বযবসোদয়র ধ্রণ বো খোত অনুেোয়ী বোাংলোদ্ে \nবযোাংদকর সাংভিি পুনঃঅর্থোয়ন ভির্সমূহ গর্দক পুনঃ অর্থোয়ন সুভবধ্ো প্রোপয েদব;",
+                        "page_number": 3,
+                        "clause_reference": "৭.১",
+                        "responsible_entity": "Scheduled Commercial Banks",
+                        "applicability_conditions": "All candidate loan approvals under the programme",
+                        "effective_date": "2026-09-13",
+                        "explicit_deadline": None,
+                        "reporting_frequency": "PER_DISBURSEMENT",
+                        "required_evidence": "Loan sanction letter and refinance claim submission",
+                        "consequence": "Loss of refinance eligibility"
+                    },
+                    {
+                        "title": "উদ্যোক্তার এনআইডি ও ঋণ বিতরণের তথ্য সংরক্ষণ",
+                        "obligation_type": "RECORD_KEEPING",
+                        "requirement_description": "প্রতিটি ব্যাংককে নির্বাচিত উদ্যোক্তার জাতীয় পরিচয়পত্র নম্বর, বয়স, লিঙ্গ, ঠিকানা, উপজেলা, ব্যবসার ধরণ, নিজস্ব বিনিয়োগ, বিতরণকৃত ঋণ ও পরিশোধের শর্তাবলী সংক্রান্ত পূর্ণ তথ্য সংরক্ষণ করতে হবে।",
+                        "verbatim_quote": "প্রভতভট বযোাংকদক তনবযাতচি উদ্যোক্তোর েোতীয় পভরিয়পত্র নম্বর, নোর্, বয়স, ভলি, ভিকোনো, উপদেলো, ভেযো/প্রভেযণ, বযবসোর \nধ্রণ, ভনেস্ব ভবভনদয়োগ, অনুদর্োভ্ত ঋণ ও অনু্োদনর পভরর্োণ, ঋদণর গর্য়ো্, ভবতরদণর তোভরখ, পুনঃ অর্থোয়ন, ঋণ",
+                        "page_number": 5,
+                        "clause_reference": "১৩.৩",
+                        "responsible_entity": "Scheduled Commercial Banks",
+                        "applicability_conditions": "All selected beneficiaries",
+                        "effective_date": "2026-09-13",
+                        "explicit_deadline": None,
+                        "reporting_frequency": "MANDATORY_RECORD",
+                        "required_evidence": "Beneficiary MIS database and verified NID copies",
+                        "consequence": "Audit violation during Bangladesh Bank annual inspection"
+                    }
+                ],
+                "applicability": {
+                    "covered_entities": ["SCHEDULED_COMMERCIAL_BANK", "NON_BANK_FINANCIAL_INSTITUTION"],
+                    "is_universal": True,
+                    "exemptions": [],
+                    "conditional_rules": "All branches operating in upazilas covered by the UDYOG programme"
+                },
+                "deadlines": {
+                    "publication_date": "2026-09-13",
+                    "effective_date": "2026-09-13",
+                    "compliance_deadline": None,
+                    "reporting_deadline": None,
+                    "trigger_event": "Application intake and loan disbursement"
+                },
+                "relationships": [],
+                "impact_assessment": {
+                    "banking_operations": "উপজেলা পর্যায়ের শাখাগুলোতে প্রচার ও আবেদন ফরম বিতরণ ব্যবস্থা স্থাপন।",
+                    "credit": "৫০:৫০ অনুপাতে সর্বোচ্চ ১০ লাখ টাকা পর্যন্ত ঋণ ও অনুদানের প্যাকেজ পরিচালনা।",
+                    "compliance": "সিআইবি খেলাপী যাচাই, কেওয়াইসি এবং জাতীয় পরিচয়পত্র রেকর্ড সংরক্ষণ।",
+                    "refinance": "বাংলাদেশ ব্যাংকের সংশ্লিষ্ট স্কিম হতে পুনঃঅর্থায়ন দাবি দাখিল।"
                 }
             }
         else:

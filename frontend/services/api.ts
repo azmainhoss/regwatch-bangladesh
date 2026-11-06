@@ -53,6 +53,8 @@ export interface DocumentItem {
   created_at: string;
   updated_at: string;
   versions: DocumentVersion[];
+  is_synthetic?: boolean;
+  corpus_type?: string;
 }
 
 export interface Source {
@@ -128,9 +130,48 @@ export async function fetchHealth(): Promise<{ status: string; app_name: string;
   return res.json();
 }
 
+export interface ProviderStatusInfo {
+  configured_provider: string;
+  default_model: string;
+  gemini_api_key_configured: boolean;
+  status: string;
+  timeout_seconds: number;
+  max_retries: number;
+  billing_policy: string;
+}
+
+export async function fetchProviderStatus(): Promise<ProviderStatusInfo> {
+  const res = await fetch(`${API_BASE_URL}/documents/provider-status`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch provider status");
+  return res.json();
+}
+
 export async function fetchInstitutions(): Promise<Institution[]> {
   const res = await fetch(`${API_BASE_URL}/institutions`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch institutions");
+  return res.json();
+}
+
+export interface DashboardStats {
+  total_documents: number;
+  genuine_documents_count: number;
+  genuine_pages_count: number;
+  synthetic_documents_count: number;
+  synthetic_pages_count: number;
+  verified_publications_count: number;
+  awaiting_review_count: number;
+  draft_documents_count: number;
+  total_pages_extracted: number;
+  departments_monitored_count: number;
+  departments_codes: string[];
+  primary_authority: string;
+  source_monitoring_status: string;
+  source_monitoring_message: string;
+}
+
+export async function fetchDocumentStats(): Promise<DashboardStats> {
+  const res = await fetch(`${API_BASE_URL}/documents/stats`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch dashboard stats");
   return res.json();
 }
 
@@ -138,11 +179,15 @@ export async function fetchDocuments(params?: {
   institution_id?: string;
   search?: string;
   document_type?: string;
+  corpus_type?: string;
+  publication_status?: string;
 }): Promise<DocumentItem[]> {
   const query = new URLSearchParams();
   if (params?.institution_id) query.append("institution_id", params.institution_id);
   if (params?.search) query.append("search", params.search);
   if (params?.document_type) query.append("document_type", params.document_type);
+  if (params?.corpus_type) query.append("corpus_type", params.corpus_type);
+  if (params?.publication_status) query.append("publication_status", params.publication_status);
 
   const res = await fetch(`${API_BASE_URL}/documents?${query.toString()}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch documents");
@@ -378,11 +423,18 @@ export async function queryResearchAssistant(query: string, documentId?: string)
   is_grounded: boolean;
   citations: Array<{ document_title: string; reference_number?: string; page_number: number; verbatim_excerpt: string }>;
 }> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
   const res = await fetch(`${API_BASE_URL}/research/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ query, document_id: documentId }),
   });
-  if (!res.ok) throw new Error("Research query failed");
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error("Authentication required: Please log in or provide valid credentials to query the research assistant.");
+    }
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Research query failed");
+  }
   return res.json();
 }

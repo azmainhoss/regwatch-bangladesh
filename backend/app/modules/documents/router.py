@@ -5,7 +5,7 @@ from uuid import UUID
 import pymupdf as fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,8 +14,16 @@ from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
-from backend.app.modules.documents.schemas import DocumentPageRead, DocumentRead, DocumentUploadResponse, DocumentVersionRead
+from backend.app.modules.documents.schemas import (
+    DashboardStatsRead,
+    DocumentPageRead,
+    DocumentRead,
+    DocumentUploadResponse,
+    DocumentVersionRead,
+)
 from backend.app.modules.documents.service import document_ingestion_service
+from backend.app.modules.institutions.models import Institution, InstitutionDepartment
+from backend.app.modules.sources.models import Source
 
 router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
 
@@ -108,6 +116,69 @@ async def upload_document(
     )
 
 
+@router.get("/stats", response_model=DashboardStatsRead)
+async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
+    """
+    Computes truthful live metrics across genuine publications, extracted pages,
+    synthetic test fixtures, and active source monitoring status.
+    """
+    # Fetch all documents with their versions
+    query = select(Document).options(selectinload(Document.versions))
+    docs = (await db.execute(query)).scalars().all()
+
+    total_docs = len(docs)
+    genuine_docs = []
+    synthetic_docs = []
+
+    for d in docs:
+        t_low = (d.title or "").lower()
+        r_low = (d.reference_number or "").lower()
+        if "sample" in t_low or "brpd(p)" in r_low or (d.publication_status == "DRAFT" and len(d.versions) == 0):
+            synthetic_docs.append(d)
+        else:
+            genuine_docs.append(d)
+
+    genuine_pages = sum(d.versions[0].page_count for d in genuine_docs if d.versions)
+    synthetic_pages = sum(d.versions[0].page_count for d in synthetic_docs if d.versions)
+    total_pages = genuine_pages + synthetic_pages
+
+    verified_count = sum(1 for d in genuine_docs if (d.publication_status or "").startswith("PUBLISHED"))
+    awaiting_count = sum(1 for d in genuine_docs if d.publication_status == "AWAITING_REVIEW")
+    draft_count = sum(1 for d in docs if d.publication_status == "DRAFT")
+
+    # Fetch departments and sources
+    dept_stmt = select(InstitutionDepartment.code).order_by(InstitutionDepartment.code)
+    dept_codes = (await db.execute(dept_stmt)).scalars().all()
+
+    src_stmt = select(Source).order_by(Source.created_at.desc()).limit(1)
+    primary_src = (await db.execute(src_stmt)).scalars().first()
+
+    src_status = primary_src.access_restriction_status if primary_src else "CLEAR"
+    if src_status == "IMPERVA_TSPD_CAPTCHA":
+        src_msg = "Automated portal monitoring restricted by Imperva WAF anti-bot challenge. Manual dropzone active."
+    elif src_status == "CLEAR" and primary_src and primary_src.is_active:
+        src_msg = "Official Bangladesh Bank portal monitoring active."
+    else:
+        src_msg = "Manual dropzone active."
+
+    return DashboardStatsRead(
+        total_documents=total_docs,
+        genuine_documents_count=len(genuine_docs),
+        genuine_pages_count=genuine_pages,
+        synthetic_documents_count=len(synthetic_docs),
+        synthetic_pages_count=synthetic_pages,
+        verified_publications_count=verified_count,
+        awaiting_review_count=awaiting_count,
+        draft_documents_count=draft_count,
+        total_pages_extracted=total_pages,
+        departments_monitored_count=len(dept_codes),
+        departments_codes=list(dept_codes),
+        primary_authority="Bangladesh Bank",
+        source_monitoring_status=src_status,
+        source_monitoring_message=src_msg,
+    )
+
+
 @router.get("", response_model=List[DocumentRead])
 async def list_documents(
     institution_id: Optional[UUID] = Query(None),
@@ -115,11 +186,18 @@ async def list_documents(
     document_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     publication_status: Optional[str] = Query(None),
+    corpus_type: Optional[str] = Query(None, description="'GENUINE', 'SYNTHETIC_SAMPLE', or 'ALL'"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_async_db)
 ):
-    query = select(Document).options(selectinload(Document.versions)).order_by(Document.publication_date.desc())
+    # Sort genuine official publications first, then by publication date desc
+    order_clause = [
+        case((Document.title.ilike("Sample%"), 1), else_=0),
+        Document.publication_date.desc(),
+        Document.created_at.desc(),
+    ]
+    query = select(Document).options(selectinload(Document.versions)).order_by(*order_clause)
 
     if institution_id:
         query = query.where(Document.institution_id == institution_id)
@@ -135,6 +213,18 @@ async def list_documents(
             (Document.title.ilike(search_pattern)) |
             (Document.reference_number.ilike(search_pattern))
         )
+    if corpus_type:
+        c_upper = corpus_type.upper()
+        if c_upper == "GENUINE":
+            query = query.where(
+                ~Document.title.ilike("Sample%"),
+                ~func.coalesce(Document.reference_number, "").ilike("BRPD(P)%")
+            )
+        elif c_upper == "SYNTHETIC_SAMPLE":
+            query = query.where(
+                (Document.title.ilike("Sample%")) |
+                (func.coalesce(Document.reference_number, "").ilike("BRPD(P)%"))
+            )
 
     query = query.limit(limit).offset(offset)
     result = await db.execute(query)

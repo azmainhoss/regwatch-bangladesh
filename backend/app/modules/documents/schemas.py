@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class DocumentPageRead(BaseModel):
@@ -65,7 +65,40 @@ class DocumentRead(DocumentBase):
     updated_at: datetime
     versions: List[DocumentVersionRead] = []
 
+    @computed_field
+    @property
+    def is_synthetic(self) -> bool:
+        title_lower = (self.title or "").lower()
+        ref_lower = (self.reference_number or "").lower()
+        if "sample" in title_lower or "brpd(p)" in ref_lower:
+            return True
+        if self.publication_status == "DRAFT" and len(self.versions) == 0:
+            return True
+        return False
+
+    @computed_field
+    @property
+    def corpus_type(self) -> str:
+        return "SYNTHETIC_SAMPLE" if self.is_synthetic else "GENUINE"
+
     model_config = ConfigDict(from_attributes=True)
+
+
+class DashboardStatsRead(BaseModel):
+    total_documents: int
+    genuine_documents_count: int
+    genuine_pages_count: int
+    synthetic_documents_count: int
+    synthetic_pages_count: int
+    verified_publications_count: int
+    awaiting_review_count: int
+    draft_documents_count: int
+    total_pages_extracted: int
+    departments_monitored_count: int
+    departments_codes: List[str] = []
+    primary_authority: str
+    source_monitoring_status: str
+    source_monitoring_message: str
 
 
 class DocumentUploadResponse(BaseModel):

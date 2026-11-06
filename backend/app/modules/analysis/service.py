@@ -268,6 +268,44 @@ class AnalysisService:
         ).order_by(DocumentAnalysis.created_at.desc()).limit(1)
         analysis = (await db.execute(query)).scalars().first()
 
+        # Phase 3.9 Strengthened Claim-Level Publication Gates
+        if decision == "PUBLISHED_HUMAN_REVIEWED":
+            # 1. Auditable human approval validation
+            if not reviewer_id:
+                raise ValueError("Publication requires an explicit reviewer_id for compliance auditability.")
+            if not review_notes or not review_notes.strip():
+                raise ValueError("Publication requires non-empty review_notes documenting the human compliance verification.")
+
+            if analysis:
+                # 2. Strict citation coverage threshold (must be 100% verified, partial coverage disallowed)
+                if analysis.citation_coverage_score < 1.0:
+                    raise ValueError(
+                        f"Publication blocked: Citation coverage is {analysis.citation_coverage_score * 100:.1f}%. "
+                        f"A mandatory citation validation failure prevents publication. Every regulatory claim must "
+                        f"have verified page-level provenance (100.0% coverage required)."
+                    )
+
+                # 3. Claim-level citation verification
+                claims_query = select(AnalysisClaim).options(
+                    selectinload(AnalysisClaim.citations)
+                ).where(AnalysisClaim.analysis_id == analysis.id)
+                claims = (await db.execute(claims_query)).scalars().all()
+
+                for claim in claims:
+                    if claim.verification_status in ("UNVERIFIED", "CANDIDATE_FUZZY", "WRONG_PAGE", "SOURCE_MISSING"):
+                        raise ValueError(
+                            f"Publication blocked by claim-level validation: Claim '{claim.statement[:50]}' "
+                            f"has status '{claim.verification_status}'. Candidate fuzzy, wrong page, or unverified claims "
+                            f"cannot be published without verified source grounding."
+                        )
+                    for citation in claim.citations:
+                        if citation.match_score < 0.85:
+                            raise ValueError(
+                                f"Publication blocked: Citation has insufficient match score ({citation.match_score:.2f} < 0.85)."
+                            )
+                        if not citation.page_id:
+                            raise ValueError("Publication blocked: Citation is missing a valid page reference.")
+
         if analysis:
             analysis.publication_decision = decision
             analysis.reviewed_by = reviewer_id

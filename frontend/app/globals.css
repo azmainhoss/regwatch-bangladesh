@@ -3,32 +3,75 @@
 @tailwind utilities;
 
 :root {
-  --background: #0b0f19;
-  --foreground: #f1f5f9;
+  --background: #101B24;
+  --foreground: #F1F5F9;
+  --surface-elevated: #19313A;
+  --surface-card: #142A32;
+  --border-color: #29464E;
+  --accent-turquoise: #2DD4BF;
+}
+
+html.light {
+  --background: #F8FAFC;
+  --foreground: #101B24;
+  --surface-elevated: #F1F5F9;
+  --surface-card: #FFFFFF;
+  --border-color: #E2E8F0;
+  --accent-turquoise: #0D9488;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Kalpurush", "SolaimanLipi", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* Custom scrollbars for regulatory reading */
+/* Custom scrollbars with Deep Teal & Turquoise styling */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #101B24;
+}
+
+html.light ::-webkit-scrollbar-track {
+  background: #F1F5F9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #203B44;
+  border-radius: 3px;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #2DD4BF;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #0D9488;
+}
+
+/* Restrained Turquoise Glow Effect */
+.glow-turquoise-sm {
+  box-shadow: 0 0 15px -3px rgba(45, 212, 191, 0.15);
+}
+
+.glow-turquoise-md {
+  box-shadow: 0 0 25px -4px rgba(45, 212, 191, 0.25);
+}
+
+/* Bengali Typography readability */
+.bengali-text {
+  font-family: "Kalpurush", "SolaimanLipi", "Bangla", -apple-system, sans-serif;
+  line-height: 1.6;
 }

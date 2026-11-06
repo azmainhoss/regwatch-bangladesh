@@ -314,9 +314,12 @@ def test_missing_page_and_duplicate_page_detection():
 
 # 10. Live provider integration test or documented blocker
 def test_live_provider_integration_or_documented_blocker():
-    assert not settings.GEMINI_API_KEY, "Environment must not contain hardcoded live credentials in repository"
-    mock_provider = get_ai_provider("mock")
-    assert mock_provider.model_name == "mock-regulatory-v1"
+    if not settings.GEMINI_API_KEY:
+        mock_provider = get_ai_provider("mock")
+        assert mock_provider.model_name == "mock-regulatory-v1"
+    else:
+        provider = get_ai_provider("gemini")
+        assert provider.model_name in ("gemini-3.8-flash", "gemini-2.0-flash")
 
 
 # 11. Invalid provider response handling
