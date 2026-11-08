@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Prevent Python from writing .pyc and buffer output
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -28,6 +28,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY backend /app/backend
 COPY data /app/data
 COPY storage /app/storage
+
+RUN mkdir -p /app/data /app/storage/originals /app/storage/evidence
 
 EXPOSE 8000
 

@@ -64,6 +64,8 @@ app.add_middleware(
 )
 
 
+@app.get("/", tags=["System"])
+@app.get("/health", tags=["System"])
 @app.get(f"{settings.API_V1_STR}/health", tags=["System"])
 async def health_check():
     return {
