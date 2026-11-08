@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { User, Shield, Building, LogOut, CheckCircle2, Lock, ArrowRight, X } from "lucide-react";
+import Link from "next/link";
+import { User, Shield, LogOut, Lock, X } from "lucide-react";
 import { AuthUser, loginUser, logoutUser } from "../services/api";
 
 interface AccountModalProps {
@@ -33,21 +34,7 @@ export default function AccountModal({
       onUserChange(user);
       onClose();
     } catch (err: any) {
-      setError(err.message || "Invalid credentials.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickSwitch = async (accountEmail: string, pass: string) => {
-    setError(null);
-    setLoading(true);
-    try {
-      const user = await loginUser(accountEmail, pass);
-      onUserChange(user);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || "Failed to switch account.");
+      setError(err.message || "Invalid email or password.");
     } finally {
       setLoading(false);
     }
@@ -97,7 +84,7 @@ export default function AccountModal({
                     <span className="text-sm font-bold text-white dark:text-white light:text-tealNavy-950 block">
                       {currentUser.full_name}
                     </span>
-                    <span className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 block mt-0.5">
+                    <span className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 block mt-0.5 font-mono">
                       {currentUser.email}
                     </span>
                   </div>
@@ -112,7 +99,7 @@ export default function AccountModal({
                       Institution
                     </span>
                     <span className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-semibold mt-0.5 block">
-                      {currentUser.organization_name || "Commercial Bank"}
+                      {currentUser.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC"}
                     </span>
                   </div>
                   <div>
@@ -120,7 +107,9 @@ export default function AccountModal({
                       Designation
                     </span>
                     <span className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-semibold mt-0.5 block">
-                      {currentUser.designation || (currentUser.is_superuser ? "System Administrator" : "Compliance Officer")}
+                      {currentUser.is_superuser
+                        ? "System Administrator"
+                        : currentUser.designation || "Chief Compliance Officer"}
                     </span>
                   </div>
                 </div>
@@ -132,7 +121,7 @@ export default function AccountModal({
                 <span>Encrypted session with role-based document access.</span>
               </div>
 
-              {/* Sign out & Switch Actions */}
+              {/* Action buttons */}
               <div className="flex items-center justify-between pt-2">
                 <button
                   onClick={handleLogout}
@@ -142,14 +131,15 @@ export default function AccountModal({
                   <span>Sign Out</span>
                 </button>
                 {currentUser.is_superuser ? (
-                  <span className="text-xs text-turquoise font-semibold">Administrator Privileges Enabled</span>
-                ) : (
-                  <button
-                    onClick={() => handleQuickSwitch("admin@regwatch.bd", "AdminPassword123!")}
-                    className="text-xs text-slate-400 hover:text-white dark:hover:text-white light:hover:text-slate-900 underline"
+                  <Link
+                    href="/admin"
+                    onClick={onClose}
+                    className="text-xs text-turquoise hover:text-turquoise-bright font-semibold font-mono underline"
                   >
-                    Switch to Administrator
-                  </button>
+                    Open Admin Console &rarr;
+                  </Link>
+                ) : (
+                  <span className="text-[11px] text-slate-400 font-mono">Institutional Session Active</span>
                 )}
               </div>
             </div>
@@ -168,7 +158,7 @@ export default function AccountModal({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@bank.com"
+                  placeholder="cco@abcbank.bd"
                   required
                   className="w-full bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-white border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise"
                 />
@@ -195,26 +185,6 @@ export default function AccountModal({
               >
                 {loading ? "Verifying..." : "Sign In to RegWatch"}
               </button>
-
-              <div className="pt-3 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 text-center">
-                <span className="text-xs text-slate-400 block mb-2">Or select a standard role:</span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleQuickSwitch("cco@abcbank.bd", "CCOPassword123!")}
-                    className="flex-1 py-1.5 px-2 bg-tealNavy-850 hover:bg-tealNavy-800 text-slate-200 rounded-lg text-[11px] border border-tealNavy-700 transition"
-                  >
-                    Chief Compliance Officer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickSwitch("admin@regwatch.bd", "AdminPassword123!")}
-                    className="flex-1 py-1.5 px-2 bg-tealNavy-850 hover:bg-tealNavy-800 text-slate-200 rounded-lg text-[11px] border border-tealNavy-700 transition"
-                  >
-                    Administrator
-                  </button>
-                </div>
-              </div>
             </form>
           )}
         </div>
@@ -222,4 +192,3 @@ export default function AccountModal({
     </div>
   );
 }
-

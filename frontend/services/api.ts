@@ -175,7 +175,23 @@ export function getStoredUser(): AuthUser | null {
     const raw = localStorage.getItem("regwatch_user");
     if (raw) {
       try {
-        return JSON.parse(raw);
+        const u = JSON.parse(raw);
+        if (u) {
+          let updated = false;
+          // Auto-migrate any cached legacy "National Standard Bank PLC" or missing organization
+          if (u.organization_name === "National Standard Bank PLC" || !u.organization_name) {
+            u.organization_name = u.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC";
+            updated = true;
+          }
+          if (u.email && u.email.includes("nationalbank")) {
+            u.email = u.email.replace("nationalbank.bd", "abcbank.bd");
+            updated = true;
+          }
+          if (updated) {
+            localStorage.setItem("regwatch_user", JSON.stringify(u));
+          }
+          return u;
+        }
       } catch {
         return null;
       }
@@ -205,7 +221,7 @@ export async function loginUser(email: string, password: string): Promise<AuthUs
   const token = data.access_token;
   const user: AuthUser = {
     ...data.user,
-    organization_name: (email.includes("abcbank") || email.includes("nationalbank")) ? "ABC Bank PLC" : "RegWatch Bangladesh",
+    organization_name: data.user.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC",
     designation: email.includes("cco") ? "Chief Compliance Officer" : (data.user.is_superuser ? "System Administrator" : "Compliance Officer"),
   };
   if (typeof window !== "undefined") {

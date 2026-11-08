@@ -537,20 +537,13 @@ function CircularDetailView({
             <p className="text-xs text-slate-300 dark:text-slate-300 light:text-slate-600 max-w-md mt-1.5 leading-relaxed">
               Clause-by-clause legal obligations, operational impact assessments, and cross-lingual AI regulatory inquiries are reserved for authenticated banking professionals.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
+            <div className="flex items-center justify-center mt-5">
               <button
                 onClick={onOpenAuthModal}
-                className="px-5 py-2.5 rounded-xl bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 font-bold text-xs font-mono transition shadow-lg flex items-center gap-2"
+                className="px-6 py-2.5 rounded-xl bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 font-bold text-xs font-mono transition shadow-lg flex items-center gap-2"
               >
                 <span>Get Access — Sign In</span>
                 <ChevronRight className="w-4 h-4" />
-              </button>
-              <button
-                onClick={onFastLogin}
-                className="px-4 py-2.5 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white hover:border-turquoise text-slate-300 dark:text-slate-300 light:text-slate-700 text-xs font-mono transition flex items-center gap-1.5"
-              >
-                <UserCheck className="w-3.5 h-3.5 text-turquoise" />
-                <span>Banker Demo Access</span>
               </button>
             </div>
           </div>
