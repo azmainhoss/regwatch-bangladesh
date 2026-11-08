@@ -69,6 +69,13 @@ class SourceDiscovery(Base):
     department_code = Column(String(32), nullable=True)
     reference_number = Column(String(128), nullable=True)
     publication_date = Column(Date, nullable=True)
+    language = Column(String(32), nullable=True)
+    publication_type = Column(String(64), default="CIRCULAR", nullable=False)
+    file_hash = Column(String(64), nullable=True)
+    file_size = Column(Integer, nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)
+    last_attempted_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
     discovered_metadata = Column(JSON, default=dict, nullable=False)
     rejection_reason = Column(Text, nullable=True)
     status = Column(

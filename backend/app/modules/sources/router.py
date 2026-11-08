@@ -9,11 +9,14 @@ from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRun
 from backend.app.modules.sources.schemas import (
+    BackfillRequest,
+    BackfillResponse,
     RejectDiscoveryRequest,
     SourceCreate,
     SourceDiscoveryRead,
     SourceRead,
     SourceRunRead,
+    SourceStatsResponse,
     SourceUpdate,
 )
 from backend.app.modules.sources.service import source_monitoring_service
@@ -116,6 +119,71 @@ async def reject_discovery(
         return disc
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{source_id}/stats", response_model=SourceStatsResponse)
+async def get_source_statistics(
+    source_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Returns real-time coverage, discovery, and ingestion telemetry for the source."""
+    try:
+        stats = await source_monitoring_service.get_source_stats(db=db, source_id=source_id)
+        return stats
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{source_id}/discover", response_model=SourceRunRead)
+async def discover_source_publications(
+    source_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Scans the official source portal and catalogs all discovered candidate publications
+    into the SourceDiscovery registry.
+    """
+    try:
+        run = await source_monitoring_service.execute_discovery_scan(
+            db=db,
+            source_id=source_id,
+            run_type="MANUAL_DISCOVERY_SCAN"
+        )
+        return run
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
+
+
+@router.post("/{source_id}/backfill", response_model=BackfillResponse)
+async def backfill_source_publications(
+    source_id: UUID,
+    payload: BackfillRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Executes an automated collection and ingestion batch for discovered circulars.
+    """
+    try:
+        result = await source_monitoring_service.execute_backfill_batch(
+            db=db,
+            source_id=source_id,
+            batch_size=payload.batch_size,
+            department=payload.department,
+            year=payload.year,
+            language=payload.language
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backfill batch failed: {str(e)}")
 
 
 @router.get("/{source_id}", response_model=SourceRead)

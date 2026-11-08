@@ -12,7 +12,7 @@ class TokenUsage(BaseModel):
 
 class LLMResponse(BaseModel):
     raw_content: str
-    parsed_json: Optional[Dict[str, Any]] = None
+    parsed_json: Optional[Any] = None
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
     model_name: str
     latency_ms: int = 0

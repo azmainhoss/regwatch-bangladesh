@@ -70,7 +70,9 @@ class DocumentRead(DocumentBase):
     def is_synthetic(self) -> bool:
         title_lower = (self.title or "").lower()
         ref_lower = (self.reference_number or "").lower()
-        if "sample" in title_lower or "brpd(p)" in ref_lower:
+        if "sample" in title_lower or "test" in title_lower or "gate policy" in title_lower or "citation policy" in title_lower:
+            return True
+        if ref_lower.startswith("brpd(p)") or ref_lower.startswith("vcp-") or ref_lower.startswith("utd-") or ref_lower.startswith("gp-"):
             return True
         if self.publication_status == "DRAFT" and len(self.versions) == 0:
             return True

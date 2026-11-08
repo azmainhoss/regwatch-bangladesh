@@ -37,6 +37,37 @@ async def get_provider_status():
     return get_active_provider_info()
 
 
+@router.post("/provider-test")
+async def test_provider_connection():
+    """
+    Executes an active on-demand handshake probe against the configured AI provider.
+    Updates runtime telemetry without exposing credentials.
+    """
+    from backend.app.modules.analysis.providers.factory import get_ai_provider, get_active_provider_info
+    try:
+        provider = get_ai_provider()
+        res = await provider.generate_structured_json(
+            system_prompt="You are a health probe assistant.",
+            user_prompt="Reply with a JSON having key 'status' and value 'healthy'."
+        )
+        info = get_active_provider_info()
+        info["test_result"] = {
+            "success": res.success,
+            "latency_ms": res.latency_ms,
+            "error": res.error
+        }
+        return info
+    except Exception as e:
+        from backend.app.modules.analysis.providers.factory import update_provider_health
+        update_provider_health(status="TEMPORARILY_UNAVAILABLE", error=str(e))
+        info = get_active_provider_info()
+        info["test_result"] = {
+            "success": False,
+            "error": str(e)
+        }
+        return info
+
+
 @router.post("/{document_id}/analyze", response_model=DocumentAnalysisRead, status_code=status.HTTP_200_OK)
 async def analyze_document(
     document_id: UUID,

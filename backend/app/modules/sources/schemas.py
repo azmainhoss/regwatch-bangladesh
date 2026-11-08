@@ -74,6 +74,13 @@ class SourceDiscoveryRead(BaseModel):
     department_code: Optional[str] = None
     reference_number: Optional[str] = None
     publication_date: Optional[date] = None
+    language: Optional[str] = None
+    publication_type: Optional[str] = "CIRCULAR"
+    file_hash: Optional[str] = None
+    file_size: Optional[int] = None
+    retry_count: int = 0
+    last_attempted_at: Optional[datetime] = None
+    error_message: Optional[str] = None
     discovered_metadata: Dict[str, Any] = {}
     rejection_reason: Optional[str] = None
     status: str
@@ -84,3 +91,37 @@ class SourceDiscoveryRead(BaseModel):
 
 class RejectDiscoveryRequest(BaseModel):
     reason: str
+
+
+class SourceStatsResponse(BaseModel):
+    source_id: UUID
+    source_name: str
+    is_active: bool
+    total_discovered: int
+    total_ingested: int
+    total_pending: int
+    total_duplicates: int
+    total_failed: int
+    department_breakdown: Dict[str, int]
+    year_breakdown: Dict[str, int]
+    language_breakdown: Dict[str, int]
+    last_polled_at: Optional[datetime] = None
+    last_successful_run_at: Optional[datetime] = None
+    access_restriction_status: str
+
+
+class BackfillRequest(BaseModel):
+    batch_size: int = 10
+    department: Optional[str] = None
+    year: Optional[int] = None
+    language: Optional[str] = None
+
+
+class BackfillResponse(BaseModel):
+    status: str
+    message: str
+    attempted: int
+    successful: int
+    duplicates: int
+    failed: int
+    ingested_documents: List[Dict[str, Any]] = []

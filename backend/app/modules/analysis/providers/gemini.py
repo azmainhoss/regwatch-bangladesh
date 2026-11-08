@@ -73,6 +73,9 @@ class GeminiAIProvider(BaseAIProvider):
                 elapsed_ms = int((time.time() - start_time) * 1000)
 
                 if resp.status_code == 200:
+                    from backend.app.modules.analysis.providers.factory import update_provider_health
+                    update_provider_health(status="CONNECTED_TESTED", latency_ms=elapsed_ms, status_code=200)
+
                     resp_data = resp.json()
                     candidates = resp_data.get("candidates", [])
                     if not candidates:
@@ -124,10 +127,12 @@ class GeminiAIProvider(BaseAIProvider):
                             error=f"JSON parsing error: {jde}"
                         )
                 elif resp.status_code == 429:
+                    from backend.app.modules.analysis.providers.factory import update_provider_health
                     error_msg = (
                         "Gemini free-tier quota exhausted or rate limit reached (HTTP 429). "
                         "Execution halted to strictly honor Zero-Cost policy. Please retry after quota reset."
                     )
+                    update_provider_health(status="QUOTA_EXCEEDED", latency_ms=elapsed_ms, status_code=429, error=error_msg)
                     logger.warning(f"Gemini API attempt {attempt + 1}: {error_msg}")
                     return LLMResponse(
                         raw_content=resp.text,

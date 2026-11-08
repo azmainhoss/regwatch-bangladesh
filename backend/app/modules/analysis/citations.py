@@ -14,6 +14,20 @@ STATE_SOURCE_MISSING = "SOURCE_MISSING"
 STATE_HUMAN_CONFIRMED = "HUMAN_CONFIRMED"
 
 
+def safe_int_page(val: Any) -> int:
+    """Coerces strings like '1-2', 'Page 1', etc., or unexpected values to a valid integer."""
+    if isinstance(val, int):
+        return max(1, val)
+    if isinstance(val, str):
+        m = re.search(r'\d+', val)
+        if m:
+            try:
+                return max(1, int(m.group()))
+            except (ValueError, TypeError):
+                pass
+    return 1
+
+
 class CitationValidationResult(BaseModel):
     status: str  # One of the canonical states above
     is_verified: bool  # True ONLY for EXACT, NORMALIZED, or HUMAN_CONFIRMED
@@ -160,6 +174,7 @@ class CitationValidator:
         Validates quote against the cited page first; if missing, scans other document pages
         to detect WRONG_PAGE citations or SOURCE_MISSING states.
         """
+        cited_page_number = safe_int_page(cited_page_number)
         if cited_page_number not in pages_by_number:
             # Check if quote exists elsewhere in the document
             clean_quote = quote.strip()
@@ -243,7 +258,8 @@ class CitationValidator:
         for prov in analysis_payload.get("provisions", []):
             total_claims += 1
             quote = prov.get("verbatim_text", "")
-            p_no = prov.get("page_number", 1)
+            p_no = safe_int_page(prov.get("page_number", 1))
+            prov["page_number"] = p_no
 
             res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
             prov["verification_status"] = res.status
@@ -290,7 +306,8 @@ class CitationValidator:
         for obl in analysis_payload.get("obligations", []):
             total_claims += 1
             quote = obl.get("verbatim_quote", "")
-            p_no = obl.get("page_number", 1)
+            p_no = safe_int_page(obl.get("page_number", 1))
+            obl["page_number"] = p_no
 
             res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
             obl["verification_status"] = res.status
@@ -337,7 +354,8 @@ class CitationValidator:
         for rel in analysis_payload.get("relationships", []):
             total_claims += 1
             quote = rel.get("supporting_quote", "")
-            p_no = rel.get("page_number", 1)
+            p_no = safe_int_page(rel.get("page_number", 1))
+            rel["page_number"] = p_no
 
             res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
             rel["verification_status"] = res.status

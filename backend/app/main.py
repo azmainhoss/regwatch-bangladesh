@@ -17,6 +17,7 @@ from backend.app.modules.analysis.router import router as analysis_router
 from backend.app.modules.research.router import router as research_router
 from backend.app.modules.organizations.router import router as organizations_router
 from backend.app.modules.compliance.router import router as compliance_router
+from backend.app.workers.scheduler import monitoring_scheduler
 
 
 @asynccontextmanager
@@ -26,8 +27,10 @@ async def lifespan(app: FastAPI):
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database schemas verified.")
+    await monitoring_scheduler.start()
     yield
     logger.info("Shutting down application...")
+    await monitoring_scheduler.stop()
     await async_engine.dispose()
 
 

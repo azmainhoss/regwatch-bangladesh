@@ -49,5 +49,9 @@ module.exports = {
       }
     },
   },
-  plugins: [],
+  plugins: [
+    function({ addVariant }) {
+      addVariant('light', '&:where(.light, .light *)');
+    }
+  ],
 }

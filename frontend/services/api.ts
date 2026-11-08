@@ -111,11 +111,77 @@ export interface SourceDiscovery {
   created_at: string;
 }
 
-// Helper to get auth token
-function getAuthToken(): string | null {
+export interface AuthUser {
+  id: string;
+  email: string;
+  full_name: string;
+  phone_number?: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  organization_name?: string;
+  designation?: string;
+}
+
+export function getAuthToken(): string | null {
   if (typeof window !== "undefined") {
     return localStorage.getItem("regwatch_token");
   }
+  return null;
+}
+
+export function getStoredUser(): AuthUser | null {
+  if (typeof window !== "undefined") {
+    const raw = localStorage.getItem("regwatch_user");
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+export function logoutUser() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("regwatch_token");
+    localStorage.removeItem("regwatch_user");
+  }
+}
+
+export async function loginUser(email: string, password: string): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Authentication failed");
+  }
+  const data = await res.json();
+  const token = data.access_token;
+  const user: AuthUser = {
+    ...data.user,
+    organization_name: email.includes("nationalbank") ? "National Standard Bank PLC" : "RegWatch Bangladesh",
+    designation: email.includes("cco") ? "Chief Compliance Officer" : (data.user.is_superuser ? "System Administrator" : "Compliance Officer"),
+  };
+  if (typeof window !== "undefined") {
+    localStorage.setItem("regwatch_token", token);
+    localStorage.setItem("regwatch_user", JSON.stringify(user));
+  }
+  return user;
+}
+
+export async function ensureDefaultBankingSession(): Promise<AuthUser | null> {
+  if (typeof window === "undefined") return null;
+  const existingToken = getAuthToken();
+  const existingUser = getStoredUser();
+  if (existingToken && existingUser) {
+    return existingUser;
+  }
+  // Visitors remain unauthenticated until they log in or click Get Access
   return null;
 }
 
@@ -131,18 +197,49 @@ export async function fetchHealth(): Promise<{ status: string; app_name: string;
 }
 
 export interface ProviderStatusInfo {
+  service_state?: string;
+  is_available?: boolean;
+  status: string;
   configured_provider: string;
   default_model: string;
   gemini_api_key_configured: boolean;
-  status: string;
   timeout_seconds: number;
   max_retries: number;
   billing_policy: string;
+  admin_diagnostics?: {
+    provider_name: string;
+    model_identifier: string;
+    free_tier_eligible: boolean;
+    billing_tier: string;
+    rate_limits: {
+      requests_per_minute: number;
+      tokens_per_minute: number;
+      requests_per_day: number;
+    };
+    last_latency_ms?: number;
+    last_status_code?: number;
+    last_error?: string | null;
+  };
+  test_result?: {
+    success: boolean;
+    latency_ms?: number;
+    error?: string | null;
+  };
 }
 
 export async function fetchProviderStatus(): Promise<ProviderStatusInfo> {
   const res = await fetch(`${API_BASE_URL}/documents/provider-status`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch provider status");
+  return res.json();
+}
+
+export async function testProviderConnection(): Promise<ProviderStatusInfo> {
+  const res = await fetch(`${API_BASE_URL}/documents/provider-test`, {
+    method: "POST",
+    headers: { ...getAuthHeaders() },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to test provider connection");
   return res.json();
 }
 
@@ -260,6 +357,74 @@ export async function approveDiscovery(discoveryId: string): Promise<any> {
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || "Failed to approve discovery");
+  }
+  return res.json();
+}
+
+export interface SourceStats {
+  source_id: string;
+  source_name: string;
+  is_active: boolean;
+  total_discovered: number;
+  total_ingested: number;
+  total_pending: number;
+  total_duplicates: number;
+  total_failed: number;
+  department_breakdown: Record<string, number>;
+  year_breakdown: Record<string, number>;
+  language_breakdown: Record<string, number>;
+  last_polled_at: string | null;
+  last_successful_run_at: string | null;
+  access_restriction_status: string;
+}
+
+export interface BackfillPayload {
+  batch_size: number;
+  department?: string;
+  year?: number;
+  language?: string;
+}
+
+export interface BackfillResult {
+  status: string;
+  message: string;
+  attempted: number;
+  successful: number;
+  duplicates: number;
+  failed: number;
+  ingested_documents: any[];
+}
+
+export async function fetchSourceStats(sourceId: string): Promise<SourceStats> {
+  const headers = getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/stats`, { headers, cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch source statistics");
+  return res.json();
+}
+
+export async function triggerDiscoveryScan(sourceId: string): Promise<SourceRun> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/discover`, {
+    method: "POST",
+    headers,
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to trigger discovery scan");
+  }
+  return res.json();
+}
+
+export async function triggerBackfillBatch(sourceId: string, payload: BackfillPayload): Promise<BackfillResult> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/backfill`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || "Failed to execute backfill batch");
   }
   return res.json();
 }

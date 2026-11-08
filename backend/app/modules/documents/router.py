@@ -5,7 +5,7 @@ from uuid import UUID
 import pymupdf as fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +28,31 @@ from backend.app.modules.sources.models import Source
 router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
 
 MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+
+# Robust synthetic/test record detection matching both schema and test suites
+SYNTHETIC_SQL_CONDITIONS = [
+    Document.title.ilike("Sample%"),
+    Document.title.ilike("%Test%"),
+    Document.title.ilike("Gate Policy%"),
+    Document.title.ilike("%Citation Policy%"),
+    Document.title.ilike("%Test Directive%"),
+    func.coalesce(Document.reference_number, "").ilike("BRPD(P)%"),
+    func.coalesce(Document.reference_number, "").ilike("VCP-%"),
+    func.coalesce(Document.reference_number, "").ilike("UTD-%"),
+    func.coalesce(Document.reference_number, "").ilike("GP-%"),
+]
+
+
+def is_synthetic_record(title: Optional[str], reference_number: Optional[str], status: Optional[str] = None, page_count: int = 0) -> bool:
+    t_low = (title or "").lower()
+    r_low = (reference_number or "").lower()
+    if "sample" in t_low or "test" in t_low or "gate policy" in t_low or "citation policy" in t_low:
+        return True
+    if r_low.startswith("brpd(p)") or r_low.startswith("vcp-") or r_low.startswith("utd-") or r_low.startswith("gp-"):
+        return True
+    if status == "DRAFT" and page_count == 0:
+        return True
+    return False
 
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -131,9 +156,8 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
     synthetic_docs = []
 
     for d in docs:
-        t_low = (d.title or "").lower()
-        r_low = (d.reference_number or "").lower()
-        if "sample" in t_low or "brpd(p)" in r_low or (d.publication_status == "DRAFT" and len(d.versions) == 0):
+        page_cnt = d.versions[0].page_count if d.versions else 0
+        if is_synthetic_record(d.title, d.reference_number, d.publication_status, page_cnt):
             synthetic_docs.append(d)
         else:
             genuine_docs.append(d)
@@ -146,9 +170,10 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
     awaiting_count = sum(1 for d in genuine_docs if d.publication_status == "AWAITING_REVIEW")
     draft_count = sum(1 for d in docs if d.publication_status == "DRAFT")
 
-    # Fetch departments and sources
-    dept_stmt = select(InstitutionDepartment.code).order_by(InstitutionDepartment.code)
+    # Fetch distinct departments and sources
+    dept_stmt = select(InstitutionDepartment.code).distinct().order_by(InstitutionDepartment.code)
     dept_codes = (await db.execute(dept_stmt)).scalars().all()
+    clean_dept_codes = sorted(list(set(c for c in dept_codes if c)))
 
     src_stmt = select(Source).order_by(Source.created_at.desc()).limit(1)
     primary_src = (await db.execute(src_stmt)).scalars().first()
@@ -171,8 +196,8 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
         awaiting_review_count=awaiting_count,
         draft_documents_count=draft_count,
         total_pages_extracted=total_pages,
-        departments_monitored_count=len(dept_codes),
-        departments_codes=list(dept_codes),
+        departments_monitored_count=len(clean_dept_codes),
+        departments_codes=clean_dept_codes,
         primary_authority="Bangladesh Bank",
         source_monitoring_status=src_status,
         source_monitoring_message=src_msg,
@@ -213,18 +238,15 @@ async def list_documents(
             (Document.title.ilike(search_pattern)) |
             (Document.reference_number.ilike(search_pattern))
         )
-    if corpus_type:
-        c_upper = corpus_type.upper()
-        if c_upper == "GENUINE":
-            query = query.where(
-                ~Document.title.ilike("Sample%"),
-                ~func.coalesce(Document.reference_number, "").ilike("BRPD(P)%")
-            )
-        elif c_upper == "SYNTHETIC_SAMPLE":
-            query = query.where(
-                (Document.title.ilike("Sample%")) |
-                (func.coalesce(Document.reference_number, "").ilike("BRPD(P)%"))
-            )
+
+    # API-level isolation: professional feed defaults strictly to genuine publications
+    is_synthetic_sql = or_(*SYNTHETIC_SQL_CONDITIONS)
+    c_upper = (corpus_type or "GENUINE").upper()
+    if c_upper == "GENUINE":
+        query = query.where(~is_synthetic_sql)
+    elif c_upper in ("SYNTHETIC_SAMPLE", "TEST"):
+        query = query.where(is_synthetic_sql)
+    # When c_upper == "ALL", return all records (e.g. for administrators)
 
     query = query.limit(limit).offset(offset)
     result = await db.execute(query)

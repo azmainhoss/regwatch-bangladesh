@@ -1,3 +1,4 @@
+import asyncio
 import re
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -35,6 +36,8 @@ class BangladeshBankConnector(BaseSourceConnector):
         formats = [
             "%d-%m-%Y",
             "%d/%m/%Y",
+            "%d/%m/%y",
+            "%d-%m-%y",
             "%Y-%m-%d",
             "%d %b %Y",
             "%d %B %Y",
@@ -50,44 +53,129 @@ class BangladeshBankConnector(BaseSourceConnector):
 
     @staticmethod
     def infer_department_code(title: str, ref_number: Optional[str], url: str) -> Optional[str]:
+        # 1. Inspect URL path (most accurate for official BB PDFs, e.g. /mediaroom/circulars/brpd/...)
+        url_match = re.search(r"/circulars/([a-zA-Z0-9]+)/", url, re.IGNORECASE)
+        if url_match:
+            dept_slug = url_match.group(1).upper()
+            if dept_slug in ["BRPD", "DOS", "FEPD", "PSD", "DFIM", "SMESPD", "SFD", "FID", "FEID", "ACD", "DMD", "DCM", "DBI", "SDAD"]:
+                return dept_slug
+
+        # 2. Inspect title and reference number
         combined = f"{title} {ref_number or ''} {url}".upper()
-        depts = ["BRPD", "DOS", "FEPD", "PSD", "DBI", "SFD", "DFIM", "SMESPD", "ACD", "SDG"]
+        depts = [
+            "BRPD", "DOS", "FEPD", "PSD", "DFIM", "SMESPD",
+            "SFD", "FID", "FEID", "ACD", "DMD", "DCM", "DBI", "SDAD"
+        ]
         for dept in depts:
             if dept in combined:
                 return dept
         return None
 
+    @staticmethod
+    def infer_publication_type(title: str, ref_number: Optional[str]) -> str:
+        combined = f"{title} {ref_number or ''}".lower()
+        if "circular letter" in combined or "circular-letter" in combined or "প্রজ্ঞাপন" in combined or "পত্র" in combined:
+            return "CIRCULAR_LETTER"
+        elif "guideline" in combined or "guidelines" in combined or "নীতিমালা" in combined or "policy" in combined:
+            return "POLICY_GUIDELINE"
+        return "CIRCULAR"
+
     def parse_listing_html(self, html_content: str, source_page_url: str) -> List[CandidatePublication]:
         """
         Parses Bangladesh Bank circular listing HTML table or links.
-        Extracts candidate circular items.
+        Extracts high-fidelity candidate circular items with dates, references, and PDF URLs.
+        Collects both English and Bangla publications.
         """
         candidates: List[CandidatePublication] = []
 
-        # Find all <a> tags with href ending in .pdf or containing circulars
-        # Pattern 1: Table row with date, title, link
-        # Look for links to PDFs
-        link_pattern = re.compile(
+        # Strategy 1: High-fidelity Table Row parsing (Official BB Circular format)
+        row_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+        cell_pattern = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
+        link_pattern = re.compile(r'href=["\']([^"\']+\.pdf)["\']', re.IGNORECASE)
+
+        rows = row_pattern.findall(html_content)
+        for row_html in rows:
+            cells = cell_pattern.findall(row_html)
+            if len(cells) >= 4:
+                date_str = re.sub(r"<[^>]+>", "", cells[0]).strip()
+                title_raw = re.sub(r"<[^>]+>", "", cells[1]).strip()
+
+                links_cell2 = link_pattern.findall(cells[2])
+                links_cell3 = link_pattern.findall(cells[3])
+
+                if not title_raw or len(title_raw) < 4:
+                    continue
+
+                pub_date = self.parse_publication_date(date_str)
+                pub_type = self.infer_publication_type(title_raw, None)
+
+                # Extract reference number from title (e.g. BRPD Circular No. 15, DOS Circular Letter No. 02)
+                ref_match = re.search(
+                    r"((?:BRPD|DOS|FEPD|PSD|SFD|DBI|SMESPD|ACD|SDAD|FID|FEID|DFIM|DMD|DCM)[\w\-]*(?:\s+Circular\s+Letter|\s+Circular|\s+Letter)?\s*(?:No\.|Letter No\.)?\s*[\w\-\/]+)",
+                    title_raw,
+                    re.IGNORECASE
+                )
+                ref_no = ref_match.group(1).strip() if ref_match else None
+
+                # Process English PDF link
+                if links_cell2:
+                    eng_pdf_rel = links_cell2[0]
+                    eng_pdf_url = urljoin(source_page_url, eng_pdf_rel)
+                    dept_code = self.infer_department_code(title_raw, ref_no, eng_pdf_url)
+                    candidates.append(CandidatePublication(
+                        title=title_raw,
+                        reference_number=ref_no,
+                        department_code=dept_code,
+                        publication_date=pub_date,
+                        detail_url=source_page_url,
+                        file_url=eng_pdf_url,
+                        language="English",
+                        publication_type=pub_type,
+                        metadata={"raw_date": date_str, "language": "English", "relative_href": eng_pdf_rel}
+                    ))
+
+                # Process Bangla PDF link
+                if links_cell3:
+                    bn_pdf_rel = links_cell3[0]
+                    bn_pdf_url = urljoin(source_page_url, bn_pdf_rel)
+                    dept_code = self.infer_department_code(title_raw, ref_no, bn_pdf_url)
+                    candidates.append(CandidatePublication(
+                        title=title_raw,
+                        reference_number=ref_no,
+                        department_code=dept_code,
+                        publication_date=pub_date,
+                        detail_url=source_page_url,
+                        file_url=bn_pdf_url,
+                        language="Bangla",
+                        publication_type=pub_type,
+                        metadata={"raw_date": date_str, "language": "Bangla", "relative_href": bn_pdf_rel}
+                    ))
+
+        if candidates:
+            return candidates
+
+        # Strategy 2: Fallback anchor tag parsing
+        anchor_pattern = re.compile(
             r'<a[^>]+href=["\']([^"\']+\.pdf)["\'][^>]*>(.*?)</a>',
             re.IGNORECASE | re.DOTALL
         )
 
-        for match in link_pattern.finditer(html_content):
+        for match in anchor_pattern.finditer(html_content):
             href, anchor_text = match.groups()
             cleaned_anchor = re.sub(r"<[^>]+>", "", anchor_text).strip()
             
-            # Normalize URL
             full_pdf_url = urljoin(source_page_url, href)
 
-            # Look for reference number in anchor or surrounding context
-            ref_match = re.search(r"((BRPD|DOS|FEPD|PSD|SFD|DBI)\s*(Circular|Circular Letter)?\s*(No\.|Letter No\.)?\s*[\w\-\/]+)", cleaned_anchor, re.IGNORECASE)
+            ref_match = re.search(
+                r"((?:BRPD|DOS|FEPD|PSD|SFD|DBI|DFIM|SMESPD|ACD|FID|FEID)\s*(?:Circular|Circular Letter)?\s*(?:No\.|Letter No\.)?\s*[\w\-\/]+)",
+                cleaned_anchor,
+                re.IGNORECASE
+            )
             ref_number = ref_match.group(1).strip() if ref_match else None
 
-            # Look for date in anchor or url
-            date_match = re.search(r"(\d{1,2}[-\/\s]([A-Za-z]{3,}|\d{1,2})[-\/\s]\d{4})", cleaned_anchor)
+            date_match = re.search(r"(\d{1,2}[-\/\s]([A-Za-z]{3,}|\d{1,2})[-\/\s]\d{2,4})", cleaned_anchor)
             pub_date = self.parse_publication_date(date_match.group(1)) if date_match else None
 
-            # Fallback date from URL pattern: e.g. nov272024brpd15e.pdf
             if not pub_date:
                 url_date_match = re.search(r"([a-z]{3})(\d{1,2})(\d{4})", full_pdf_url.lower())
                 if url_date_match:
@@ -98,26 +186,27 @@ class BangladeshBankConnector(BaseSourceConnector):
                         pass
 
             dept_code = self.infer_department_code(cleaned_anchor, ref_number, full_pdf_url)
-
             title = cleaned_anchor if len(cleaned_anchor) > 5 else (ref_number or "Bangladesh Bank Circular")
+            pub_type = self.infer_publication_type(title, ref_number)
 
-            candidate = CandidatePublication(
+            candidates.append(CandidatePublication(
                 title=title,
                 reference_number=ref_number,
                 department_code=dept_code,
                 publication_date=pub_date,
                 detail_url=source_page_url,
                 file_url=full_pdf_url,
+                language="English" if "e.pdf" in full_pdf_url.lower() else "Bangla",
+                publication_type=pub_type,
                 metadata={"raw_anchor": cleaned_anchor, "relative_href": href}
-            )
-            candidates.append(candidate)
+            ))
 
         return candidates
 
     async def discover_publications(self, max_pages: int = 1) -> DiscoveryResult:
         result = DiscoveryResult()
         
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
             try:
                 resp = await client.get(self.base_url, headers=self._get_headers())
                 result.pages_inspected += 1
@@ -144,41 +233,73 @@ class BangladeshBankConnector(BaseSourceConnector):
 
         return result
 
-    async def download_document(self, file_url: str) -> Tuple[Optional[bytes], Optional[AntiBotChallenge]]:
-        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
-            try:
-                resp = await client.get(file_url, headers=self._get_headers())
-                # Check for challenge in response
-                challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
-                if challenge:
-                    return None, challenge
+    async def download_document(
+        self,
+        file_url: str,
+        max_retries: int = 3,
+        backoff_base_seconds: float = 1.0
+    ) -> Tuple[Optional[bytes], Optional[AntiBotChallenge]]:
+        """
+        Downloads a document file from the official source with exponential backoff retry
+        and strict magic-bytes verification.
+        """
+        async with httpx.AsyncClient(timeout=35.0, follow_redirects=True) as client:
+            last_challenge = None
+            for attempt in range(max_retries):
+                try:
+                    resp = await client.get(file_url, headers=self._get_headers())
+                    # Check for challenge in response
+                    challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
+                    if challenge:
+                        return None, challenge
 
-                if resp.status_code == 200:
-                    content = resp.content
-                    # Ensure it is actually a PDF and not an HTML challenge disguised as 200
-                    if not content.startswith(b"%PDF-"):
-                        challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
-                        if challenge:
-                            return None, challenge
-                        return None, AntiBotChallenge(
-                            is_blocked=True,
-                            challenge_type="INVALID_CONTENT_TYPE",
+                    if resp.status_code == 200:
+                        content = resp.content
+                        # Ensure it is genuinely a PDF (%PDF-) and not an HTML challenge or error page
+                        if not content.startswith(b"%PDF-"):
+                            challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
+                            if challenge:
+                                return None, challenge
+                            return None, AntiBotChallenge(
+                                is_blocked=True,
+                                challenge_type="INVALID_CONTENT_TYPE",
+                                status_code=resp.status_code,
+                                details="Response returned non-PDF content (likely an unrecognized bot challenge or error page)."
+                            )
+                        return content, None
+                    elif resp.status_code in [500, 502, 503, 504]:
+                        # Transient server error on Bangladesh Bank side, retry with backoff
+                        logger.warning(f"HTTP {resp.status_code} downloading {file_url} (attempt {attempt + 1}/{max_retries})")
+                        last_challenge = AntiBotChallenge(
+                            is_blocked=False,
+                            challenge_type="HTTP_SERVER_ERROR",
                             status_code=resp.status_code,
-                            details="Response returned non-PDF content (likely an unrecognized bot challenge or error page)."
+                            details=f"Transient HTTP {resp.status_code} error from source."
                         )
-                    return content, None
-                else:
-                    return None, AntiBotChallenge(
+                    else:
+                        return None, AntiBotChallenge(
+                            is_blocked=False,
+                            challenge_type="HTTP_ERROR",
+                            status_code=resp.status_code,
+                            details=f"Download failed with HTTP status {resp.status_code}"
+                        )
+                except (httpx.RequestError, httpx.TimeoutException) as req_err:
+                    logger.warning(f"Network error downloading {file_url} (attempt {attempt + 1}/{max_retries}): {req_err}")
+                    last_challenge = AntiBotChallenge(
                         is_blocked=False,
-                        challenge_type="HTTP_ERROR",
-                        status_code=resp.status_code,
-                        details=f"Download failed with HTTP status {resp.status_code}"
+                        challenge_type="NETWORK_EXCEPTION",
+                        status_code=0,
+                        details=f"Network exception downloading file: {str(req_err)}"
                     )
-            except httpx.RequestError as e:
-                return None, AntiBotChallenge(
-                    is_blocked=False,
-                    challenge_type="NETWORK_EXCEPTION",
-                    status_code=0,
-                    details=f"Network exception downloading file: {str(e)}"
-                )
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(backoff_base_seconds * (2 ** attempt))
+
+            return None, last_challenge or AntiBotChallenge(
+                is_blocked=False,
+                challenge_type="MAX_RETRIES_EXCEEDED",
+                status_code=0,
+                details=f"Failed to download after {max_retries} attempts."
+            )
+
 

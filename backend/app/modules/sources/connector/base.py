@@ -11,6 +11,8 @@ class CandidatePublication(BaseModel):
     publication_date: Optional[date] = None
     detail_url: str
     file_url: Optional[str] = None
+    language: Optional[str] = None
+    publication_type: Optional[str] = "CIRCULAR"
     metadata: Dict[str, Any] = {}
 
 
