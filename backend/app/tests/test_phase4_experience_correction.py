@@ -92,7 +92,7 @@ async def test_authenticated_regulatory_qa():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Log in as Chief Compliance Officer
         login_res = await client.post("/api/v1/auth/login", json={
-            "email": "cco@nationalbank.bd",
+            "email": "cco@abcbank.bd",
             "password": "CCOPassword123!"
         })
         assert login_res.status_code == 200

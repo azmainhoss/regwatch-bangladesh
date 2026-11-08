@@ -23,7 +23,7 @@ def main():
     data["institution_departments"] = cur.execute("SELECT * FROM institution_departments").fetchall()
 
     # 2. Users & Profiles & Organizations
-    data["users"] = cur.execute("SELECT * FROM users WHERE email IN ('admin@regwatch.bd', 'cco@nationalbank.bd')").fetchall()
+    data["users"] = cur.execute("SELECT * FROM users WHERE email IN ('admin@regwatch.bd', 'cco@abcbank.bd', 'cco@nationalbank.bd')").fetchall()
     data["user_profiles"] = cur.execute("SELECT * FROM user_profiles").fetchall()
     data["organizations"] = cur.execute("SELECT * FROM organizations").fetchall()
     data["departments"] = cur.execute("SELECT * FROM departments").fetchall()

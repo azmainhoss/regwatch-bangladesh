@@ -61,7 +61,7 @@ Access the application at: `http://localhost:3000`.
 
 ## Seed Credentials (Development)
 - **Superadmin:** `admin@regwatch.bd` / `AdminPassword123!`
-- **Bank CCO:** `cco@nationalbank.bd` / `CCOPassword123!` (National Standard Bank PLC)
+- **Bank CCO:** `cco@abcbank.bd` / `CCOPassword123!` (ABC Bank PLC)
 
 ---
 

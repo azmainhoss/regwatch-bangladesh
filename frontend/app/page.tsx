@@ -668,7 +668,7 @@ export default function ProfessionalCircularsPage() {
 
   const handleFastLogin = async () => {
     try {
-      const user = await loginUser("cco@nationalbank.bd", "CCOPassword123!");
+      const user = await loginUser("cco@abcbank.bd", "CCOPassword123!");
       setCurrentUser(user);
       if (selectedDoc) {
         handleSelectDoc(selectedDoc);

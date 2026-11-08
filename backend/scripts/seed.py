@@ -91,12 +91,12 @@ async def seed():
             session.add(profile)
             print(f" + Created Superadmin: {admin_email} (Pass: AdminPassword123!)")
 
-        # 4. Organization: National Standard Bank PLC
-        org_query = await session.execute(select(Organization).where(Organization.name == "National Standard Bank PLC"))
+        # 4. Organization: ABC Bank PLC
+        org_query = await session.execute(select(Organization).where(Organization.name == "ABC Bank PLC"))
         org = org_query.scalar_one_or_none()
         if not org:
             org = Organization(
-                name="National Standard Bank PLC",
+                name="ABC Bank PLC",
                 entity_type="COMMERCIAL_BANK",
                 registration_number="C-12345/2020",
                 license_number="BB-BRPD-LIC-9876",
@@ -113,7 +113,7 @@ async def seed():
             await session.flush()
 
             # Bank CCO User
-            cco_email = "cco@nationalbank.bd"
+            cco_email = "cco@abcbank.bd"
             cco = User(
                 email=cco_email,
                 hashed_password=get_password_hash("CCOPassword123!"),
@@ -133,7 +133,7 @@ async def seed():
                 status="ACTIVE"
             )
             session.add(member)
-            print(f" + Created Organization: National Standard Bank PLC with CCO: {cco_email}")
+            print(f" + Created Organization: ABC Bank PLC with CCO: {cco_email}")
 
         await session.commit()
         print(" Seeding completed successfully!")

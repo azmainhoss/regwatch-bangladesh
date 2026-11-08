@@ -12,3 +12,4 @@ export async function POST(
     message: "Continuous scan discovered 3 recent Bangladesh Bank regulatory circulars.",
   });
 }
+

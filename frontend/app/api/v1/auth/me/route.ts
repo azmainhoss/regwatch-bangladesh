@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     id: "active-user-session",
-    email: isSuper ? "admin@regwatch.bd" : "cco@nationalbank.bd",
+    email: isSuper ? "admin@regwatch.bd" : "cco@abcbank.bd",
     full_name: isSuper ? "System Administrator" : "Mahmudur Rahman, CCO",
     is_superuser: isSuper,
     is_active: true,

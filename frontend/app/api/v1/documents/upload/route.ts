@@ -8,3 +8,4 @@ export async function POST(request: NextRequest) {
     message: "PDF uploaded successfully. Text extraction and classification queued.",
   });
 }
+

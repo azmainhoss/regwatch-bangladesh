@@ -8,3 +8,4 @@ export async function POST(request: NextRequest) {
     model: "gemini-flash-lite-latest",
   });
 }
+

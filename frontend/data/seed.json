@@ -1414,7 +1414,7 @@
       "updated_at": "2026-11-05 13:56:32.557512"
     },
     {
-      "email": "cco@nationalbank.bd",
+      "email": "cco@abcbank.bd",
       "hashed_password": "$2b$12$DKsnvb/XCdeZZEcbtKzRWefCB6MKfjdcMAPhN6tDaabX3BTqAJSkO",
       "full_name": "Mahmudur Rahman, CCO",
       "phone_number": "+8801800000000",
@@ -3454,7 +3454,7 @@
   ],
   "organizations": [
     {
-      "name": "National Standard Bank PLC",
+      "name": "ABC Bank PLC",
       "entity_type": "COMMERCIAL_BANK",
       "registration_number": "C-12345/2020",
       "license_number": "BB-BRPD-LIC-9876",

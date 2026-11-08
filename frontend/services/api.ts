@@ -205,7 +205,7 @@ export async function loginUser(email: string, password: string): Promise<AuthUs
   const token = data.access_token;
   const user: AuthUser = {
     ...data.user,
-    organization_name: email.includes("nationalbank") ? "National Standard Bank PLC" : "RegWatch Bangladesh",
+    organization_name: (email.includes("abcbank") || email.includes("nationalbank")) ? "ABC Bank PLC" : "RegWatch Bangladesh",
     designation: email.includes("cco") ? "Chief Compliance Officer" : (data.user.is_superuser ? "System Administrator" : "Compliance Officer"),
   };
   if (typeof window !== "undefined") {

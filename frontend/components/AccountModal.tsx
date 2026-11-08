@@ -201,7 +201,7 @@ export default function AccountModal({
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => handleQuickSwitch("cco@nationalbank.bd", "CCOPassword123!")}
+                    onClick={() => handleQuickSwitch("cco@abcbank.bd", "CCOPassword123!")}
                     className="flex-1 py-1.5 px-2 bg-tealNavy-850 hover:bg-tealNavy-800 text-slate-200 rounded-lg text-[11px] border border-tealNavy-700 transition"
                   >
                     Chief Compliance Officer

@@ -10,3 +10,4 @@ export async function POST(
     message: "Continuous monitoring pipeline triggered for Bangladesh Bank source.",
   });
 }
+
