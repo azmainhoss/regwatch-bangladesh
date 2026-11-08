@@ -209,13 +209,13 @@ function CircularDetailView({
           </span>
           <div className="flex items-center space-x-2">
             <a
-              href={`http://localhost:8000/api/v1/documents/${selectedDoc.id}/pdf`}
+              href={selectedDoc.source_url || `/api/v1/documents/${selectedDoc.id}`}
               target="_blank"
               rel="noreferrer"
               className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Download Official PDF</span>
+              <span>Download Official Circular</span>
             </a>
           </div>
         </div>
@@ -261,20 +261,38 @@ function CircularDetailView({
               2. What Has Changed
             </h3>
             <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-              {analysis?.key_changes && analysis.key_changes.length > 0 ? (
-                <ul className="space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
-                  {analysis.key_changes.map((change, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-turquoise shrink-0 mt-0.5" />
-                      <span className="leading-relaxed">{change}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
-                  This publication establishes a new regulatory framework. See the mandatory requirements below for operational details.
-                </p>
-              )}
+              {(() => {
+                let changes: any[] = [];
+                if (Array.isArray(analysis?.key_changes)) {
+                  changes = analysis.key_changes;
+                } else if (typeof analysis?.key_changes === "string") {
+                  try {
+                    const parsed = JSON.parse(analysis.key_changes);
+                    changes = Array.isArray(parsed) ? parsed : [analysis.key_changes];
+                  } catch {
+                    changes = [analysis.key_changes];
+                  }
+                }
+                if (changes && changes.length > 0) {
+                  return (
+                    <ul className="space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
+                      {changes.map((change, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-turquoise shrink-0 mt-0.5" />
+                          <span className="leading-relaxed">
+                            {typeof change === "string" ? change : JSON.stringify(change)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                }
+                return (
+                  <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
+                    This publication establishes a new regulatory framework. See the mandatory requirements below for operational details.
+                  </p>
+                );
+              })()}
             </div>
           </div>
 
@@ -458,7 +476,7 @@ function CircularDetailView({
                   {qaResponse.answer}
                 </p>
 
-                {qaResponse.citations && qaResponse.citations.length > 0 && (
+                {Array.isArray(qaResponse.citations) && qaResponse.citations.length > 0 && (
                   <div className="pt-2 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 space-y-2">
                     <span className="text-[11px] font-mono text-turquoise dark:text-turquoise light:text-teal-700 block font-bold">
                       Supporting Page Citations:
@@ -469,9 +487,9 @@ function CircularDetailView({
                         className="p-2 bg-tealNavy-900/60 dark:bg-tealNavy-900/60 light:bg-white rounded border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 text-[11px] font-mono text-slate-400 dark:text-slate-400 light:text-slate-600"
                       >
                         <strong className="text-slate-300 dark:text-slate-300 light:text-tealNavy-950">
-                          Page {cit.page_number}:
+                          Page {cit.page_number || cit.page || 1}:
                         </strong>{" "}
-                        &ldquo;{cit.verbatim_excerpt}&rdquo;
+                        &ldquo;{cit.verbatim_excerpt || cit.quoted_text || ""}&rdquo;
                       </div>
                     ))}
                   </div>

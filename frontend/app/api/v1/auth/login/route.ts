@@ -15,3 +15,4 @@ export async function POST(request: NextRequest) {
   const result = authenticate(email, password);
   return NextResponse.json(result);
 }
+

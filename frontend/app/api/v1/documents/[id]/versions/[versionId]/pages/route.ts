@@ -8,3 +8,4 @@ export async function GET(
   const pages = getDocumentPages(params.id, params.versionId);
   return NextResponse.json(pages);
 }
+

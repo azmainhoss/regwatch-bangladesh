@@ -12,3 +12,4 @@ export async function GET(request: NextRequest) {
     is_active: true,
   });
 }
+

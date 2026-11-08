@@ -5,3 +5,4 @@ export async function GET() {
   const stats = getDocumentStats();
   return NextResponse.json(stats);
 }
+

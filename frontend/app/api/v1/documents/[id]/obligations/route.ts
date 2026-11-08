@@ -8,3 +8,4 @@ export async function GET(
   const obligations = getDocumentObligations(params.id);
   return NextResponse.json(obligations);
 }
+

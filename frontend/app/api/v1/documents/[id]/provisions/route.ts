@@ -8,3 +8,4 @@ export async function GET(
   const provisions = getDocumentProvisions(params.id);
   return NextResponse.json(provisions);
 }
+

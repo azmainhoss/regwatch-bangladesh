@@ -864,7 +864,7 @@ export default function AdminConsolePage() {
                   className="w-full bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl px-3 py-2 text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise"
                 >
                   <option value="">-- Unspecified --</option>
-                  {selectedInst?.departments.map((dept) => (
+                  {selectedInst?.departments?.map((dept) => (
                     <option key={dept.id} value={dept.id}>
                       {dept.code} - {dept.name}
                     </option>

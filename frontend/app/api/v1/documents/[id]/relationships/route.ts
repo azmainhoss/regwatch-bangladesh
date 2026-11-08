@@ -7,3 +7,4 @@ export async function GET(
   // Relationships are embedded directly in structured_payload
   return NextResponse.json([]);
 }
+

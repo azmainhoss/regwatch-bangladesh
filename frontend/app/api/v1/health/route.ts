@@ -9,3 +9,4 @@ export async function GET() {
     timestamp: Date.now() / 1000,
   });
 }
+

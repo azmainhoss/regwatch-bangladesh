@@ -5,3 +5,4 @@ export async function GET() {
   const sources = getSources();
   return NextResponse.json(sources);
 }
+

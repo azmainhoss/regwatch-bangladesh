@@ -23,3 +23,4 @@ export async function POST(request: NextRequest) {
   const result = authenticate(username, password);
   return NextResponse.json(result);
 }
+
