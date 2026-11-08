@@ -112,7 +112,7 @@ class ResearchService:
         if institution_id:
             doc_stmt = doc_stmt.where(Document.institution_id == institution_id)
 
-        doc_stmt = doc_stmt.limit(5)
+        doc_stmt = doc_stmt.limit(25)
         docs = (await db.execute(doc_stmt)).scalars().all()
 
         if not docs:
@@ -167,7 +167,7 @@ class ResearchService:
         corpus_blocks = []
         citations_list = []
         for snip in top_snippets:
-            safe_text = sanitize_prompt_injection(snip["text"][:1200])
+            safe_text = sanitize_prompt_injection(snip["text"][:6000])
             corpus_blocks.append(
                 f"[{snip['ref_no']} - Page {snip['page_no']}]\n{safe_text}"
             )
