@@ -1,17 +1,18 @@
 services:
   - type: web
-    name: regwatch-backend
-    env: docker
+    name: regwatch-api
+    runtime: docker
+    dockerContext: .
     dockerfilePath: ./Dockerfile
     plan: free
-    region: singapore
+    region: oregon
+    branch: main
+    healthCheckPath: /api/v1/health
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: APP_NAME
-        value: "RegWatch Bangladesh"
-      - key: APP_VERSION
-        value: "1.0.0"
+      - key: DEBUG
+        value: "false"
       - key: AI_PROVIDER
         value: gemini
       - key: GEMINI_API_KEY
@@ -19,16 +20,10 @@ services:
       - key: GEMINI_MODEL
         value: gemini-flash-lite-latest
       - key: DATABASE_URL
-        fromDatabase:
-          name: regwatch-db
-          property: connectionString
-      - key: SECRET_KEY
-        generateValue: true
-
-databases:
-  - name: regwatch-db
-    plan: free
-    region: singapore
-    databaseName: regwatch
-    user: regwatch
-
+        value: sqlite+aiosqlite:///./data/regwatch.db
+      - key: SYNC_DATABASE_URL
+        value: sqlite:///./data/regwatch.db
+      - key: STORAGE_DRIVER
+        value: local
+      - key: STORAGE_LOCAL_ROOT
+        value: ./storage
