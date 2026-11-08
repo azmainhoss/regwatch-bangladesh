@@ -489,7 +489,7 @@ function CircularDetailView({
                         <strong className="text-slate-300 dark:text-slate-300 light:text-tealNavy-950">
                           Page {cit.page_number || cit.page || 1}:
                         </strong>{" "}
-                        &ldquo;{cit.verbatim_excerpt || cit.quoted_text || ""}&rdquo;
+                        &ldquo;{cit.verbatim_excerpt || cit.quoted_text || cit.quote || ""}&rdquo;
                       </div>
                     ))}
                   </div>

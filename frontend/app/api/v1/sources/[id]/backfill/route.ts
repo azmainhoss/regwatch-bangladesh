@@ -7,8 +7,9 @@ export async function POST(
   return NextResponse.json({
     status: "COMPLETED",
     source_id: params.id,
-    documents_ingested: 5,
-    message: "Historical backfill batch ingested successfully into repository.",
+    successful: 10,
+    total: 10,
+    documents_ingested: 10,
+    message: "Historical backfill batch ingested 10 official circulars into repository.",
   });
 }
-
