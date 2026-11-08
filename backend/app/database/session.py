@@ -29,9 +29,11 @@ AsyncSessionLocal = async_sessionmaker(
 # Sync Engine for Alembic migrations and synchronous CLI tools
 sync_url = settings.SYNC_DATABASE_URL or settings.DATABASE_URL
 if sync_url.startswith("postgresql+asyncpg://"):
-    sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
 elif sync_url.startswith("postgres://"):
-    sync_url = sync_url.replace("postgres://", "postgresql://", 1)
+    sync_url = sync_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif sync_url.startswith("postgresql://") and "+psycopg2" not in sync_url:
+    sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 elif sync_url.startswith("sqlite+aiosqlite://"):
     sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
 
