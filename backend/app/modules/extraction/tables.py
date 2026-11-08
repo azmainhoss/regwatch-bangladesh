@@ -35,6 +35,10 @@ class TableExtractor:
         """
         extracted_tables: List[Dict[str, Any]] = []
 
+        # Safeguard: skip heavy pdfplumber visual grid extraction on files > 2MB to protect RAM
+        if len(pdf_bytes) > 2_000_000:
+            return extracted_tables
+
         # Strategy 1: pdfplumber visual extraction
         try:
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
