@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
-from backend.app.database.session import async_engine, get_async_db
+from backend.app.database.session import async_engine, get_async_db, AsyncSessionLocal
 from backend.app.database.models import Base
 from backend.app.modules.identity.router import router as auth_router
 from backend.app.modules.institutions.router import router as institutions_router
@@ -27,6 +27,15 @@ async def lifespan(app: FastAPI):
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database schemas verified.")
+
+    # Auto-seed if database is empty (e.g. freshly provisioned cloud database)
+    try:
+        from backend.scripts.import_seed_data import import_seed
+        async with AsyncSessionLocal() as session:
+            await import_seed(session)
+    except Exception as e:
+        logger.warning(f"Auto-hydration skipped or failed: {e}")
+
     await monitoring_scheduler.start()
     yield
     logger.info("Shutting down application...")
@@ -48,6 +57,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=r"^https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

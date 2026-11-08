@@ -5,11 +5,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.app.core.config import settings
 
 # Async Engine for FastAPI async handlers
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 async_engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=False,
     future=True,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -21,11 +27,19 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 # Sync Engine for Alembic migrations and synchronous CLI tools
+sync_url = settings.SYNC_DATABASE_URL or settings.DATABASE_URL
+if sync_url.startswith("postgresql+asyncpg://"):
+    sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+elif sync_url.startswith("postgres://"):
+    sync_url = sync_url.replace("postgres://", "postgresql://", 1)
+elif sync_url.startswith("sqlite+aiosqlite://"):
+    sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://", 1)
+
 sync_engine = create_engine(
-    settings.SYNC_DATABASE_URL,
+    sync_url,
     echo=False,
     future=True,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.SYNC_DATABASE_URL else {}
+    connect_args={"check_same_thread": False} if "sqlite" in sync_url else {}
 )
 
 SyncSessionLocal = sessionmaker(
