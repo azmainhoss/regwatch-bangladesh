@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 from typing import Optional, Tuple
 from uuid import UUID
@@ -88,10 +89,13 @@ class DocumentIngestionService:
             version_num = len(doc.versions) + 1
             doc.publication_status = "EXTRACTING"
 
-        # Run page extraction
-        # Safeguard memory on cloud environments by disabling heavy OCR in production or on multi-megabyte files (>2.5MB)
+        # Run page extraction in worker thread so event loop remains responsive for health checks
         should_ocr = (len(pdf_bytes) <= 2500000) and (getattr(settings, "ENVIRONMENT", "development") != "production")
-        extracted_pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=should_ocr)
+        extracted_pages = await asyncio.to_thread(
+            extraction_service.extract_document_pages,
+            pdf_bytes=pdf_bytes,
+            ocr_fallback=should_ocr
+        )
         page_count = len(extracted_pages)
         is_scanned = any(p["extraction_method"] == "OCR_TESSERACT" for p in extracted_pages)
 

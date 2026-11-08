@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 from io import BytesIO
 from typing import List, Optional
@@ -412,7 +413,8 @@ async def retrigger_extraction(
 
     pdf_bytes = storage_service.get_file_bytes(version.storage_path)
     from backend.app.modules.extraction.service import extraction_service
-    extracted_pages = extraction_service.extract_document_pages(
+    extracted_pages = await asyncio.to_thread(
+        extraction_service.extract_document_pages,
         pdf_bytes=pdf_bytes,
         ocr_fallback=True,
         preferred_language=preferred_language
