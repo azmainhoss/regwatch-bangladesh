@@ -20,6 +20,7 @@ from backend.app.modules.documents.schemas import (
     DocumentRead,
     DocumentUploadResponse,
     DocumentVersionRead,
+    PageCorrectionRequest,
 )
 from backend.app.modules.documents.service import document_ingestion_service
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
