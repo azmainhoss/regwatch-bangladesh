@@ -44,6 +44,10 @@ class ExtractionService:
         pages_result: List[Dict[str, Any]] = []
         consecutive_ocr_pages = 0
 
+        # Memory safeguard: disable heavy Tesseract OCR on documents >2.5MB or >10 pages
+        if len(pdf_bytes) > 2500000 or len(doc) > 10:
+            ocr_fallback = False
+
         for page_idx in range(len(doc)):
             page_no = page_idx + 1
             page = doc[page_idx]

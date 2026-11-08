@@ -89,7 +89,9 @@ class DocumentIngestionService:
             doc.publication_status = "EXTRACTING"
 
         # Run page extraction
-        extracted_pages = extraction_service.extract_document_pages(pdf_bytes)
+        # Safeguard memory on cloud environments by disabling heavy OCR on multi-megabyte files (>2.5MB)
+        should_ocr = len(pdf_bytes) <= 2500000
+        extracted_pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=should_ocr)
         page_count = len(extracted_pages)
         is_scanned = any(p["extraction_method"] == "OCR_TESSERACT" for p in extracted_pages)
 
