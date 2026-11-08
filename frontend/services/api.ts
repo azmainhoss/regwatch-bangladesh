@@ -21,7 +21,7 @@ export async function apiFetch(endpoint: string, options?: RequestInit): Promise
 
   try {
     const res = await fetch(targetUrl, options);
-    if (!res.ok && targetUrl.startsWith("http://localhost:8000/api/v1") && typeof window !== "undefined") {
+    if (!res.ok && !targetUrl.startsWith("/api/v1") && typeof window !== "undefined") {
       const fallbackUrl = `/api/v1${cleanEndpoint}`;
       try {
         const fallbackRes = await fetch(fallbackUrl, options);
