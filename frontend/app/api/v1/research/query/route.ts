@@ -66,8 +66,9 @@ export async function POST(request: NextRequest) {
             : "",
         ].filter(Boolean).join("\n\n");
 
+        const modelName = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
         const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
                   role: "user",
                   parts: [
                     {
-                      text: `You are RegWatch Bangladesh AI, a specialized compliance analyst for Bangladesh Bank regulatory circulars.\n\nContext:\n${promptContext}\n\nUser Question: ${query}\n\nInstructions:\n1. Answer strictly based on the context above with zero hallucination.\n2. State the key compliance duties, deadlines, or definitions.\n3. Mention the relevant page or circular reference where applicable. Keep the answer professional and concise.`,
+                      text: `You are RegWatch Bangladesh AI, an expert banking regulatory compliance intelligence assistant.\n\nOFFICIAL REGULATORY CONTEXT:\n${promptContext}\n\nUSER QUESTION: ${query}\n\nINSTRUCTIONS:\n1. Answer the user's question directly, accurately, and thoroughly using the context above.\n2. Do NOT give a generic summary if the user is asking a specific question (e.g. about deadlines, penalties, definitions, stages, or comparisons). Address their specific inquiry directly.\n3. If the user asks in Bengali or requests Bengali, respond in fluent Bengali. If in English, respond in English.\n4. Mention specific clauses, page numbers, and circular references where appropriate.\n5. Keep the tone professional, objective, and authoritative for banking compliance officers.`,
                     },
                   ],
                 },
