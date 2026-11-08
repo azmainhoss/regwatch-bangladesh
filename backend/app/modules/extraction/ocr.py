@@ -128,6 +128,23 @@ class OCRManager:
         }
         """
         lang = self.select_ocr_language(language_hint)
+        # Memory constraint safeguard: skip heavy Tesseract if container has <300MB free RAM
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            if mem.available < 300 * 1024 * 1024:
+                logger.warning(f"Skipping Tesseract OCR for page {page.number + 1}: low available memory ({mem.available // (1024*1024)}MB available).")
+                return {
+                    "ocr_text": "",
+                    "mean_confidence": 0.0,
+                    "word_confidences": [],
+                    "language_used": lang,
+                    "success": False,
+                    "error": "Memory constrained; OCR deferred."
+                }
+        except Exception:
+            pass
+
         try:
             img = self.render_page_to_image(page, dpi=dpi)
 
