@@ -1,6 +1,45 @@
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-const cleanApiUrl = rawApiUrl.replace(/\/+$/, "");
-const API_BASE_URL = cleanApiUrl.endsWith("/api/v1") ? cleanApiUrl : `${cleanApiUrl}/api/v1`;
+export function getApiBaseUrl(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim().length > 0) {
+    const clean = envUrl.trim().replace(/\/+$/, "");
+    return clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return "http://localhost:8000/api/v1";
+    }
+    return "/api/v1";
+  }
+  return "/api/v1";
+}
+
+export async function apiFetch(endpoint: string, options?: RequestInit): Promise<Response> {
+  const base = getApiBaseUrl();
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const targetUrl = `${base}${cleanEndpoint}`;
+
+  try {
+    const res = await fetch(targetUrl, options);
+    if (!res.ok && targetUrl.startsWith("http://localhost:8000/api/v1") && typeof window !== "undefined") {
+      const fallbackUrl = `/api/v1${cleanEndpoint}`;
+      try {
+        const fallbackRes = await fetch(fallbackUrl, options);
+        if (fallbackRes.ok) return fallbackRes;
+      } catch {
+        // use original
+      }
+    }
+    return res;
+  } catch (err) {
+    // Network error (e.g. localhost:8000 not reachable or mixed content blocked)
+    if (typeof window !== "undefined" && !targetUrl.startsWith("/api/v1")) {
+      const fallbackUrl = `/api/v1${cleanEndpoint}`;
+      return await fetch(fallbackUrl, options);
+    }
+    throw err;
+  }
+}
 
 export interface Institution {
   id: string;
@@ -153,7 +192,7 @@ export function logoutUser() {
 }
 
 export async function loginUser(email: string, password: string): Promise<AuthUser> {
-  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+  const res = await apiFetch(`/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
@@ -193,7 +232,7 @@ function getAuthHeaders(): HeadersInit {
 }
 
 export async function fetchHealth(): Promise<{ status: string; app_name: string; version: string }> {
-  const res = await fetch(`${API_BASE_URL}/health`, { cache: "no-store" });
+  const res = await apiFetch(`/health`, { cache: "no-store" });
   if (!res.ok) throw new Error("API health check failed");
   return res.json();
 }
@@ -230,13 +269,13 @@ export interface ProviderStatusInfo {
 }
 
 export async function fetchProviderStatus(): Promise<ProviderStatusInfo> {
-  const res = await fetch(`${API_BASE_URL}/documents/provider-status`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/provider-status`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch provider status");
   return res.json();
 }
 
 export async function testProviderConnection(): Promise<ProviderStatusInfo> {
-  const res = await fetch(`${API_BASE_URL}/documents/provider-test`, {
+  const res = await apiFetch(`/documents/provider-test`, {
     method: "POST",
     headers: { ...getAuthHeaders() },
     cache: "no-store",
@@ -246,7 +285,7 @@ export async function testProviderConnection(): Promise<ProviderStatusInfo> {
 }
 
 export async function fetchInstitutions(): Promise<Institution[]> {
-  const res = await fetch(`${API_BASE_URL}/institutions`, { cache: "no-store" });
+  const res = await apiFetch(`/institutions`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch institutions");
   return res.json();
 }
@@ -269,7 +308,7 @@ export interface DashboardStats {
 }
 
 export async function fetchDocumentStats(): Promise<DashboardStats> {
-  const res = await fetch(`${API_BASE_URL}/documents/stats`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/stats`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch dashboard stats");
   return res.json();
 }
@@ -288,20 +327,20 @@ export async function fetchDocuments(params?: {
   if (params?.corpus_type) query.append("corpus_type", params.corpus_type);
   if (params?.publication_status) query.append("publication_status", params.publication_status);
 
-  const res = await fetch(`${API_BASE_URL}/documents?${query.toString()}`, { cache: "no-store" });
+  const res = await apiFetch(`/documents?${query.toString()}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch documents");
   return res.json();
 }
 
 export async function fetchDocumentPages(documentId: string, versionId: string): Promise<DocumentPage[]> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/versions/${versionId}/pages`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch document pages");
   return res.json();
 }
 
 export async function uploadDocument(formData: FormData): Promise<any> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/documents/upload`, {
+  const res = await apiFetch(`/documents/upload`, {
     method: "POST",
     headers,
     body: formData,
@@ -314,14 +353,14 @@ export async function uploadDocument(formData: FormData): Promise<any> {
 }
 
 export async function fetchSources(): Promise<Source[]> {
-  const res = await fetch(`${API_BASE_URL}/sources`, { cache: "no-store" });
+  const res = await apiFetch(`/sources`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch sources");
   return res.json();
 }
 
 export async function triggerSourceRun(sourceId: string): Promise<SourceRun> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/trigger`, {
+  const res = await apiFetch(`/sources/${sourceId}/trigger`, {
     method: "POST",
     headers,
   });
@@ -334,7 +373,7 @@ export async function triggerSourceRun(sourceId: string): Promise<SourceRun> {
 
 export async function toggleSourceActive(sourceId: string, isActive: boolean): Promise<Source> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}`, {
+  const res = await apiFetch(`/sources/${sourceId}`, {
     method: "PATCH",
     headers,
     body: JSON.stringify({ is_active: isActive }),
@@ -345,14 +384,14 @@ export async function toggleSourceActive(sourceId: string, isActive: boolean): P
 
 export async function fetchDiscoveries(statusFilter?: string): Promise<SourceDiscovery[]> {
   const query = statusFilter ? `?status_filter=${statusFilter}` : "";
-  const res = await fetch(`${API_BASE_URL}/sources/discoveries${query}`, { cache: "no-store" });
+  const res = await apiFetch(`/sources/discoveries${query}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch discoveries");
   return res.json();
 }
 
 export async function approveDiscovery(discoveryId: string): Promise<any> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/sources/discoveries/${discoveryId}/approve`, {
+  const res = await apiFetch(`/sources/discoveries/${discoveryId}/approve`, {
     method: "POST",
     headers,
   });
@@ -399,14 +438,14 @@ export interface BackfillResult {
 
 export async function fetchSourceStats(sourceId: string): Promise<SourceStats> {
   const headers = getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/stats`, { headers, cache: "no-store" });
+  const res = await apiFetch(`/sources/${sourceId}/stats`, { headers, cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch source statistics");
   return res.json();
 }
 
 export async function triggerDiscoveryScan(sourceId: string): Promise<SourceRun> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/discover`, {
+  const res = await apiFetch(`/sources/${sourceId}/discover`, {
     method: "POST",
     headers,
   });
@@ -419,7 +458,7 @@ export async function triggerDiscoveryScan(sourceId: string): Promise<SourceRun>
 
 export async function triggerBackfillBatch(sourceId: string, payload: BackfillPayload): Promise<BackfillResult> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/sources/${sourceId}/backfill`, {
+  const res = await apiFetch(`/sources/${sourceId}/backfill`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
@@ -433,7 +472,7 @@ export async function triggerBackfillBatch(sourceId: string, payload: BackfillPa
 
 export async function rejectDiscovery(discoveryId: string, reason: string): Promise<any> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/sources/discoveries/${discoveryId}/reject`, {
+  const res = await apiFetch(`/sources/discoveries/${discoveryId}/reject`, {
     method: "POST",
     headers,
     body: JSON.stringify({ reason }),
@@ -503,7 +542,7 @@ export interface DocumentAnalysisData {
 
 export async function triggerDocumentAnalysis(documentId: string, provider: string = "mock"): Promise<DocumentAnalysisData> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analyze`, {
+  const res = await apiFetch(`/documents/${documentId}/analyze`, {
     method: "POST",
     headers,
     body: JSON.stringify({ provider }),
@@ -516,32 +555,32 @@ export async function triggerDocumentAnalysis(documentId: string, provider: stri
 }
 
 export async function fetchDocumentAnalysis(documentId: string): Promise<DocumentAnalysisData | null> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/analysis`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/analysis`, { cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("Failed to fetch document analysis");
   return res.json();
 }
 
 export async function fetchDocumentProvisions(documentId: string): Promise<ProvisionItem[]> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/provisions`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/provisions`, { cache: "no-store" });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchDocumentObligations(documentId: string): Promise<ObligationItem[]> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/obligations`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/obligations`, { cache: "no-store" });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchDocumentRelationships(documentId: string): Promise<RelationshipItem[]> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/relationships`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/relationships`, { cache: "no-store" });
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function fetchDocumentExtractionReport(documentId: string, versionId: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/versions/${versionId}/report`, { cache: "no-store" });
+  const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/report`, { cache: "no-store" });
   if (!res.ok) return null;
   return res.json();
 }
@@ -552,7 +591,7 @@ export async function reviewDocumentAnalysis(
   reviewNotes?: string
 ): Promise<any> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/publish`, {
+  const res = await apiFetch(`/documents/${documentId}/publish`, {
     method: "POST",
     headers,
     body: JSON.stringify({ decision, review_notes: reviewNotes }),
@@ -572,7 +611,7 @@ export async function submitPageCorrection(
   notes?: string
 ): Promise<any> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/versions/${versionId}/pages/${pageNo}/correct`, {
+  const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages/${pageNo}/correct`, {
     method: "POST",
     headers,
     body: JSON.stringify({ corrected_text: correctedText, correction_notes: notes }),
@@ -591,7 +630,7 @@ export async function queryResearchAssistant(query: string, documentId?: string)
   citations: Array<{ document_title: string; reference_number?: string; page_number: number; verbatim_excerpt: string }>;
 }> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
-  const res = await fetch(`${API_BASE_URL}/research/query`, {
+  const res = await apiFetch(`/research/query`, {
     method: "POST",
     headers,
     body: JSON.stringify({ query, document_id: documentId }),

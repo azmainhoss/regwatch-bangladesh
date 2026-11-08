@@ -31,3 +31,4 @@ databases:
     region: singapore
     databaseName: regwatch
     user: regwatch
+
