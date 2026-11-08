@@ -42,6 +42,7 @@ class ExtractionService:
         """
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         pages_result: List[Dict[str, Any]] = []
+        consecutive_ocr_pages = 0
 
         for page_idx in range(len(doc)):
             page_no = page_idx + 1
@@ -65,19 +66,29 @@ class ExtractionService:
             needs_ocr = (len(chosen_text.strip()) < 30) and ocr_fallback
 
             if needs_ocr:
-                logger.debug(f"Page {page_no} has low character density ({len(chosen_text)} chars). Initiating OCR fallback...")
-                ocr_result = self.ocr_manager.perform_page_ocr(
-                    page=page,
-                    language_hint=preferred_language
-                )
-                if ocr_result["success"] and len(ocr_result["ocr_text"].strip()) > len(chosen_text.strip()):
-                    ocr_text = ocr_result["ocr_text"]
-                    ocr_confidence = ocr_result["mean_confidence"]
+                if consecutive_ocr_pages >= 5:
+                    logger.warning(f"Document has >5 scanned pages. Skipping intensive OCR on page {page_no} to protect memory.")
+                    ocr_text = "[Scanned document page]"
+                    ocr_confidence = 0.5
                     chosen_text = ocr_text
-                    extraction_method = "OCR_TESSERACT"
-                elif ocr_result["ocr_text"]:
-                    ocr_text = ocr_result["ocr_text"]
-                    ocr_confidence = ocr_result["mean_confidence"]
+                    extraction_method = "OCR_SKIPPED_LARGE_SCAN"
+                else:
+                    consecutive_ocr_pages += 1
+                    logger.debug(f"Page {page_no} has low character density ({len(chosen_text)} chars). Initiating OCR fallback...")
+                    ocr_result = self.ocr_manager.perform_page_ocr(
+                        page=page,
+                        language_hint=preferred_language
+                    )
+                    if ocr_result["success"] and len(ocr_result["ocr_text"].strip()) > len(chosen_text.strip()):
+                        ocr_text = ocr_result["ocr_text"]
+                        ocr_confidence = ocr_result["mean_confidence"]
+                        chosen_text = ocr_text
+                        extraction_method = "OCR_TESSERACT"
+                    elif ocr_result["ocr_text"]:
+                        ocr_text = ocr_result["ocr_text"]
+                        ocr_confidence = ocr_result["mean_confidence"]
+            else:
+                consecutive_ocr_pages = 0
 
             # Step 4: Table extraction
             extracted_tables = self.table_extractor.extract_tables_from_page(

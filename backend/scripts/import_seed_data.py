@@ -50,19 +50,25 @@ async def import_seed(db: AsyncSession):
         "claim_citations"
     ]
 
+    BOOLEAN_FIELDS = {
+        "is_active", "is_superuser", "is_synthetic", "is_scanned",
+        "has_tables", "is_human_corrected", "access_restricted",
+        "has_exceptions", "is_mandatory", "is_verified"
+    }
+
     for table in tables:
         rows = data.get(table, [])
         if not rows:
             continue
         print(f"  -> Importing {len(rows)} records into '{table}'...")
         for r in rows:
-            # Clean JSON columns if stored as strings
             cols = list(r.keys())
             vals = list(r.values())
-            # Convert python dicts/lists to JSON strings if inserting raw text
             cleaned_vals = []
-            for v in vals:
-                if isinstance(v, (dict, list)):
+            for k, v in zip(cols, vals):
+                if k in BOOLEAN_FIELDS and isinstance(v, (int, str)):
+                    cleaned_vals.append(bool(int(v) if str(v).isdigit() else v))
+                elif isinstance(v, (dict, list)):
                     cleaned_vals.append(json.dumps(v))
                 else:
                     cleaned_vals.append(v)

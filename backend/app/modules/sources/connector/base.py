@@ -49,7 +49,12 @@ class BaseSourceConnector(ABC):
         Never attempts to bypass or solve challenges.
         """
         lowered = content.lower()
-        if "what code is in the image?" in lowered or "bobcmn" in lowered or "tspd_" in content:
+        # Ensure we only flag genuine Imperva bot challenge pages, not harmless mentions of cookies in normal 200 OK responses
+        is_imperva_challenge = (
+            ("what code is in the image?" in lowered or "bobcmn" in lowered)
+            or (status_code in (403, 503) and ("tspd_" in content or "support id is:" in lowered))
+        )
+        if is_imperva_challenge:
             # Extract support ID if present
             support_id = None
             import re

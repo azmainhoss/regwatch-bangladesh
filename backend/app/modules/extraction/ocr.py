@@ -113,10 +113,10 @@ class OCRManager:
         self,
         page: fitz.Page,
         language_hint: str = "auto",
-        dpi: int = 200
+        dpi: int = 140
     ) -> Dict[str, Any]:
         """
-        Executes OCR on a single PDF page.
+        Executes memory-efficient OCR on a single PDF page.
         Returns:
         {
             "ocr_text": str,
@@ -134,18 +134,24 @@ class OCRManager:
             # Extract detailed word-level data to compute genuine confidence metrics
             ocr_data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
             confs = []
-            for c in ocr_data.get("conf", []):
+            extracted_words = []
+            for text_val, conf_val in zip(ocr_data.get("text", []), ocr_data.get("conf", [])):
                 try:
-                    c_float = float(c)
+                    c_float = float(conf_val)
                     if c_float >= 0:
                         confs.append(c_float / 100.0)  # scale 0..1
                 except (ValueError, TypeError):
                     continue
+                if text_val and text_val.strip():
+                    extracted_words.append(text_val.strip())
 
             mean_conf = float(sum(confs) / len(confs)) if confs else 0.0
 
-            # Extract full text
-            ocr_text = pytesseract.image_to_string(img, lang=lang).strip()
+            # Use words from data if present to avoid redundant second OCR pass, or fallback to string
+            if extracted_words:
+                ocr_text = " ".join(extracted_words)
+            else:
+                ocr_text = pytesseract.image_to_string(img, lang=lang).strip()
 
             return {
                 "ocr_text": ocr_text,
