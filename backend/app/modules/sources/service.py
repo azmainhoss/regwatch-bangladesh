@@ -296,6 +296,8 @@ class SourceMonitoringService:
                 })
 
                 await db.commit()
+                import gc
+                gc.collect()
 
             except Exception as e:
                 logger.error(f"Error ingesting discovery {disc.id}: {e}")

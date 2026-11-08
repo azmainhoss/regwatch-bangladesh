@@ -15,6 +15,41 @@ class MissingTrainedDataError(RuntimeError):
     pass
 
 
+def get_container_available_memory_mb() -> float:
+    """Returns available memory in MB respecting Linux cgroups (Docker/Render) limits."""
+    # Check cgroup v2
+    try:
+        max_path = Path("/sys/fs/cgroup/memory.max")
+        curr_path = Path("/sys/fs/cgroup/memory.current")
+        if max_path.exists() and curr_path.exists():
+            max_str = max_path.read_text().strip()
+            if max_str != "max":
+                limit_bytes = int(max_str)
+                curr_bytes = int(curr_path.read_text().strip())
+                return max(0.0, (limit_bytes - curr_bytes) / (1024 * 1024))
+    except Exception:
+        pass
+
+    # Check cgroup v1
+    try:
+        lim_path = Path("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        use_path = Path("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+        if lim_path.exists() and use_path.exists():
+            limit_bytes = int(lim_path.read_text().strip())
+            curr_bytes = int(use_path.read_text().strip())
+            if limit_bytes < 100 * 1024 * 1024 * 1024:
+                return max(0.0, (limit_bytes - curr_bytes) / (1024 * 1024))
+    except Exception:
+        pass
+
+    # Fallback to psutil
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 * 1024)
+    except Exception:
+        return 512.0
+
+
 class OCRManager:
     def __init__(self):
         self._initialized = False
@@ -128,22 +163,18 @@ class OCRManager:
         }
         """
         lang = self.select_ocr_language(language_hint)
-        # Memory constraint safeguard: skip heavy Tesseract if container has <300MB free RAM
-        try:
-            import psutil
-            mem = psutil.virtual_memory()
-            if mem.available < 300 * 1024 * 1024:
-                logger.warning(f"Skipping Tesseract OCR for page {page.number + 1}: low available memory ({mem.available // (1024*1024)}MB available).")
-                return {
-                    "ocr_text": "",
-                    "mean_confidence": 0.0,
-                    "word_confidences": [],
-                    "language_used": lang,
-                    "success": False,
-                    "error": "Memory constrained; OCR deferred."
-                }
-        except Exception:
-            pass
+        # Memory constraint safeguard: skip heavy Tesseract in production container or if container has <300MB free RAM
+        avail_mb = get_container_available_memory_mb()
+        if getattr(settings, "ENVIRONMENT", "development") == "production" or avail_mb < 300.0:
+            logger.warning(f"Skipping Tesseract OCR for page {page.number + 1}: memory safeguard active (available: {avail_mb:.1f}MB, environment: {getattr(settings, 'ENVIRONMENT', 'development')}).")
+            return {
+                "ocr_text": "",
+                "mean_confidence": 0.0,
+                "word_confidences": [],
+                "language_used": lang,
+                "success": False,
+                "error": "Memory constrained; OCR deferred."
+            }
 
         try:
             img = self.render_page_to_image(page, dpi=dpi)

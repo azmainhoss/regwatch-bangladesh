@@ -89,8 +89,8 @@ class DocumentIngestionService:
             doc.publication_status = "EXTRACTING"
 
         # Run page extraction
-        # Safeguard memory on cloud environments by disabling heavy OCR on multi-megabyte files (>2.5MB)
-        should_ocr = len(pdf_bytes) <= 2500000
+        # Safeguard memory on cloud environments by disabling heavy OCR in production or on multi-megabyte files (>2.5MB)
+        should_ocr = (len(pdf_bytes) <= 2500000) and (getattr(settings, "ENVIRONMENT", "development") != "production")
         extracted_pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=should_ocr)
         page_count = len(extracted_pages)
         is_scanned = any(p["extraction_method"] == "OCR_TESSERACT" for p in extracted_pages)
@@ -147,6 +147,8 @@ class DocumentIngestionService:
         doc = doc_query.scalar_one()
         version = await db.get(DocumentVersion, version.id)
         logger.info(f"Successfully ingested and extracted Document '{doc.title}' ({page_count} pages, SHA: {file_sha256[:8]}...)")
+        import gc
+        gc.collect()
         return doc, version, page_count
 
 

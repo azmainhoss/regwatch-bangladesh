@@ -44,8 +44,8 @@ class ExtractionService:
         pages_result: List[Dict[str, Any]] = []
         consecutive_ocr_pages = 0
 
-        # Memory safeguard: disable heavy Tesseract OCR on documents >2.5MB or >10 pages
-        if len(pdf_bytes) > 2500000 or len(doc) > 10:
+        # Memory safeguard: disable heavy Tesseract OCR in production or on documents >2.5MB or >10 pages
+        if getattr(settings, "ENVIRONMENT", "development") == "production" or len(pdf_bytes) > 2500000 or len(doc) > 10:
             ocr_fallback = False
 
         for page_idx in range(len(doc)):
@@ -67,7 +67,7 @@ class ExtractionService:
 
             # Step 3: Determine if OCR is required
             # Trigger OCR if page is essentially blank (< 30 characters) or corrupted
-            needs_ocr = (len(chosen_text.strip()) < 30) and ocr_fallback
+            needs_ocr = (len(chosen_text.strip()) < 30) and ocr_fallback and (getattr(settings, "ENVIRONMENT", "development") != "production")
 
             if needs_ocr:
                 if consecutive_ocr_pages >= 5:
@@ -88,11 +88,14 @@ class ExtractionService:
                         ocr_confidence = ocr_result["mean_confidence"]
                         chosen_text = ocr_text
                         extraction_method = "OCR_TESSERACT"
-                    elif ocr_result["ocr_text"]:
+                    elif ocr_result.get("ocr_text"):
                         ocr_text = ocr_result["ocr_text"]
-                        ocr_confidence = ocr_result["mean_confidence"]
+                        ocr_confidence = ocr_result.get("mean_confidence")
             else:
                 consecutive_ocr_pages = 0
+                if len(chosen_text.strip()) == 0:
+                    chosen_text = "[Scanned document page]"
+                    extraction_method = "SCANNED_PAGE_DEFERRED"
 
             # Step 4: Table extraction
             extracted_tables = self.table_extractor.extract_tables_from_page(
@@ -133,6 +136,8 @@ class ExtractionService:
             })
 
         doc.close()
+        import gc
+        gc.collect()
 
         # Step 7: Parse Layout Hierarchy across all extracted pages
         try:
