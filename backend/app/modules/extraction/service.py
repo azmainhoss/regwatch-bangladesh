@@ -101,7 +101,8 @@ class ExtractionService:
             extracted_tables = self.table_extractor.extract_tables_from_page(
                 pdf_bytes=pdf_bytes,
                 page_number=page_no,
-                raw_page_text=chosen_text
+                raw_page_text=chosen_text,
+                page=page
             )
             has_tables = len(extracted_tables) > 0
 

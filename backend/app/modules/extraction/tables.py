@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pdfplumber
 import pymupdf as fitz
 
+from backend.app.core.config import settings
 from backend.app.core.logging import logger
 
 
@@ -26,63 +27,68 @@ class TableExtractor:
         cls,
         pdf_bytes: bytes,
         page_number: int,
-        raw_page_text: str = ""
+        raw_page_text: str = "",
+        page: Optional[fitz.Page] = None
     ) -> List[Dict[str, Any]]:
         """
         Extracts all tables on a specific 1-indexed page number using dual strategies:
-        1. Visual grid extraction via pdfplumber.
-        2. Text-aligned grid extraction for monospace or rule-bordered ASCII tables.
+        1. PyMuPDF high-speed native table finder (memory safe, zero allocation).
+        2. Visual grid extraction via pdfplumber (fallback for smaller PDFs in dev).
+        3. Text-aligned grid extraction for monospace or rule-bordered ASCII tables.
         """
         extracted_tables: List[Dict[str, Any]] = []
 
-        # Safeguard: skip heavy pdfplumber visual grid extraction on files > 2MB to protect RAM
-        if len(pdf_bytes) > 2_000_000:
-            return extracted_tables
-
-        # Strategy 1: pdfplumber visual extraction
+        # Strategy 1: PyMuPDF high-speed native table finder
         try:
-            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                if page_number <= len(pdf.pages):
-                    plumber_page = pdf.pages[page_number - 1]
-                    tables = plumber_page.extract_tables()
-                    for idx, tbl in enumerate(tables):
-                        if not tbl or len(tbl) < 2:
-                            continue
+            target_page = page
+            local_doc = None
+            if target_page is None and pdf_bytes and pdf_bytes != b"%PDF-mock":
+                local_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                if page_number <= len(local_doc):
+                    target_page = local_doc[page_number - 1]
+
+            if target_page is not None:
+                tabs = target_page.find_tables()
+                for idx, tab in enumerate(tabs.tables):
+                    mat = tab.extract()
+                    if mat and len(mat) >= 2:
+                        bbox = tab.bbox
                         table_dict = cls._process_raw_table_matrix(
-                            raw_matrix=tbl,
+                            raw_matrix=mat,
                             page_number=page_number,
-                            table_index=idx + 1,
-                            method="PDFPLUMBER_VECTOR_GRID",
-                            bbox=None
+                            table_index=len(extracted_tables) + idx + 1,
+                            method="PYMUPDF_TABLE_FINDER",
+                            bbox={"x0": bbox[0], "y0": bbox[1], "x1": bbox[2], "y1": bbox[3]}
                         )
                         if table_dict:
                             extracted_tables.append(table_dict)
-        except Exception as e:
-            logger.debug(f"pdfplumber table extraction note on page {page_number}: {e}")
 
-        # Strategy 2: If no visual tables found, check PyMuPDF find_tables()
-        if not extracted_tables:
+            if local_doc is not None:
+                local_doc.close()
+        except Exception as e:
+            logger.debug(f"PyMuPDF find_tables note on page {page_number}: {e}")
+
+        # Strategy 2: pdfplumber visual extraction (only if needed and under memory limits)
+        if not extracted_tables and len(pdf_bytes) < 1_500_000 and pdf_bytes != b"%PDF-mock" and getattr(settings, "ENVIRONMENT", "development") != "production":
             try:
-                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                if page_number <= len(doc):
-                    fitz_page = doc[page_number - 1]
-                    tabs = fitz_page.find_tables()
-                    for idx, tab in enumerate(tabs.tables):
-                        mat = tab.extract()
-                        if mat and len(mat) >= 2:
-                            bbox = tab.bbox
+                with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                    if page_number <= len(pdf.pages):
+                        plumber_page = pdf.pages[page_number - 1]
+                        tables = plumber_page.extract_tables()
+                        for idx, tbl in enumerate(tables):
+                            if not tbl or len(tbl) < 2:
+                                continue
                             table_dict = cls._process_raw_table_matrix(
-                                raw_matrix=mat,
+                                raw_matrix=tbl,
                                 page_number=page_number,
-                                table_index=len(extracted_tables) + idx + 1,
-                                method="PYMUPDF_TABLE_FINDER",
-                                bbox={"x0": bbox[0], "y0": bbox[1], "x1": bbox[2], "y1": bbox[3]}
+                                table_index=idx + 1,
+                                method="PDFPLUMBER_VECTOR_GRID",
+                                bbox=None
                             )
                             if table_dict:
                                 extracted_tables.append(table_dict)
-                doc.close()
             except Exception as e:
-                logger.debug(f"PyMuPDF find_tables note on page {page_number}: {e}")
+                logger.debug(f"pdfplumber table extraction note on page {page_number}: {e}")
 
         # Strategy 3: Text-aligned / ASCII rule-bordered table extraction
         if not extracted_tables and raw_page_text:

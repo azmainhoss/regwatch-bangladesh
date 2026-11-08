@@ -148,7 +148,7 @@ class OCRManager:
         self,
         page: fitz.Page,
         language_hint: str = "auto",
-        dpi: int = 140
+        dpi: int = 150
     ) -> Dict[str, Any]:
         """
         Executes memory-efficient OCR on a single PDF page.
