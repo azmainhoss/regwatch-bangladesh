@@ -556,12 +556,14 @@ export interface DocumentAnalysisData {
   review_notes?: string;
 }
 
-export async function triggerDocumentAnalysis(documentId: string, provider: string = "mock"): Promise<DocumentAnalysisData> {
+export async function triggerDocumentAnalysis(documentId: string, provider?: string): Promise<DocumentAnalysisData> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const payload: Record<string, any> = {};
+  if (provider) payload.provider = provider;
   const res = await apiFetch(`/documents/${documentId}/analyze`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));

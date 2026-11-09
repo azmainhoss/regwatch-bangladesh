@@ -242,11 +242,31 @@ function CircularDetailView({
               1. Executive Summary
             </h3>
             <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-              <p className="text-sm text-slate-200 dark:text-slate-200 light:text-tealNavy-950 leading-relaxed">
-                {analysis?.executive_summary ||
-                  selectedDoc.title_bn ||
-                  "This official circular sets forth binding regulatory guidelines issued by Bangladesh Bank under statutory authority. Detailed clause-by-clause requirements are itemized below."}
-              </p>
+              {analysis?.executive_summary ? (
+                <p className="text-sm text-slate-200 dark:text-slate-200 light:text-tealNavy-950 leading-relaxed">
+                  {analysis.executive_summary}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-slate-300 dark:text-slate-300 light:text-tealNavy-950 leading-relaxed">
+                    {selectedDoc.title_bn || selectedDoc.title}
+                  </p>
+                  <div className="pt-2 border-t border-tealNavy-900 dark:border-tealNavy-900 light:border-slate-200 flex items-center justify-between text-xs">
+                    <span className="text-amber-400 font-mono">
+                      AI intelligence extraction pending for this circular.
+                    </span>
+                    {currentUser?.is_superuser && (
+                      <button
+                        onClick={handleAdminTriggerAnalysis}
+                        disabled={adminAnalyzing}
+                        className="text-turquoise hover:underline font-mono font-bold"
+                      >
+                        {adminAnalyzing ? "Extracting..." : "Run AI Analysis"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               {analysis?.purpose && (
                 <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-2 pt-2 border-t border-tealNavy-900 dark:border-tealNavy-900 light:border-slate-200 leading-relaxed">
                   <strong className="text-slate-300 dark:text-slate-300 light:text-slate-700">Regulatory Purpose:</strong> {analysis.purpose}
@@ -287,28 +307,78 @@ function CircularDetailView({
                     </ul>
                   );
                 }
+                if (analysis) {
+                  return (
+                    <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
+                      No standalone amendments to prior circulars listed; direct operational requirements are itemized below.
+                    </p>
+                  );
+                }
                 return (
                   <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
-                    This publication establishes a new regulatory framework. See the mandatory requirements below for operational details.
+                    Awaiting AI intelligence extraction to index regulatory amendments.
                   </p>
                 );
               })()}
             </div>
           </div>
 
+          {/* Related Circulars & Prior Directives */}
+          {relationships && relationships.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
+                  3. Antecedent &amp; Related Circulars ({relationships.length})
+                </h3>
+                <span className="text-[11px] text-slate-400 font-mono">Regulatory Lineage</span>
+              </div>
+              <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-3">
+                {relationships.map((rel, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-tealNavy-900/80 dark:bg-tealNavy-900/80 light:bg-white rounded-lg border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-xs font-bold text-slate-100 dark:text-slate-100 light:text-tealNavy-950 font-mono">
+                        {rel.target_reference_hint || "Cited Circular Reference"}
+                      </span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-800 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200 font-semibold">
+                        {rel.relationship_type}
+                      </span>
+                    </div>
+                    {rel.supporting_quote && (
+                      <div className="text-[11px] font-mono text-slate-400 dark:text-slate-400 light:text-slate-600 italic">
+                        &ldquo;{rel.supporting_quote}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 4. Key Requirements & Action Items */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-                3. Key Requirements ({obligations.length})
+                {relationships && relationships.length > 0 ? "4. Key Requirements" : "3. Key Requirements"} ({obligations.length})
               </h3>
               <span className="text-[11px] text-slate-400 font-mono">Actionable Obligations</span>
             </div>
             <div className="space-y-3">
               {obligations.length === 0 ? (
-                <p className="text-xs text-slate-400 p-4 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50">
-                  No standalone obligations extracted for this circular.
-                </p>
+                <div className="p-4 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 space-y-2 text-xs text-slate-400">
+                  <p>No actionable obligations indexed yet for this circular.</p>
+                  {!analysis && currentUser?.is_superuser && (
+                    <button
+                      onClick={handleAdminTriggerAnalysis}
+                      disabled={adminAnalyzing}
+                      className="text-turquoise hover:underline font-mono"
+                    >
+                      {adminAnalyzing ? "Extracting obligations..." : "Click to run AI obligation extraction"}
+                    </button>
+                  )}
+                </div>
               ) : (
                 obligations.map((obl) => {
                   const citedPage = docPages.find((p) => p.id === obl.page_id)?.page_number;
@@ -334,9 +404,16 @@ function CircularDetailView({
                         &ldquo;{obl.supporting_text}&rdquo;
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1">
-                        <span>Target: {obl.applicability_summary || "Scheduled Banks"}</span>
-                        <span>{citedPage ? `Page ${citedPage}` : "Verified Reference"}</span>
+                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1 flex-wrap gap-2">
+                        <span>Target: {obl.applicability_summary || "Scheduled Commercial Banks"}</span>
+                        <div className="flex items-center gap-3">
+                          {obl.explicit_deadline && (
+                            <span className="text-turquoise font-semibold">
+                              Deadline: {obl.explicit_deadline}
+                            </span>
+                          )}
+                          <span>{citedPage ? `Page ${citedPage}` : "Verified Reference"}</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -348,28 +425,46 @@ function CircularDetailView({
           {/* 5. Affected Departments & Institutions */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              4. Affected Departments &amp; Institutions
+              {relationships && relationships.length > 0 ? "5. Affected Institutions & Scope" : "4. Affected Institutions & Scope"}
             </h3>
             <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
               <div className="flex items-start gap-2">
                 <span className="text-turquoise font-bold">•</span>
-                <span>All Scheduled Commercial Banks &amp; Non-Bank Financial Institutions (NBFIs) in Bangladesh.</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="text-turquoise font-bold">•</span>
                 <span>
-                  Internal Bank Departments: Credit Risk Management, SME &amp; Agri Banking, Treasury, Internal Audit, Compliance Division.
+                  {(() => {
+                    const covered = analysis?.structured_payload?.applicability?.covered_entities;
+                    if (Array.isArray(covered) && covered.length > 0) {
+                      const entityLabels: Record<string, string> = {
+                        SCHEDULED_COMMERCIAL_BANK: "All Scheduled Commercial Banks in Bangladesh",
+                        ISLAMIC_BANK: "Islamic Shariah-based Scheduled Banks",
+                        NBFI: "Non-Bank Financial Institutions (NBFIs)",
+                        PAYMENT_SERVICE_PROVIDER: "Payment Service Providers (PSPs)",
+                      };
+                      return covered.map((e: string) => entityLabels[e] || e).join(" • ");
+                    }
+                    if (obligations.length > 0) {
+                      const targets = Array.from(new Set(obligations.map((o) => o.applicability_summary).filter(Boolean)));
+                      if (targets.length > 0) return targets.join(", ");
+                    }
+                    return "All Scheduled Commercial Banks operating in Bangladesh";
+                  })()}
                 </span>
               </div>
+              {analysis?.structured_payload?.applicability?.conditional_rules && (
+                <div className="flex items-start gap-2">
+                  <span className="text-turquoise font-bold">•</span>
+                  <span>Scope: {analysis.structured_payload.applicability.conditional_rules}</span>
+                </div>
+              )}
             </div>
           </div>
 
           {/* 6. Deadlines & Effective Dates */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              5. Deadlines &amp; Effective Dates
+              {relationships && relationships.length > 0 ? "6. Deadlines & Effective Dates" : "5. Deadlines & Effective Dates"}
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Publication Date</span>
                 <span className="text-sm font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-mono">
@@ -379,7 +474,15 @@ function CircularDetailView({
               <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Enforcement / Effective Date</span>
                 <span className="text-sm font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-mono">
-                  {selectedDoc.effective_date || "With immediate effect"}
+                  {analysis?.structured_payload?.deadlines?.effective_date || selectedDoc.effective_date || "With immediate effect"}
+                </span>
+              </div>
+              <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Validity / Expiration</span>
+                <span className="text-sm font-semibold text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
+                  {analysis?.structured_payload?.deadlines?.compliance_deadline ||
+                    obligations.find((o) => o.explicit_deadline)?.explicit_deadline ||
+                    "Until Further Notice"}
                 </span>
               </div>
             </div>
@@ -388,10 +491,35 @@ function CircularDetailView({
           {/* 7. Applicability & Exceptions */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              6. Applicability &amp; Exceptions
+              {relationships && relationships.length > 0 ? "7. Applicability & Exceptions" : "6. Applicability & Exceptions"}
             </h3>
             <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700 leading-relaxed">
-              Applicable to all operating banking institutions governed under Section 45 of the Bank Company Act, 1991. Any exemptions or concessions must be explicitly applied for in writing to the relevant Department of Bangladesh Bank.
+              {(() => {
+                const exemptions = analysis?.structured_payload?.applicability?.exemptions;
+                const cond = analysis?.structured_payload?.applicability?.conditional_rules;
+                if (Array.isArray(exemptions) && exemptions.length > 0) {
+                  return (
+                    <div className="space-y-1">
+                      <span className="font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800">
+                        Explicit Exemptions &amp; Concessions:
+                      </span>
+                      <ul className="list-disc pl-5 space-y-1 mt-1">
+                        {exemptions.map((ex, i) => (
+                          <li key={i}>{typeof ex === "string" ? ex : JSON.stringify(ex)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                }
+                if (cond) {
+                  return <span>{cond}</span>;
+                }
+                return (
+                  <span>
+                    Issued under Section 45 of the Bank Company Act, 1991. Standard regulatory compliance applies; no special exemptions or dispensations are granted in this circular.
+                  </span>
+                );
+              })()}
             </div>
           </div>
 

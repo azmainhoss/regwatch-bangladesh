@@ -304,6 +304,18 @@ class SourceMonitoringService:
                     })
 
                     await db.commit()
+
+                    # Automatically trigger AI Regulatory Intelligence pipeline
+                    try:
+                        from backend.app.modules.analysis.service import AnalysisService
+                        await AnalysisService.analyze_document_version(
+                            db=db,
+                            document_id=doc.id
+                        )
+                        logger.info(f"Auto-analysis successfully executed for {doc.reference_number} ({doc.id})")
+                    except Exception as analysis_err:
+                        logger.warning(f"Auto-analysis deferred for {doc.reference_number}: {analysis_err}")
+
                     import gc
                     gc.collect()
 
