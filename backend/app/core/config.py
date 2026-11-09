@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     BB_CRAWLER_USER_AGENT: str = "RegWatch-Bangladesh-ResearchBot/1.0 (+compliance-research@regwatch.bd)"
     BB_REQUEST_INTERVAL_SECONDS: float = 3.0
     MAX_CONCURRENT_DOWNLOADS: int = 2
+    SOURCE_MONITORING_INTERVAL_SECONDS: int = 900
 
     # CORS
     ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]

@@ -35,20 +35,22 @@ class SourceMonitoringService:
         3. Updates audit logs and source health metrics.
         """
         run = await self.execute_discovery_scan(db=db, source_id=source_id, run_type=run_type)
-        if run.status == "COMPLETED" and run.valid_documents_discovered > 0:
-            # Automatically ingest the top newly discovered circulars (continuous autonomous collection)
+        if run.status == "COMPLETED":
+            # Automatically ingest newly discovered circulars or steadily drain the pending queue
+            batch_count = min(run.valid_documents_discovered, 5) if run.valid_documents_discovered > 0 else 5
             try:
                 backfill_res = await self.execute_backfill_batch(
                     db=db,
                     source_id=source_id,
-                    batch_size=min(run.valid_documents_discovered, 5)
+                    batch_size=batch_count
                 )
-                logger.info(f"Auto-ingested {backfill_res.get('successful', 0)} circulars during monitoring poll.")
-                run.downloaded_count = backfill_res.get("successful", 0)
-                run.downloads_successful = backfill_res.get("successful", 0)
-                await db.commit()
+                if backfill_res.get("successful", 0) > 0:
+                    logger.info(f"Auto-ingested {backfill_res.get('successful', 0)} circulars during monitoring poll.")
+                    run.downloaded_count = backfill_res.get("successful", 0)
+                    run.downloads_successful = backfill_res.get("successful", 0)
+                    await db.commit()
             except Exception as e:
-                logger.error(f"Error auto-ingesting new circulars during monitoring poll: {e}")
+                logger.error(f"Error auto-ingesting circulars during monitoring poll: {e}")
         return run
 
     async def execute_discovery_scan(

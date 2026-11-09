@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from sqlalchemy import select
 
+from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.database.session import AsyncSessionLocal
 from backend.app.modules.sources.models import Source
@@ -68,5 +69,7 @@ class ScheduledMonitoringService:
                     logger.error(f"Failed scheduled monitoring run for source '{source.name}': {ex}")
 
 
-monitoring_scheduler = ScheduledMonitoringService(interval_seconds=3600)
+monitoring_scheduler = ScheduledMonitoringService(
+    interval_seconds=getattr(settings, "SOURCE_MONITORING_INTERVAL_SECONDS", 900)
+)
 
