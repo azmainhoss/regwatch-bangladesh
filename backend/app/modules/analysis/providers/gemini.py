@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -100,8 +101,18 @@ class GeminiAIProvider(BaseAIProvider):
                     # Strictly Zero-Cost for Google AI Studio Free Tier
                     est_cost = 0.0
 
+                    # Strip any markdown fences if model returned them
+                    cleaned = raw_text.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:]
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:]
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3]
+                    cleaned = cleaned.strip()
+
                     try:
-                        parsed = json.loads(raw_text)
+                        parsed = json.loads(cleaned)
                         return LLMResponse(
                             raw_content=raw_text,
                             parsed_json=parsed,
@@ -117,6 +128,10 @@ class GeminiAIProvider(BaseAIProvider):
                             error=None
                         )
                     except json.JSONDecodeError as jde:
+                        logger.warning(f"Gemini API attempt {attempt + 1}: JSONDecodeError: {jde}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1.0)
+                            continue
                         return LLMResponse(
                             raw_content=raw_text,
                             parsed_json=None,
