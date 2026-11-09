@@ -17,6 +17,9 @@ from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRu
 
 
 class SourceMonitoringService:
+    def __init__(self):
+        self._crawler_lock = asyncio.Lock()
+
     @staticmethod
     def get_connector_for_source(source: Source) -> BaseSourceConnector:
         # Extensible connector factory
@@ -83,7 +86,8 @@ class SourceMonitoringService:
         logger.info(f"Executing discovery scan for '{source.name}' (Run ID: {run.id})...")
 
         try:
-            discovery_result = await connector.discover_publications(max_pages=1)
+            async with self._crawler_lock:
+                discovery_result = await connector.discover_publications(max_pages=1)
             run.pages_inspected = discovery_result.pages_inspected
             run.candidate_links_discovered = len(discovery_result.candidate_publications)
 
@@ -236,78 +240,80 @@ class SourceMonitoringService:
         failed = 0
         ingested_items = []
 
-        for disc in candidates:
-            disc.last_attempted_at = datetime.now(timezone.utc)
-            try:
-                # Polite download pause
-                await asyncio.sleep(0.3)
+        async with self._crawler_lock:
+            for disc in candidates:
+                disc.last_attempted_at = datetime.now(timezone.utc)
+                try:
+                    # Polite download pause respecting central bank rate limits
+                    pause_sec = getattr(settings, "BB_REQUEST_INTERVAL_SECONDS", 2.0)
+                    await asyncio.sleep(pause_sec)
 
-                pdf_bytes, challenge = await connector.download_document(disc.file_url or disc.source_url)
+                    pdf_bytes, challenge = await connector.download_document(disc.file_url or disc.source_url)
 
-                if challenge:
-                    disc.status = "RESTRICTED" if challenge.is_blocked else "FAILED"
-                    disc.retry_count += 1
-                    disc.error_message = challenge.details
-                    failed += 1
+                    if challenge:
+                        disc.status = "RESTRICTED" if challenge.is_blocked else "FAILED"
+                        disc.retry_count += 1
+                        disc.error_message = challenge.details
+                        failed += 1
+                        await db.commit()
+                        continue
+
+                    if not pdf_bytes:
+                        disc.status = "FAILED"
+                        disc.retry_count += 1
+                        disc.error_message = "Empty payload received from source."
+                        failed += 1
+                        await db.commit()
+                        continue
+
+                    # Ingest document into repository
+                    dept_id = depts_by_code.get(disc.department_code) if disc.department_code else None
+
+                    doc, version, page_count = await document_ingestion_service.ingest_document(
+                        db=db,
+                        pdf_bytes=pdf_bytes,
+                        institution_id=source.institution_id,
+                        department_id=dept_id,
+                        reference_number=disc.reference_number,
+                        title=disc.title or "Official Circular",
+                        publication_date=disc.publication_date or datetime.now(timezone.utc).date(),
+                        source_url=disc.file_url or disc.source_url,
+                        document_type=disc.publication_type or "CIRCULAR"
+                    )
+
+                    # Mark as honest machine-processed publication
+                    doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
+
+                    disc.status = "INGESTED"
+                    disc.document_id = doc.id
+                    disc.file_hash = version.file_sha256
+                    disc.file_size = version.file_size_bytes
+                    disc.error_message = None
+                    successful += 1
+
+                    ingested_items.append({
+                        "document_id": str(doc.id),
+                        "reference_number": doc.reference_number,
+                        "title": doc.title,
+                        "department": disc.department_code,
+                        "publication_date": str(doc.publication_date),
+                        "page_count": page_count,
+                        "file_size_bytes": version.file_size_bytes,
+                        "file_sha256": version.file_sha256,
+                        "language": version.language
+                    })
+
                     await db.commit()
-                    continue
+                    import gc
+                    gc.collect()
 
-                if not pdf_bytes:
+                except Exception as e:
+                    logger.error(f"Error ingesting discovery {disc.id}: {e}")
                     disc.status = "FAILED"
                     disc.retry_count += 1
-                    disc.error_message = "Empty payload received from source."
+                    disc.error_message = str(e)
                     failed += 1
                     await db.commit()
-                    continue
-
-                # Ingest document into repository
-                dept_id = depts_by_code.get(disc.department_code) if disc.department_code else None
-
-                doc, version, page_count = await document_ingestion_service.ingest_document(
-                    db=db,
-                    pdf_bytes=pdf_bytes,
-                    institution_id=source.institution_id,
-                    department_id=dept_id,
-                    reference_number=disc.reference_number,
-                    title=disc.title or "Official Circular",
-                    publication_date=disc.publication_date or datetime.now(timezone.utc).date(),
-                    source_url=disc.file_url or disc.source_url,
-                    document_type=disc.publication_type or "CIRCULAR"
-                )
-
-                # Mark as honest machine-processed publication
-                doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
-
-                disc.status = "INGESTED"
-                disc.document_id = doc.id
-                disc.file_hash = version.file_sha256
-                disc.file_size = version.file_size_bytes
-                disc.error_message = None
-                successful += 1
-
-                ingested_items.append({
-                    "document_id": str(doc.id),
-                    "reference_number": doc.reference_number,
-                    "title": doc.title,
-                    "department": disc.department_code,
-                    "publication_date": str(doc.publication_date),
-                    "page_count": page_count,
-                    "file_size_bytes": version.file_size_bytes,
-                    "file_sha256": version.file_sha256,
-                    "language": version.language
-                })
-
-                await db.commit()
-                import gc
-                gc.collect()
-
-            except Exception as e:
-                logger.error(f"Error ingesting discovery {disc.id}: {e}")
-                disc.status = "FAILED"
-                disc.retry_count += 1
-                disc.error_message = str(e)
-                failed += 1
-                await db.commit()
 
         return {
             "status": "COMPLETED",
