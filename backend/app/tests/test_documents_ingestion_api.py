@@ -9,7 +9,7 @@ from backend.app.main import app
 async def test_document_ingestion_and_provenance():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Register an authorized ingestion user
+        # 1. Register a user; their uploads are private, so reads below send their token
         unique_id = uuid.uuid4().hex[:6]
         user_resp = await client.post("/api/v1/auth/register", json={
             "email": f"ingest_admin_{unique_id}@regwatch.bd",
@@ -68,7 +68,7 @@ async def test_document_ingestion_and_provenance():
         version_id = version["id"]
 
         # 5. Page-level extraction verification
-        pages_resp = await client.get(f"/api/v1/documents/{doc_id}/versions/{version_id}/pages")
+        pages_resp = await client.get(f"/api/v1/documents/{doc_id}/versions/{version_id}/pages", headers=auth_headers)
         assert pages_resp.status_code == 200
         pages = pages_resp.json()
         assert len(pages) == 2
@@ -80,7 +80,7 @@ async def test_document_ingestion_and_provenance():
         assert "Annexure: Reporting Template" in pages[1]["raw_text"]
 
         # 6. Stream original PDF
-        pdf_stream_resp = await client.get(f"/api/v1/documents/{doc_id}/pdf")
+        pdf_stream_resp = await client.get(f"/api/v1/documents/{doc_id}/pdf", headers=auth_headers)
         assert pdf_stream_resp.status_code == 200
         assert pdf_stream_resp.headers["Content-Type"] == "application/pdf"
         assert pdf_stream_resp.headers["X-SHA256-Checksum"] == version["file_sha256"]
@@ -113,7 +113,7 @@ async def test_document_ingestion_and_provenance():
         assert upload_resp_16.status_code == 201
 
         # 9. Filter and search documents
-        list_search = await client.get("/api/v1/documents?search=IFRS")
+        list_search = await client.get("/api/v1/documents?search=IFRS", headers=auth_headers)
         assert list_search.status_code == 200
         docs_found = list_search.json()
         assert len(docs_found) >= 1

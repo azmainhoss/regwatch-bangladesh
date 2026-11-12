@@ -129,35 +129,98 @@ def test_anti_bot_detection_mechanisms():
     assert connector.detect_anti_bot_challenge(clean_html, 200) is None
 
 
+class _FakeResponse:
+    def __init__(self, status_code=200, content=b"", headers=None):
+        self.status_code = status_code
+        self.content = content
+        self.text = content.decode("utf-8", errors="ignore")
+        self.headers = headers or {}
+
+
 @pytest.mark.asyncio
-async def test_download_document_magic_bytes_validation():
+async def test_download_document_magic_bytes_validation(monkeypatch):
     connector = BangladeshBankConnector()
-
-    # Create dummy mock client response
     corrupted_html = b"<html><body>Error 404 Not Found</body></html>"
+    calls = []
 
-    class MockResponse:
-        status_code = 200
-        content = corrupted_html
-        text = corrupted_html.decode()
+    async def fake_get(self, url, **kwargs):
+        calls.append(url)
+        return _FakeResponse(200, corrupted_html)
 
-    # Verify download fails when magic bytes != %PDF-
-    content, challenge = await connector.download_document("https://example.com/corrupt.pdf")
-    # For actual remote, it would fail or return challenge; with unit logic, magic bytes check protects database
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    content, challenge = await connector.download_document(
+        "https://www.bb.org.bd/mediaroom/circulars/brpd/corrupt.pdf", backoff_base_seconds=0
+    )
+    assert content is None
+    assert challenge is not None
+    assert challenge.challenge_type == "INVALID_CONTENT_TYPE"
+    assert calls == ["https://www.bb.org.bd/mediaroom/circulars/brpd/corrupt.pdf"]
+
+    # A genuine PDF payload is accepted
+    async def fake_pdf_get(self, url, **kwargs):
+        return _FakeResponse(200, b"%PDF-1.7 minimal")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_pdf_get)
+    content, challenge = await connector.download_document(
+        "https://www.bb.org.bd/mediaroom/circulars/brpd/ok.pdf", backoff_base_seconds=0
+    )
+    assert challenge is None
+    assert content.startswith(b"%PDF-")
 
 
 @pytest.mark.asyncio
 async def test_source_monitoring_stats(db_session):
-    # Verify get_source_stats executes cleanly
-    q = await db_session.execute(select(Source).where(Source.name.ilike("%Bangladesh Bank%")))
-    source = q.scalar_one_or_none()
-    if source:
-        stats = await source_monitoring_service.get_source_stats(db_session, source.id)
-        assert stats["total_discovered"] > 0
-        assert stats["total_ingested"] >= 0
-        assert "department_breakdown" in stats
-        assert "year_breakdown" in stats
-        assert "language_breakdown" in stats
+    from backend.app.tests.factories import make_institution
+
+    inst = await make_institution()
+    source_a = Source(institution_id=inst.id, name=f"Stats source A {uuid4().hex[:6]}",
+                      base_url="https://www.bb.org.bd/en/index.php/mediaroom/circular")
+    source_b = Source(institution_id=inst.id, name=f"Stats source B {uuid4().hex[:6]}",
+                      base_url="https://www.bb.org.bd/en/index.php/mediaroom/circular")
+    db_session.add_all([source_a, source_b])
+    await db_session.flush()
+    run_a = SourceRun(source_id=source_a.id, run_type="TEST", status="COMPLETED")
+    run_b = SourceRun(source_id=source_b.id, run_type="TEST", status="COMPLETED")
+    db_session.add_all([run_a, run_b])
+    await db_session.flush()
+
+    def disc(run, status, dept, lang, year):
+        return SourceDiscovery(
+            source_run_id=run.id,
+            source_url="https://www.bb.org.bd/list",
+            file_url=f"https://www.bb.org.bd/{uuid4().hex}.pdf",
+            department_code=dept,
+            language=lang,
+            publication_date=date(year, 1, 15),
+            status=status,
+        )
+
+    db_session.add_all([
+        disc(run_a, "INGESTED", "BRPD", "English", 2025),
+        disc(run_a, "VALIDATED", "BRPD", "Bangla", 2026),
+        disc(run_a, "DUPLICATE", "DOS", "English", 2026),
+        disc(run_a, "FAILED", "DOS", "English", 2026),
+        # Belongs to another source and must not be counted for source A
+        disc(run_b, "INGESTED", "FEPD", "English", 2024),
+        disc(run_b, "INGESTED", "FEPD", "English", 2024),
+    ])
+    await db_session.commit()
+
+    stats = await source_monitoring_service.get_source_stats(db_session, source_a.id)
+    assert stats["source_id"] == source_a.id
+    assert stats["total_discovered"] == 4
+    assert stats["total_ingested"] == 1
+    assert stats["total_pending"] == 1
+    assert stats["total_duplicates"] == 1
+    assert stats["total_failed"] == 1
+    assert stats["department_breakdown"] == {"BRPD": 2, "DOS": 2}
+    assert stats["year_breakdown"] == {"2026": 3, "2025": 1}
+    assert stats["language_breakdown"] == {"English": 3, "Bangla": 1}
+
+    stats_b = await source_monitoring_service.get_source_stats(db_session, source_b.id)
+    assert stats_b["total_discovered"] == 2
+    assert stats_b["total_ingested"] == 2
 
 
 @pytest.mark.asyncio

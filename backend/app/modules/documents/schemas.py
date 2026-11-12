@@ -1,7 +1,9 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, computed_field
+import json
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class DocumentPageRead(BaseModel):
@@ -20,6 +22,45 @@ class DocumentPageRead(BaseModel):
     is_human_corrected: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("extracted_tables", mode="before")
+    @classmethod
+    def _coerce_tables(cls, value: Any) -> List[Any]:
+        return as_table_list(value)
+
+    @field_validator("layout_hierarchy", mode="before")
+    @classmethod
+    def _coerce_layout(cls, value: Any) -> Dict[str, Any]:
+        value = _decode_json_text(value)
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list):
+            # Older extractions stored the outline as a bare list of headings.
+            return {"blocks": value}
+        return {}
+
+
+def _decode_json_text(value: Any) -> Any:
+    """Pages imported from older seed files can hold JSON as a string; decode it."""
+    if isinstance(value, (str, bytes)):
+        text = value.strip() if isinstance(value, str) else value.decode("utf-8", "ignore").strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except ValueError:
+            return None
+    return value
+
+
+def as_table_list(value: Any) -> List[Any]:
+    """A page's extracted tables as a list, whatever form they were stored in."""
+    value = _decode_json_text(value)
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [value]
+    return value if isinstance(value, list) else []
 
 
 class PageCorrectionRequest(BaseModel):
@@ -64,19 +105,25 @@ class DocumentRead(DocumentBase):
     created_at: datetime
     updated_at: datetime
     versions: List[DocumentVersionRead] = []
+    owner_user_id: Optional[UUID] = None
+    is_synthetic_fixture: Optional[bool] = Field(default=False, exclude=True)
 
     @computed_field
     @property
     def is_synthetic(self) -> bool:
-        title_lower = (self.title or "").lower()
-        ref_lower = (self.reference_number or "").lower()
-        if "sample" in title_lower or "test" in title_lower or "gate policy" in title_lower or "citation policy" in title_lower:
-            return True
-        if ref_lower.startswith("brpd(p)") or ref_lower.startswith("vcp-") or ref_lower.startswith("utd-") or ref_lower.startswith("gp-"):
-            return True
-        if self.publication_status == "DRAFT" and len(self.versions) == 0:
-            return True
-        return False
+        from backend.app.modules.documents.synthetic import is_synthetic_document
+        return is_synthetic_document(
+            self.title,
+            self.reference_number,
+            flag=self.is_synthetic_fixture,
+            status=self.publication_status,
+            version_count=len(self.versions),
+        )
+
+    @computed_field
+    @property
+    def is_private(self) -> bool:
+        return self.owner_user_id is not None
 
     @computed_field
     @property

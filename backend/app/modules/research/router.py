@@ -34,5 +34,6 @@ async def query_regulatory_assistant(
         db=db,
         query=payload.query,
         document_id=payload.document_id,
-        institution_id=payload.institution_id
+        institution_id=payload.institution_id,
+        user=current_user,
     )

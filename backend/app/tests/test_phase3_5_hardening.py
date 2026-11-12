@@ -444,7 +444,27 @@ async def test_authorized_review_and_state_machine_transitions(client: AsyncClie
     assert resp_invalid.status_code == 400
     assert "Invalid review decision" in resp_invalid.json()["detail"]
 
-    # 2. Legitimate transition by superuser: PUBLISHED_HUMAN_REVIEWED
+    # 2. Publishing is refused while the document has no analysis at all
+    resp_no_analysis = await client.post(
+        f"/api/v1/documents/{sample_document.id}/publish",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"decision": "PUBLISHED_HUMAN_REVIEWED", "review_notes": "Approved by compliance lead"}
+    )
+    assert resp_no_analysis.status_code == 400
+    assert "no analysis" in resp_no_analysis.json()["detail"]
+
+    # 3. Legitimate transition by superuser once a fully verified analysis exists
+    from backend.app.modules.analysis.models import DocumentAnalysis
+    async with AsyncSessionLocal() as db:
+        db.add(DocumentAnalysis(
+            document_version_id=sample_document.current_version_id,
+            executive_summary="Verified summary",
+            model_name="mock",
+            prompt_version="test",
+            citation_coverage_score=1.0,
+        ))
+        await db.commit()
+
     resp_valid = await client.post(
         f"/api/v1/documents/{sample_document.id}/publish",
         headers={"Authorization": f"Bearer {token}"},

@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_async_db
-from backend.app.modules.identity.deps import get_current_user
+from backend.app.modules.identity.deps import get_current_superuser, get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRun
 from backend.app.modules.sources.schemas import (
@@ -33,7 +33,7 @@ async def list_sources(db: AsyncSession = Depends(get_async_db)):
 @router.post("", response_model=SourceRead, status_code=status.HTTP_201_CREATED)
 async def create_source(
     payload: SourceCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     source = Source(
@@ -83,7 +83,7 @@ async def list_discoveries(
 @router.post("/discoveries/{discovery_id}/approve", status_code=status.HTTP_200_OK)
 async def approve_discovery(
     discovery_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Approves a candidate publication from the review queue and triggers ingestion."""
@@ -94,8 +94,10 @@ async def approve_discovery(
             "message": f"Successfully ingested '{doc.title}'",
             "document_id": str(doc.id)
         }
-    except ValueError as e:
+    except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
@@ -106,7 +108,7 @@ async def approve_discovery(
 async def reject_discovery(
     discovery_id: UUID,
     payload: RejectDiscoveryRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Rejects an ineligible or duplicate discovery with human-reviewed rationale."""
@@ -140,7 +142,7 @@ async def get_source_statistics(
 @router.post("/{source_id}/discover", response_model=SourceRunRead)
 async def discover_source_publications(
     source_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -164,7 +166,7 @@ async def discover_source_publications(
 async def backfill_source_publications(
     source_id: UUID,
     payload: BackfillRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -198,7 +200,7 @@ async def get_source(source_id: UUID, db: AsyncSession = Depends(get_async_db)):
 async def update_source(
     source_id: UUID,
     payload: SourceUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     source = await db.get(Source, source_id)
@@ -217,7 +219,7 @@ async def update_source(
 @router.post("/{source_id}/trigger", response_model=SourceRunRead)
 async def trigger_source_monitoring(
     source_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """

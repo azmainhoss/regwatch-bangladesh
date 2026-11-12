@@ -16,6 +16,15 @@ class Document(Base):
     effective_date = Column(Date, nullable=True)
     source_url = Column(String(1024), nullable=True)
     current_version_id = Column(GUID(), nullable=True)
+    # Explicit marker for sample/fixture records so they are kept out of the genuine corpus.
+    is_synthetic_fixture = Column(Boolean, default=False, server_default="0", nullable=False)
+    # NULL = shared library (visible to everyone). Set = a private upload only this user can see.
+    owner_user_id = Column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_documents_owner_user_id_users"),
+        nullable=True,
+        index=True,
+    )
     publication_status = Column(
         String(64),
         nullable=False,

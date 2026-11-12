@@ -47,27 +47,33 @@ class ScheduledMonitoringService:
                 break
 
     async def poll_active_sources(self):
+        # Read the list of sources with a short-lived session, then give every source
+        # its own session so one failure (or a broken transaction) cannot affect the rest.
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(Source).where(Source.is_active == True)
+                select(Source.id, Source.name).where(
+                    Source.is_active == True,
+                    Source.monitoring_method != "MANUAL_ONLY"
+                )
             )
-            sources = result.scalars().all()
-            if not sources:
-                logger.info("No active regulatory sources configured for monitoring.")
-                return
+            sources = result.all()
 
-            logger.info(f"Scheduled monitoring checking {len(sources)} active regulatory source(s)...")
-            for source in sources:
-                try:
+        if not sources:
+            logger.info("No active regulatory sources configured for monitoring.")
+            return
+
+        logger.info(f"Scheduled monitoring checking {len(sources)} active regulatory source(s)...")
+        for source_id, source_name in sources:
+            try:
+                async with AsyncSessionLocal() as session:
                     run = await source_monitoring_service.execute_source_monitoring(
                         db=session,
-                        source_id=source.id,
+                        source_id=source_id,
                         run_type="SCHEDULED_POLL"
                     )
-                    logger.info(f"Source '{source.name}' poll completed with status {run.status} ({run.valid_documents_discovered} new candidates).")
-                except Exception as ex:
-                    logger.error(f"Failed scheduled monitoring run for source '{source.name}': {ex}")
-
+                    logger.info(f"Source '{source_name}' poll completed with status {run.status} ({run.valid_documents_discovered} new candidates).")
+            except Exception as ex:
+                logger.error(f"Failed scheduled monitoring run for source '{source_name}': {ex}")
 
 monitoring_scheduler = ScheduledMonitoringService(
     interval_seconds=getattr(settings, "SOURCE_MONITORING_INTERVAL_SECONDS", 900)

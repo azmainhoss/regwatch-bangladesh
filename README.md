@@ -57,11 +57,17 @@ npm run dev
 ```
 Access the application at: `http://localhost:3000`.
 
+The frontend calls the FastAPI backend directly from the browser. It uses `NEXT_PUBLIC_API_URL`
+(default `http://localhost:8000/api/v1`). For any deployed build, set it at build time to the public
+backend URL, and add the frontend's origin to the backend's `ALLOWED_ORIGINS`.
+
 ---
 
-## Seed Credentials (Development)
-- **Superadmin:** `admin@regwatch.bd` / `AdminPassword123!`
-- **Bank CCO:** `cco@abcbank.bd` / `CCOPassword123!` (ABC Bank PLC)
+## Development Accounts
+For local development, run `python -m backend.scripts.seed` (or set `SEED_ON_STARTUP=true` in `.env`
+on an empty database) to create a superuser and a sample bank user. The emails and passwords are
+set in `backend/scripts/seed.py`. The seed refuses to run when `ENVIRONMENT=production`; create real
+accounts there instead.
 
 ---
 

@@ -2,12 +2,14 @@ import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from backend.app.core.logging import logger
 from backend.app.modules.analysis.providers.factory import get_ai_provider
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
+from backend.app.modules.documents.access import visible_documents_condition
+from backend.app.modules.identity.models import User
 
 
 class CitationPoint(BaseModel):
@@ -89,7 +91,8 @@ class ResearchService:
         db: AsyncSession,
         query: str,
         document_id: Optional[UUID] = None,
-        institution_id: Optional[UUID] = None
+        institution_id: Optional[UUID] = None,
+        user: Optional[User] = None,
     ) -> ResearchQueryResponse:
         """
         Executes a grounded source search and generates an evidentiary answer.
@@ -105,17 +108,14 @@ class ResearchService:
                 caveats=["Security Guard: Adversarial instruction or out-of-scope query pattern detected. Execution declined."]
             )
 
-        # Step 1: Retrieve candidate documents and pages
-        doc_stmt = select(Document).options(selectinload(Document.versions))
+        # Step 1: Make sure there is something in scope to search
+        # Only the shared library plus the caller's own private uploads are searchable.
+        scope_stmt = select(Document.id).where(visible_documents_condition(user))
         if document_id:
-            doc_stmt = doc_stmt.where(Document.id == document_id)
+            scope_stmt = scope_stmt.where(Document.id == document_id)
         if institution_id:
-            doc_stmt = doc_stmt.where(Document.institution_id == institution_id)
-
-        doc_stmt = doc_stmt.limit(25)
-        docs = (await db.execute(doc_stmt)).scalars().all()
-
-        if not docs:
+            scope_stmt = scope_stmt.where(Document.institution_id == institution_id)
+        if (await db.execute(scope_stmt.limit(1))).first() is None:
             return ResearchQueryResponse(
                 query=query,
                 answer="I could not verify this from the available regulatory documents.",
@@ -124,31 +124,49 @@ class ResearchService:
                 caveats=["No matching regulatory documents found in the repository."]
             )
 
-        # Step 2: Extract relevant page snippets
-        keywords = [k.lower() for k in re.findall(r"\w+", query) if len(k) > 3]
+        # Step 2: Pull candidate pages from the current version of every document in scope.
+        # Without a document scope, the database narrows to pages containing at least one
+        # query keyword, so the whole repository is searched (not just the first few documents).
+        keywords = list(dict.fromkeys(k.lower() for k in re.findall(r"\w+", query) if len(k) > 3))
+        pages_stmt = (
+            select(DocumentPage, Document)
+            .join(Document, Document.current_version_id == DocumentPage.document_version_id)
+            .where(visible_documents_condition(user))
+            .order_by(DocumentPage.page_number)
+        )
+        if document_id:
+            pages_stmt = pages_stmt.where(Document.id == document_id)
+        if institution_id:
+            pages_stmt = pages_stmt.where(Document.institution_id == institution_id)
+        if document_id is None:
+            if not keywords:
+                rows = []
+            else:
+                cleaned = func.lower(func.coalesce(DocumentPage.cleaned_text, ""))
+                raw = func.lower(func.coalesce(DocumentPage.raw_text, ""))
+                kw_filters = []
+                for kw in keywords[:20]:
+                    kw_filters.append(cleaned.like(f"%{kw}%"))
+                    kw_filters.append(raw.like(f"%{kw}%"))
+                pages_stmt = pages_stmt.where(or_(*kw_filters))
+                rows = (await db.execute(pages_stmt)).all()
+        else:
+            rows = (await db.execute(pages_stmt)).all()
+
         matched_pages: List[Dict[str, Any]] = []
-
-        for doc in docs:
-            if not doc.current_version_id:
-                continue
-            pages_stmt = select(DocumentPage).where(
-                DocumentPage.document_version_id == doc.current_version_id
-            ).order_by(DocumentPage.page_number)
-            pages = (await db.execute(pages_stmt)).scalars().all()
-
-            for p in pages:
-                text = p.cleaned_text or p.raw_text
-                # Keyword overlap scoring
-                match_count = sum(1 for kw in keywords if kw in text.lower()) if keywords else 0
-                # If scoped to a specific document, keep page even if keyword count is 0 (handles cross-lingual Bengali/English queries)
-                if match_count > 0 or document_id is not None:
-                    matched_pages.append({
-                        "doc_title": doc.title,
-                        "ref_no": doc.reference_number or "BB Circular",
-                        "page_no": p.page_number,
-                        "text": text,
-                        "relevance": match_count
-                    })
+        for p, doc in rows:
+            text = p.cleaned_text or p.raw_text or ""
+            # Keyword overlap scoring
+            match_count = sum(1 for kw in keywords if kw in text.lower()) if keywords else 0
+            # If scoped to a specific document, keep page even if keyword count is 0 (handles cross-lingual Bengali/English queries)
+            if match_count > 0 or document_id is not None:
+                matched_pages.append({
+                    "doc_title": doc.title,
+                    "ref_no": doc.reference_number or "BB Circular",
+                    "page_no": p.page_number,
+                    "text": text,
+                    "relevance": match_count
+                })
 
         # Sort by relevance
         matched_pages.sort(key=lambda x: x["relevance"], reverse=True)
@@ -195,7 +213,8 @@ Provide a grounded regulatory answer citing exact pages and references."""
         )
 
         answer_text = ""
-        if llm_resp.success and llm_resp.parsed_json:
+        ai_ok = bool(llm_resp.success and llm_resp.parsed_json)
+        if ai_ok:
             if isinstance(llm_resp.parsed_json, dict):
                 answer_text = (
                     llm_resp.parsed_json.get("answer") or
@@ -216,7 +235,8 @@ Provide a grounded regulatory answer citing exact pages and references."""
             else:
                 answer_text = str(llm_resp.parsed_json)
         else:
-            answer_text = llm_resp.raw_content or "I could not verify this from the available regulatory documents."
+            # The model call failed: nothing here is a grounded answer.
+            answer_text = "I could not verify this from the available regulatory documents."
 
         # Layer 4: Sensitive Data Filtering
         for sec_pattern in SENSITIVE_SECRET_PATTERNS:
@@ -227,7 +247,9 @@ Provide a grounded regulatory answer citing exact pages and references."""
         return ResearchQueryResponse(
             query=query,
             answer=answer_text,
-            is_grounded=True,
+            is_grounded=ai_ok,
             citations=citations_list,
-            caveats=[]
+            caveats=[] if ai_ok else [
+                "The answer service did not respond successfully. The listed pages are search matches only and have not been checked."
+            ]
         )

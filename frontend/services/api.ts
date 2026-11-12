@@ -1,44 +1,74 @@
+const DEFAULT_DEV_API_URL = "http://localhost:8000/api/v1";
+
+/**
+ * Base URL of the FastAPI backend, always ending in /api/v1.
+ * Set NEXT_PUBLIC_API_URL at build time for any deployed environment.
+ */
 export function getApiBaseUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    const clean = envUrl.trim().replace(/\/+$/, "");
-    return clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
-  }
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
-      return "http://localhost:8000/api/v1";
-    }
-    return "/api/v1";
-  }
-  return "/api/v1";
+  const raw = envUrl && envUrl.trim().length > 0 ? envUrl.trim() : DEFAULT_DEV_API_URL;
+  const clean = raw.replace(/\/+$/, "");
+  return clean.endsWith("/api/v1") ? clean : `${clean}/api/v1`;
 }
 
-export async function apiFetch(endpoint: string, options?: RequestInit): Promise<Response> {
-  const base = getApiBaseUrl();
-  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  const targetUrl = `${base}${cleanEndpoint}`;
-
-  try {
-    const res = await fetch(targetUrl, options);
-    if (!res.ok && !targetUrl.startsWith("/api/v1") && typeof window !== "undefined") {
-      const fallbackUrl = `/api/v1${cleanEndpoint}`;
-      try {
-        const fallbackRes = await fetch(fallbackUrl, options);
-        if (fallbackRes.ok) return fallbackRes;
-      } catch {
-        // use original
-      }
-    }
-    return res;
-  } catch (err) {
-    // Network error (e.g. localhost:8000 not reachable or mixed content blocked)
-    if (typeof window !== "undefined" && !targetUrl.startsWith("/api/v1")) {
-      const fallbackUrl = `/api/v1${cleanEndpoint}`;
-      return await fetch(fallbackUrl, options);
-    }
-    throw err;
+/** Error carrying the HTTP status and the backend's own message. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
   }
+}
+
+/** Reads FastAPI's `detail` (string or validation list) from an error response. */
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => null);
+  const detail = body?.detail ?? body?.message;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((d: any) => {
+        const loc = Array.isArray(d?.loc) ? d.loc.filter((x: any) => x !== "body").join(".") : "";
+        return loc ? `${loc}: ${d?.msg ?? ""}` : d?.msg ?? JSON.stringify(d);
+      })
+      .join("; ");
+  }
+  return `${fallback} (HTTP ${res.status})`;
+}
+
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  throw new ApiError(res.status, await readErrorMessage(res, fallback));
+}
+
+export const AUTH_CHANGED_EVENT = "regwatch-auth-changed";
+
+/**
+ * Calls the backend. Adds the bearer token when the user is signed in.
+ * There is no fallback: a failed request is returned or thrown as-is.
+ */
+export async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const targetUrl = `${getApiBaseUrl()}${cleanEndpoint}`;
+
+  const headers = new Headers(options.headers || {});
+  const token = getAuthToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(targetUrl, { ...options, headers });
+  } catch {
+    throw new ApiError(0, `Cannot reach the RegWatch API at ${getApiBaseUrl()}. Check that the backend is running.`);
+  }
+
+  // An expired or invalid token: drop the local session so the UI stops showing signed-in controls.
+  if (res.status === 401 && token && !cleanEndpoint.startsWith("/auth/login")) {
+    logoutUser();
+  }
+  return res;
 }
 
 export interface Institution {
@@ -70,6 +100,7 @@ export interface DocumentVersion {
 
 export interface DocumentPage {
   id: string;
+  is_human_corrected?: boolean;
   page_number: number;
   raw_text: string;
   cleaned_text?: string;
@@ -96,6 +127,9 @@ export interface DocumentItem {
   versions: DocumentVersion[];
   is_synthetic?: boolean;
   corpus_type?: string;
+  /** Set when this is a private upload; only that user can see it. */
+  owner_user_id?: string | null;
+  is_private?: boolean;
 }
 
 export interface Source {
@@ -152,58 +186,62 @@ export interface SourceDiscovery {
   created_at: string;
 }
 
+/** Matches the backend's UserRead schema (backend/app/modules/identity/schemas.py). */
 export interface AuthUser {
   id: string;
   email: string;
   full_name: string;
-  phone_number?: string;
+  phone_number?: string | null;
   is_active: boolean;
   is_superuser: boolean;
-  organization_name?: string;
-  designation?: string;
+}
+
+const TOKEN_KEY = "regwatch_token";
+const USER_KEY = "regwatch_user";
+
+function notifyAuthChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+  }
 }
 
 export function getAuthToken(): string | null {
   if (typeof window !== "undefined") {
-    return localStorage.getItem("regwatch_token");
+    return localStorage.getItem(TOKEN_KEY);
   }
   return null;
 }
 
+/**
+ * Cached copy of the signed-in user. Only used for first paint; call
+ * fetchCurrentUser() to confirm the role with the backend.
+ */
 export function getStoredUser(): AuthUser | null {
-  if (typeof window !== "undefined") {
-    const raw = localStorage.getItem("regwatch_user");
-    if (raw) {
-      try {
-        const u = JSON.parse(raw);
-        if (u) {
-          let updated = false;
-          // Auto-migrate any cached legacy "National Standard Bank PLC" or missing organization
-          if (u.organization_name === "National Standard Bank PLC" || !u.organization_name) {
-            u.organization_name = u.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC";
-            updated = true;
-          }
-          if (u.email && u.email.includes("nationalbank")) {
-            u.email = u.email.replace("nationalbank.bd", "abcbank.bd");
-            updated = true;
-          }
-          if (updated) {
-            localStorage.setItem("regwatch_user", JSON.stringify(u));
-          }
-          return u;
-        }
-      } catch {
-        return null;
-      }
-    }
+  if (typeof window === "undefined") return null;
+  if (!localStorage.getItem(TOKEN_KEY)) return null;
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
+  try {
+    const u = JSON.parse(raw);
+    return u && typeof u === "object" ? (u as AuthUser) : null;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+function storeSession(token: string | null, user: AuthUser | null) {
+  if (typeof window === "undefined") return;
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  notifyAuthChanged();
 }
 
 export function logoutUser() {
   if (typeof window !== "undefined") {
-    localStorage.removeItem("regwatch_token");
-    localStorage.removeItem("regwatch_user");
+    const hadSession = localStorage.getItem(TOKEN_KEY) !== null || localStorage.getItem(USER_KEY) !== null;
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    if (hadSession) notifyAuthChanged();
   }
 }
 
@@ -213,33 +251,51 @@ export async function loginUser(email: string, password: string): Promise<AuthUs
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Authentication failed");
-  }
+  if (!res.ok) await throwApiError(res, "Sign-in failed");
   const data = await res.json();
-  const token = data.access_token;
-  const user: AuthUser = {
-    ...data.user,
-    organization_name: data.user.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC",
-    designation: email.includes("cco") ? "Chief Compliance Officer" : (data.user.is_superuser ? "System Administrator" : "Compliance Officer"),
-  };
-  if (typeof window !== "undefined") {
-    localStorage.setItem("regwatch_token", token);
-    localStorage.setItem("regwatch_user", JSON.stringify(user));
-  }
+  const user: AuthUser = data.user;
+  storeSession(data.access_token, user);
   return user;
 }
 
-export async function ensureDefaultBankingSession(): Promise<AuthUser | null> {
-  if (typeof window === "undefined") return null;
-  const existingToken = getAuthToken();
-  const existingUser = getStoredUser();
-  if (existingToken && existingUser) {
-    return existingUser;
+export async function registerUser(payload: {
+  email: string;
+  password: string;
+  full_name: string;
+  phone_number?: string;
+}): Promise<AuthUser> {
+  const res = await apiFetch(`/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, "Registration failed");
+  const data = await res.json();
+  const user: AuthUser = data.user;
+  storeSession(data.access_token, user);
+  return user;
+}
+
+/**
+ * Asks the backend who the token belongs to (GET /auth/me) and refreshes the
+ * cached user. Returns null and clears the session when the token is missing or rejected.
+ */
+export async function fetchCurrentUser(): Promise<AuthUser | null> {
+  if (!getAuthToken()) return null;
+  const res = await apiFetch(`/auth/me`, { cache: "no-store" });
+  if (res.status === 401 || res.status === 403) {
+    logoutUser();
+    return null;
   }
-  // Visitors remain unauthenticated until they log in or click Get Access
-  return null;
+  if (!res.ok) await throwApiError(res, "Could not load the signed-in user");
+  const user: AuthUser = await res.json();
+  if (typeof window !== "undefined") {
+    const before = localStorage.getItem(USER_KEY);
+    const after = JSON.stringify(user);
+    localStorage.setItem(USER_KEY, after);
+    if (before !== after) notifyAuthChanged();
+  }
+  return user;
 }
 
 function getAuthHeaders(): HeadersInit {
@@ -249,7 +305,7 @@ function getAuthHeaders(): HeadersInit {
 
 export async function fetchHealth(): Promise<{ status: string; app_name: string; version: string }> {
   const res = await apiFetch(`/health`, { cache: "no-store" });
-  if (!res.ok) throw new Error("API health check failed");
+  if (!res.ok) await throwApiError(res, "API health check failed");
   return res.json();
 }
 
@@ -286,7 +342,7 @@ export interface ProviderStatusInfo {
 
 export async function fetchProviderStatus(): Promise<ProviderStatusInfo> {
   const res = await apiFetch(`/documents/provider-status`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch provider status");
+  if (!res.ok) await throwApiError(res, "Failed to fetch provider status");
   return res.json();
 }
 
@@ -296,13 +352,13 @@ export async function testProviderConnection(): Promise<ProviderStatusInfo> {
     headers: { ...getAuthHeaders() },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error("Failed to test provider connection");
+  if (!res.ok) await throwApiError(res, "Failed to test provider connection");
   return res.json();
 }
 
 export async function fetchInstitutions(): Promise<Institution[]> {
   const res = await apiFetch(`/institutions`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch institutions");
+  if (!res.ok) await throwApiError(res, "Failed to fetch institutions");
   return res.json();
 }
 
@@ -325,7 +381,7 @@ export interface DashboardStats {
 
 export async function fetchDocumentStats(): Promise<DashboardStats> {
   const res = await apiFetch(`/documents/stats`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch dashboard stats");
+  if (!res.ok) await throwApiError(res, "Failed to fetch dashboard stats");
   return res.json();
 }
 
@@ -344,13 +400,53 @@ export async function fetchDocuments(params?: {
   if (params?.publication_status) query.append("publication_status", params.publication_status);
 
   const res = await apiFetch(`/documents?${query.toString()}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch documents");
+  if (!res.ok) await throwApiError(res, "Failed to fetch documents");
+  return res.json();
+}
+
+export async function fetchDocument(documentId: string): Promise<DocumentItem> {
+  const res = await apiFetch(`/documents/${documentId}`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Failed to fetch document");
+  return res.json();
+}
+
+/** Direct link to the stored original PDF (GET /documents/{id}/pdf). */
+export function documentPdfUrl(documentId: string): string {
+  return `${getApiBaseUrl()}/documents/${documentId}/pdf`;
+}
+
+/**
+ * Opens a document's PDF in a new tab. Private documents need the sign-in token,
+ * which a plain link cannot send, so the file is fetched first.
+ */
+export async function openDocumentPdf(documentId: string): Promise<void> {
+  const tab = window.open("", "_blank");
+  const res = await apiFetch(`/documents/${documentId}/pdf`, { cache: "no-store" });
+  if (!res.ok) {
+    tab?.close();
+    await throwApiError(res, "Could not open the PDF");
+  }
+  const url = URL.createObjectURL(await res.blob());
+  if (tab) tab.location.href = url;
+  else window.location.href = url;
+}
+
+export interface ReextractResult {
+  message: string;
+  page_count: number;
+  human_corrections_preserved: number;
+}
+
+/** Admin only. Re-runs page extraction; pages a person corrected keep their corrected text. */
+export async function reextractDocument(documentId: string): Promise<ReextractResult> {
+  const res = await apiFetch(`/documents/${documentId}/extract`, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Re-extraction failed");
   return res.json();
 }
 
 export async function fetchDocumentPages(documentId: string, versionId: string): Promise<DocumentPage[]> {
   const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch document pages");
+  if (!res.ok) await throwApiError(res, "Failed to fetch document pages");
   return res.json();
 }
 
@@ -361,16 +457,13 @@ export async function uploadDocument(formData: FormData): Promise<any> {
     headers,
     body: formData,
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Upload failed");
-  }
+  if (!res.ok) await throwApiError(res, "Upload failed");
   return res.json();
 }
 
 export async function fetchSources(): Promise<Source[]> {
   const res = await apiFetch(`/sources`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch sources");
+  if (!res.ok) await throwApiError(res, "Failed to fetch sources");
   return res.json();
 }
 
@@ -380,10 +473,7 @@ export async function triggerSourceRun(sourceId: string): Promise<SourceRun> {
     method: "POST",
     headers,
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to trigger source monitoring run");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to trigger source monitoring run");
   return res.json();
 }
 
@@ -394,14 +484,14 @@ export async function toggleSourceActive(sourceId: string, isActive: boolean): P
     headers,
     body: JSON.stringify({ is_active: isActive }),
   });
-  if (!res.ok) throw new Error("Failed to toggle source status");
+  if (!res.ok) await throwApiError(res, "Failed to toggle source status");
   return res.json();
 }
 
 export async function fetchDiscoveries(statusFilter?: string): Promise<SourceDiscovery[]> {
   const query = statusFilter ? `?status_filter=${statusFilter}` : "";
   const res = await apiFetch(`/sources/discoveries${query}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch discoveries");
+  if (!res.ok) await throwApiError(res, "Failed to fetch discoveries");
   return res.json();
 }
 
@@ -411,10 +501,7 @@ export async function approveDiscovery(discoveryId: string): Promise<any> {
     method: "POST",
     headers,
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to approve discovery");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to approve discovery");
   return res.json();
 }
 
@@ -455,7 +542,7 @@ export interface BackfillResult {
 export async function fetchSourceStats(sourceId: string): Promise<SourceStats> {
   const headers = getAuthHeaders();
   const res = await apiFetch(`/sources/${sourceId}/stats`, { headers, cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch source statistics");
+  if (!res.ok) await throwApiError(res, "Failed to fetch source statistics");
   return res.json();
 }
 
@@ -465,10 +552,7 @@ export async function triggerDiscoveryScan(sourceId: string): Promise<SourceRun>
     method: "POST",
     headers,
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to trigger discovery scan");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to trigger discovery scan");
   return res.json();
 }
 
@@ -479,10 +563,7 @@ export async function triggerBackfillBatch(sourceId: string, payload: BackfillPa
     headers,
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to execute backfill batch");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to execute backfill batch");
   return res.json();
 }
 
@@ -493,10 +574,7 @@ export async function rejectDiscovery(discoveryId: string, reason: string): Prom
     headers,
     body: JSON.stringify({ reason }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to reject discovery");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to reject discovery");
   return res.json();
 }
 
@@ -565,41 +643,38 @@ export async function triggerDocumentAnalysis(documentId: string, provider?: str
     headers,
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to run AI analysis");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to run AI analysis");
   return res.json();
 }
 
 export async function fetchDocumentAnalysis(documentId: string): Promise<DocumentAnalysisData | null> {
   const res = await apiFetch(`/documents/${documentId}/analysis`, { cache: "no-store" });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error("Failed to fetch document analysis");
+  if (!res.ok) await throwApiError(res, "Failed to fetch document analysis");
   return res.json();
 }
 
 export async function fetchDocumentProvisions(documentId: string): Promise<ProvisionItem[]> {
   const res = await apiFetch(`/documents/${documentId}/provisions`, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) await throwApiError(res, "Failed to fetch provisions");
   return res.json();
 }
 
 export async function fetchDocumentObligations(documentId: string): Promise<ObligationItem[]> {
   const res = await apiFetch(`/documents/${documentId}/obligations`, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) await throwApiError(res, "Failed to fetch obligations");
   return res.json();
 }
 
 export async function fetchDocumentRelationships(documentId: string): Promise<RelationshipItem[]> {
   const res = await apiFetch(`/documents/${documentId}/relationships`, { cache: "no-store" });
-  if (!res.ok) return [];
+  if (!res.ok) await throwApiError(res, "Failed to fetch related circulars");
   return res.json();
 }
 
 export async function fetchDocumentExtractionReport(documentId: string, versionId: string): Promise<any> {
   const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/report`, { cache: "no-store" });
-  if (!res.ok) return null;
+  if (!res.ok) await throwApiError(res, "Failed to fetch extraction report");
   return res.json();
 }
 
@@ -614,10 +689,7 @@ export async function reviewDocumentAnalysis(
     headers,
     body: JSON.stringify({ decision, review_notes: reviewNotes }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to submit review");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to submit review");
   return res.json();
 }
 
@@ -634,10 +706,7 @@ export async function submitPageCorrection(
     headers,
     body: JSON.stringify({ corrected_text: correctedText, correction_notes: notes }),
   });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || "Failed to submit correction");
-  }
+  if (!res.ok) await throwApiError(res, "Failed to submit correction");
   return res.json();
 }
 
@@ -653,12 +722,9 @@ export async function queryResearchAssistant(query: string, documentId?: string)
     headers,
     body: JSON.stringify({ query, document_id: documentId }),
   });
-  if (!res.ok) {
-    if (res.status === 401) {
-      throw new Error("Authentication required: Please log in or provide valid credentials to query the research assistant.");
-    }
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Research query failed");
+  if (res.status === 401) {
+    throw new ApiError(401, "Please sign in to ask questions about this circular.");
   }
+  if (!res.ok) await throwApiError(res, "Research query failed");
   return res.json();
 }

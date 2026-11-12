@@ -6,12 +6,17 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 COPY frontend/ ./
+# NEXT_PUBLIC_* values are baked in at build time; pass --build-arg to point at another backend.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./

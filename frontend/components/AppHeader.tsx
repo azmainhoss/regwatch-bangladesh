@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { ShieldCheck, User, Search, Settings } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
-import { AuthUser, ensureDefaultBankingSession, getStoredUser } from "../services/api";
+import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "../services/api";
 
 export default function AppHeader() {
   const pathname = usePathname();
@@ -14,11 +14,14 @@ export default function AppHeader() {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
 
   useEffect(() => {
-    // Load existing session if present
-    const stored = getStoredUser();
-    if (stored) {
-      setCurrentUser(stored);
-    }
+    // Show the cached session at once, then confirm it with the backend (GET /auth/me).
+    setCurrentUser(getStoredUser());
+    fetchCurrentUser()
+      .then((u) => setCurrentUser(u))
+      .catch(() => setCurrentUser(getStoredUser()));
+    const onAuthChanged = () => setCurrentUser(getStoredUser());
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
   const handleSearchClick = (e: React.MouseEvent) => {

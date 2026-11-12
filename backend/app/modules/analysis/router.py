@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.core.config import settings
 from backend.app.database.session import get_async_db
-from backend.app.modules.identity.deps import get_current_user
+from backend.app.modules.identity.deps import get_current_superuser, get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.analysis.models import DocumentAnalysis, AnalysisClaim, ClaimCitation
 from backend.app.modules.analysis.schemas import (
@@ -18,6 +19,7 @@ from backend.app.modules.analysis.schemas import (
     ReviewDocumentRequest,
 )
 from backend.app.modules.analysis.service import AnalysisService
+from backend.app.modules.documents.access import get_document_reader, get_visible_document
 from backend.app.modules.documents.models import Document
 from backend.app.modules.obligations.models import Obligation
 from backend.app.modules.organizations.models import OrganizationMember
@@ -38,7 +40,7 @@ async def get_provider_status():
 
 
 @router.post("/provider-test")
-async def test_provider_connection():
+async def test_provider_connection(current_user: User = Depends(get_current_superuser)):
     """
     Executes an active on-demand handshake probe against the configured AI provider.
     Updates runtime telemetry without exposing credentials.
@@ -72,18 +74,19 @@ async def test_provider_connection():
 async def analyze_document(
     document_id: UUID,
     payload: AnalyzeDocumentRequest = AnalyzeDocumentRequest(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Executes the multi-stage AI intelligence pipeline on a document.
     Extracts summary, provisions, obligations, relationships, and runs deterministic citation validation.
     """
+    await get_visible_document(db, document_id, current_user)
     try:
         analysis = await AnalysisService.analyze_document_version(
             db=db,
             document_id=document_id,
-            provider_name=payload.provider,
+            provider_name=payload.provider if not settings.is_production else None,
             force_human_review=payload.force_human_review
         )
         # Reload with claims and citations for serialization
@@ -105,13 +108,14 @@ async def analyze_document(
 @router.get("/{document_id}/analysis", response_model=DocumentAnalysisRead)
 async def get_document_analysis(
     document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Retrieves the latest structured regulatory analysis for a document.
     """
-    doc = await db.get(Document, document_id)
-    if not doc or not doc.current_version_id:
+    doc = await get_visible_document(db, document_id, current_user)
+    if not doc.current_version_id:
         raise HTTPException(status_code=404, detail="Document or active version not found")
 
     query = (
@@ -138,24 +142,22 @@ async def publish_or_review_document(
 ):
     """
     Submits a human review decision and updates document publication status.
-    Requires authenticated compliance reviewer or superuser authorization.
-    """
-    # Authorization verification: superuser or active ORG_ADMIN/COMPLIANCE_HEAD
-    is_authorized = current_user.is_superuser
-    if not is_authorized:
-        membership_query = select(OrganizationMember).where(
-            OrganizationMember.user_id == current_user.id,
-            OrganizationMember.status == "ACTIVE",
-            OrganizationMember.role.in_(["ORG_ADMIN", "COMPLIANCE_HEAD"])
-        )
-        memberships = (await db.execute(membership_query)).scalars().all()
-        if memberships:
-            is_authorized = True
 
-    if not is_authorized:
+    Regulatory documents are shared by every organization (they belong to the
+    regulator, not to a tenant), so publishing or withdrawing one is a
+    platform-level action reserved for superusers.
+    """
+    if not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: User lacks compliance reviewer or administrative authorization to publish regulatory intelligence."
+            detail="Forbidden: only platform administrators can publish or withdraw regulatory documents."
+        )
+
+    doc = await get_visible_document(db, document_id, current_user)
+    if doc.owner_user_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Private circulars cannot be published to the shared library."
         )
 
     try:
@@ -181,10 +183,11 @@ async def publish_or_review_document(
 @router.get("/{document_id}/provisions", response_model=List[ProvisionRead])
 async def list_document_provisions(
     document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
-    doc = await db.get(Document, document_id)
-    if not doc or not doc.current_version_id:
+    doc = await get_visible_document(db, document_id, current_user)
+    if not doc.current_version_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
     query = (
@@ -199,10 +202,11 @@ async def list_document_provisions(
 @router.get("/{document_id}/obligations", response_model=List[ObligationRead])
 async def list_document_obligations(
     document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
-    doc = await db.get(Document, document_id)
-    if not doc or not doc.current_version_id:
+    doc = await get_visible_document(db, document_id, current_user)
+    if not doc.current_version_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
     query = (
@@ -217,8 +221,10 @@ async def list_document_obligations(
 @router.get("/{document_id}/relationships", response_model=List[RelationshipRead])
 async def list_document_relationships(
     document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
+    await get_visible_document(db, document_id, current_user)
     query = (
         select(DocumentRelationship)
         .where(DocumentRelationship.source_document_id == document_id)

@@ -30,7 +30,9 @@ from backend.app.modules.compliance.schemas import (
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.organizations.deps import get_org_membership
-from backend.app.modules.organizations.models import OrganizationMember
+from backend.app.modules.documents.models import Document, DocumentVersion
+from backend.app.modules.obligations.models import Obligation
+from backend.app.modules.organizations.models import Department, OrganizationMember
 
 router = APIRouter(
     prefix="/organizations/{organization_id}/compliance",
@@ -38,6 +40,29 @@ router = APIRouter(
 )
 
 MAX_EVIDENCE_SIZE_BYTES = 50 * 1024 * 1024
+
+
+async def _require_org_member_user(db: AsyncSession, organization_id: UUID, user_id: Optional[UUID], label: str) -> None:
+    """Reject a user reference unless that user is an active member of this organization."""
+    if user_id is None:
+        return
+    found = (await db.execute(
+        select(OrganizationMember.id).where(
+            OrganizationMember.organization_id == organization_id,
+            OrganizationMember.user_id == user_id,
+            OrganizationMember.status == "ACTIVE"
+        )
+    )).first()
+    if not found:
+        raise HTTPException(status_code=400, detail=f"{label} is not an active member of this organization.")
+
+
+async def _require_org_department(db: AsyncSession, organization_id: UUID, department_id: Optional[UUID]) -> None:
+    if department_id is None:
+        return
+    dept = await db.get(Department, department_id)
+    if not dept or dept.organization_id != organization_id:
+        raise HTTPException(status_code=400, detail="Department does not belong to this organization.")
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +129,20 @@ async def create_compliance_item(
     if not register or register.organization_id != organization_id:
         raise HTTPException(status_code=400, detail="Invalid register for this organization.")
 
+    # Compliance registers are shared with the whole organization, so only obligations
+    # from the shared library can be linked; private uploads stay private.
+    if payload.obligation_id is not None:
+        shared_obligation = (await db.execute(
+            select(Obligation.id)
+            .join(DocumentVersion, DocumentVersion.id == Obligation.document_version_id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(Obligation.id == payload.obligation_id, Document.owner_user_id.is_(None))
+        )).first()
+        if shared_obligation is None:
+            raise HTTPException(status_code=400, detail="Obligation not found.")
+    await _require_org_department(db, organization_id, payload.department_id)
+    await _require_org_member_user(db, organization_id, payload.assigned_lead_id, "Assigned lead")
+
     item = ComplianceItem(
         organization_id=organization_id,
         register_id=payload.register_id,
@@ -158,6 +197,8 @@ async def create_task(
     item = await db.get(ComplianceItem, payload.compliance_item_id)
     if not item or item.organization_id != organization_id:
         raise HTTPException(status_code=400, detail="Compliance item does not belong to this organization.")
+
+    await _require_org_member_user(db, organization_id, payload.assigned_to_user_id, "Assigned user")
 
     task = ComplianceTask(
         organization_id=organization_id,

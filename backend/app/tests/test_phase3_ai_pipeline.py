@@ -139,7 +139,7 @@ async def test_ai_provider_error_handling_and_invalid_json():
 
 
 @pytest.mark.anyio
-async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, auth_token: str):
+async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, auth_token: str, admin_auth_token: str):
     """
     Ingests BRPD Circular 15/2024, executes the AI analysis pipeline,
     and verifies that provisions, obligations, and relationships are persisted
@@ -164,7 +164,7 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
             "reference_number": "BRPD Circular No. 15",
             "document_type": "CIRCULAR"
         },
-        headers={"Authorization": f"Bearer {auth_token}"}
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
     assert upload_res.status_code == 201
     doc_id = upload_res.json()["document"]["id"]
@@ -173,7 +173,7 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
     analyze_res = await client.post(
         f"/api/v1/documents/{doc_id}/analyze",
         json={"provider": "mock"},
-        headers={"Authorization": f"Bearer {auth_token}"}
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
     print("ANALYZE RESPONSE:", analyze_res.status_code, analyze_res.text)
     assert analyze_res.status_code == 200
@@ -235,7 +235,7 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
             "publication_date": "2024-11-27",
             "reference_number": "BRPD Circular No. 99/2024"
         },
-        headers={"Authorization": f"Bearer {auth_token}"}
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
     doc_id = upload_res.json()["document"]["id"]
 
@@ -243,7 +243,7 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
     await client.post(
         f"/api/v1/documents/{doc_id}/analyze",
         json={"provider": "mock", "force_human_review": True},
-        headers={"Authorization": f"Bearer {auth_token}"}
+        headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
 
     doc_check = await client.get(f"/api/v1/documents/{doc_id}")

@@ -12,13 +12,18 @@ from backend.app.modules.sources.connector.base import (
     CandidatePublication,
     DiscoveryResult,
 )
+from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
+
+MAX_REDIRECTS = 5
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 
 
 class BangladeshBankConnector(BaseSourceConnector):
     DEFAULT_BASE_URL = "https://www.bb.org.bd/en/index.php/mediaroom/circular"
 
     def __init__(self, base_url: Optional[str] = None, user_agent: Optional[str] = None):
-        self.base_url = base_url or self.DEFAULT_BASE_URL
+        # Refuse to build a connector for anything other than the official site.
+        self.base_url = validate_source_url(base_url or self.DEFAULT_BASE_URL)
         self.user_agent = user_agent or settings.BB_CRAWLER_USER_AGENT
         self.domain = "https://www.bb.org.bd"
 
@@ -28,6 +33,21 @@ class BangladeshBankConnector(BaseSourceConnector):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
+
+    async def _safe_get(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        """GET a URL on the allow-list, following redirects only within the allow-list."""
+        current = validate_source_url(url, upgrade_http=True)
+        for _ in range(MAX_REDIRECTS + 1):
+            resp = await client.get(current, headers=self._get_headers())
+            status_code = getattr(resp, "status_code", None)
+            if status_code in REDIRECT_STATUSES:
+                location = resp.headers.get("location") if getattr(resp, "headers", None) is not None else None
+                if not location:
+                    return resp
+                current = validate_source_url(urljoin(current, location), upgrade_http=True)
+                continue
+            return resp
+        raise DisallowedSourceURL(f"Too many redirects while fetching {url}")
 
     @staticmethod
     def parse_publication_date(date_str: str) -> Optional[date]:
@@ -206,9 +226,9 @@ class BangladeshBankConnector(BaseSourceConnector):
     async def discover_publications(self, max_pages: int = 1) -> DiscoveryResult:
         result = DiscoveryResult()
         
-        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=25.0, follow_redirects=False) as client:
             try:
-                resp = await client.get(self.base_url, headers=self._get_headers())
+                resp = await self._safe_get(client, self.base_url)
                 result.pages_inspected += 1
 
                 # 1. Anti-bot challenge inspection
@@ -230,6 +250,9 @@ class BangladeshBankConnector(BaseSourceConnector):
             except httpx.RequestError as req_err:
                 logger.error(f"Network error connecting to {self.base_url}: {req_err}")
                 result.errors.append(str(req_err))
+            except DisallowedSourceURL as url_err:
+                logger.error(f"Blocked fetch outside the source allow-list: {url_err}")
+                result.errors.append(str(url_err))
 
         return result
 
@@ -243,11 +266,29 @@ class BangladeshBankConnector(BaseSourceConnector):
         Downloads a document file from the official source with exponential backoff retry
         and strict magic-bytes verification.
         """
-        async with httpx.AsyncClient(timeout=35.0, follow_redirects=True) as client:
+        try:
+            file_url = validate_source_url(file_url, upgrade_http=True)
+        except DisallowedSourceURL as url_err:
+            return None, AntiBotChallenge(
+                is_blocked=False,
+                challenge_type="DISALLOWED_URL",
+                status_code=0,
+                details=str(url_err)
+            )
+
+        async with httpx.AsyncClient(timeout=35.0, follow_redirects=False) as client:
             last_challenge = None
             for attempt in range(max_retries):
                 try:
-                    resp = await client.get(file_url, headers=self._get_headers())
+                    try:
+                        resp = await self._safe_get(client, file_url)
+                    except DisallowedSourceURL as url_err:
+                        return None, AntiBotChallenge(
+                            is_blocked=False,
+                            challenge_type="DISALLOWED_URL",
+                            status_code=0,
+                            details=str(url_err)
+                        )
                     # Check for challenge in response
                     challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
                     if challenge:

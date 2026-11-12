@@ -103,6 +103,18 @@ async def add_organization_member(
             detail="Only organization administrators can add members."
         )
 
+    # Only an ORG_ADMIN (or a platform superuser acting as one) may hand out ORG_ADMIN.
+    if payload.role == "ORG_ADMIN" and membership.role != "ORG_ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only organization administrators can grant the ORG_ADMIN role."
+        )
+
+    if payload.department_id is not None:
+        dept = await db.get(Department, payload.department_id)
+        if not dept or dept.organization_id != organization_id:
+            raise HTTPException(status_code=400, detail="Department does not belong to this organization.")
+
     # Check target user
     target_user = await db.get(User, payload.user_id)
     if not target_user:

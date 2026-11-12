@@ -66,7 +66,8 @@ async def test_strict_multi_tenant_isolation():
         assert "Cross-tenant access forbidden" in breach_1.json()["detail"]
 
         # 7. User A creates a Compliance Item & Task in Org A
-        dummy_ob_id = str(uuid.uuid4())
+        from backend.app.tests.factories import make_obligation
+        dummy_ob_id = str((await make_obligation()).id)
         item_a_resp = await client.post(
             f"/api/v1/organizations/{org_a_id}/compliance/items",
             headers=headers_a,

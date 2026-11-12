@@ -1,7 +1,15 @@
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from backend.app.modules.sources.url_policy import validate_source_url
+
+
+def _check_base_url(value: Optional[str]) -> Optional[str]:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return validate_source_url(value)
 
 
 class SourceBase(BaseModel):
@@ -17,7 +25,10 @@ class SourceBase(BaseModel):
 
 
 class SourceCreate(SourceBase):
-    pass
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: Optional[str]) -> Optional[str]:
+        return _check_base_url(value)
 
 
 class SourceUpdate(BaseModel):
@@ -26,6 +37,11 @@ class SourceUpdate(BaseModel):
     polling_frequency_minutes: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: Optional[str]) -> Optional[str]:
+        return _check_base_url(value)
 
 
 class SourceRead(SourceBase):

@@ -28,18 +28,26 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database schemas verified.")
 
-    # Auto-seed if database is empty (e.g. freshly provisioned cloud database)
-    try:
-        from backend.scripts.import_seed_data import import_seed
-        async with AsyncSessionLocal() as session:
-            await import_seed(session)
-    except Exception as e:
-        logger.warning(f"Auto-hydration skipped or failed: {e}")
+    # Demo seed data is only loaded when explicitly requested, and never in production
+    # (the fixture contains demo accounts with known passwords).
+    if settings.SEED_ON_STARTUP and not settings.is_production:
+        try:
+            from backend.scripts.import_seed_data import import_seed
+            async with AsyncSessionLocal() as session:
+                await import_seed(session)
+        except Exception as e:
+            logger.warning(f"Auto-hydration skipped or failed: {e}")
+    elif settings.SEED_ON_STARTUP:
+        logger.warning("SEED_ON_STARTUP is ignored when ENVIRONMENT=production.")
 
-    await monitoring_scheduler.start()
+    if settings.SCHEDULER_ENABLED:
+        await monitoring_scheduler.start()
+    else:
+        logger.info("Source monitoring scheduler disabled in this process (SCHEDULER_ENABLED=false).")
     yield
     logger.info("Shutting down application...")
-    await monitoring_scheduler.stop()
+    if settings.SCHEDULER_ENABLED:
+        await monitoring_scheduler.stop()
     await async_engine.dispose()
 
 
@@ -57,7 +65,6 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
-    allow_origin_regex=r"^https://.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

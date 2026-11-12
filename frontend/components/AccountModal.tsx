@@ -96,20 +96,18 @@ export default function AccountModal({
                 <div className="pt-3 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <span className="text-[10px] text-slate-400 dark:text-slate-400 light:text-slate-500 block uppercase font-medium">
-                      Institution
+                      Role
                     </span>
                     <span className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-semibold mt-0.5 block">
-                      {currentUser.is_superuser ? "RegWatch Bangladesh" : "ABC Bank PLC"}
+                      {currentUser.is_superuser ? "Platform administrator" : "Standard user"}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 dark:text-slate-400 light:text-slate-500 block uppercase font-medium">
-                      Designation
+                      Phone
                     </span>
                     <span className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-semibold mt-0.5 block">
-                      {currentUser.is_superuser
-                        ? "System Administrator"
-                        : currentUser.designation || "Chief Compliance Officer"}
+                      {currentUser.phone_number || "-"}
                     </span>
                   </div>
                 </div>
@@ -158,7 +156,7 @@ export default function AccountModal({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="cco@abcbank.bd"
+                  placeholder="you@example.com"
                   required
                   className="w-full bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-white border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise"
                 />

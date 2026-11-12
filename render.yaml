@@ -27,3 +27,7 @@ services:
         value: local
       - key: STORAGE_LOCAL_ROOT
         value: ./storage
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false

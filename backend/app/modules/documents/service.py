@@ -13,6 +13,13 @@ from backend.app.modules.documents.models import Document, DocumentPage, Documen
 from backend.app.modules.extraction.service import extraction_service
 
 
+def _same_owner(owner_user_id: Optional[UUID]):
+    """Matches documents in the same visibility scope as the upload."""
+    if owner_user_id is None:
+        return Document.owner_user_id.is_(None)
+    return Document.owner_user_id == owner_user_id
+
+
 class DocumentIngestionService:
     @staticmethod
     async def ingest_document(
@@ -26,10 +33,18 @@ class DocumentIngestionService:
         title_bn: Optional[str] = None,
         document_type: str = "CIRCULAR",
         effective_date: Optional[date] = None,
-        source_url: Optional[str] = None
+        source_url: Optional[str] = None,
+        owner_user_id: Optional[UUID] = None,
     ) -> Tuple[Document, DocumentVersion, int]:
         """
-        Ingests a PDF document into the system:
+        Ingests a PDF document into the system.
+
+        owner_user_id=None files the document in the shared library; a user id makes it
+        a private upload. Duplicate detection (same file hash, same reference number) only
+        looks inside the same scope: a private upload never attaches to a shared document
+        or another user's private one, and a shared ingest never attaches to a private one.
+
+        Steps:
         1. Stores immutable file in originals namespace.
         2. Computes SHA-256 hash.
         3. Deduplicates or creates new version.
@@ -46,9 +61,12 @@ class DocumentIngestionService:
 
         # Check if identical document content already exists
         existing_version_query = await db.execute(
-            select(DocumentVersion).where(DocumentVersion.file_sha256 == file_sha256)
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(DocumentVersion.file_sha256 == file_sha256, _same_owner(owner_user_id))
         )
-        existing_version = existing_version_query.scalar_one_or_none()
+        # file_sha256 is not unique (the same file can sit under several documents), so take the first match.
+        existing_version = existing_version_query.scalars().first()
 
         if existing_version:
             logger.info(f"Duplicate document found with SHA-256 {file_sha256}. Reusing existing version {existing_version.id}")
@@ -64,11 +82,55 @@ class DocumentIngestionService:
             existing_doc_query = await db.execute(
                 select(Document).where(
                     Document.institution_id == institution_id,
-                    Document.reference_number == reference_number
+                    Document.reference_number == reference_number,
+                    _same_owner(owner_user_id),
                 ).options(selectinload(Document.versions))
             )
-            doc = existing_doc_query.scalar_one_or_none()
+            doc = existing_doc_query.scalars().first()
 
+        try:
+            return await DocumentIngestionService._extract_and_save(
+                db=db,
+                doc=doc,
+                pdf_bytes=pdf_bytes,
+                institution_id=institution_id,
+                title=title,
+                publication_date=publication_date,
+                department_id=department_id,
+                reference_number=reference_number,
+                title_bn=title_bn,
+                document_type=document_type,
+                effective_date=effective_date,
+                source_url=source_url,
+                owner_user_id=owner_user_id,
+                storage_path=storage_path,
+                file_sha256=file_sha256,
+                file_size=file_size,
+            )
+        except Exception:
+            # Leave no half-created document behind and no existing document stuck mid-extraction.
+            await db.rollback()
+            raise
+
+    @staticmethod
+    async def _extract_and_save(
+        db: AsyncSession,
+        doc: Optional[Document],
+        pdf_bytes: bytes,
+        institution_id: UUID,
+        title: str,
+        publication_date: date,
+        department_id: Optional[UUID],
+        reference_number: Optional[str],
+        title_bn: Optional[str],
+        document_type: str,
+        effective_date: Optional[date],
+        source_url: Optional[str],
+        owner_user_id: Optional[UUID],
+        storage_path: str,
+        file_sha256: str,
+        file_size: int,
+    ) -> Tuple[Document, DocumentVersion, int]:
         if not doc:
             doc = Document(
                 institution_id=institution_id,
@@ -80,14 +142,15 @@ class DocumentIngestionService:
                 publication_date=publication_date,
                 effective_date=effective_date,
                 source_url=source_url,
+                owner_user_id=owner_user_id,
                 publication_status="EXTRACTING"
             )
             db.add(doc)
             await db.flush()
             version_num = 1
         else:
+            # Existing document: its status only changes once the new version is extracted.
             version_num = len(doc.versions) + 1
-            doc.publication_status = "EXTRACTING"
 
         # Run page extraction in worker thread so event loop remains responsive for health checks
         should_ocr = (len(pdf_bytes) <= 2500000) and (getattr(settings, "ENVIRONMENT", "development") != "production")

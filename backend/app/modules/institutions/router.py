@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.database.session import get_async_db
+from backend.app.modules.identity.deps import get_current_superuser
+from backend.app.modules.identity.models import User
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.institutions.schemas import DepartmentCreate, DepartmentRead, InstitutionCreate, InstitutionRead
 
@@ -25,6 +27,7 @@ async def list_institutions(db: AsyncSession = Depends(get_async_db)):
 @router.post("", response_model=InstitutionRead, status_code=status.HTTP_201_CREATED)
 async def create_institution(
     payload: InstitutionCreate,
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     existing = await db.execute(select(Institution).where(Institution.code == payload.code.upper()))
@@ -54,6 +57,7 @@ async def create_institution(
 async def add_department(
     institution_id: UUID,
     payload: DepartmentCreate,
+    current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_db)
 ):
     inst = await db.get(Institution, institution_id)

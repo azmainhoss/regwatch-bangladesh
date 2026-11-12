@@ -14,6 +14,12 @@ from backend.app.core.storage import storage_service
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User
+from backend.app.modules.documents.access import (
+    get_document_reader,
+    get_visible_document,
+    get_visible_version,
+    visible_documents_condition,
+)
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.documents.schemas import (
     DashboardStatsRead,
@@ -23,6 +29,7 @@ from backend.app.modules.documents.schemas import (
     DocumentVersionRead,
     PageCorrectionRequest,
 )
+from backend.app.modules.documents.schemas import as_table_list
 from backend.app.modules.documents.service import document_ingestion_service
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.sources.models import Source
@@ -31,30 +38,7 @@ router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
 
 MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
-# Robust synthetic/test record detection matching both schema and test suites
-SYNTHETIC_SQL_CONDITIONS = [
-    Document.title.ilike("Sample%"),
-    Document.title.ilike("%Test%"),
-    Document.title.ilike("Gate Policy%"),
-    Document.title.ilike("%Citation Policy%"),
-    Document.title.ilike("%Test Directive%"),
-    func.coalesce(Document.reference_number, "").ilike("BRPD(P)%"),
-    func.coalesce(Document.reference_number, "").ilike("VCP-%"),
-    func.coalesce(Document.reference_number, "").ilike("UTD-%"),
-    func.coalesce(Document.reference_number, "").ilike("GP-%"),
-]
-
-
-def is_synthetic_record(title: Optional[str], reference_number: Optional[str], status: Optional[str] = None, page_count: int = 0) -> bool:
-    t_low = (title or "").lower()
-    r_low = (reference_number or "").lower()
-    if "sample" in t_low or "test" in t_low or "gate policy" in t_low or "citation policy" in t_low:
-        return True
-    if r_low.startswith("brpd(p)") or r_low.startswith("vcp-") or r_low.startswith("utd-") or r_low.startswith("gp-"):
-        return True
-    if status == "DRAFT" and page_count == 0:
-        return True
-    return False
+from backend.app.modules.documents.synthetic import is_synthetic_document, synthetic_sql_condition
 
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
@@ -69,16 +53,35 @@ async def upload_document(
     document_type: str = Form("CIRCULAR"),
     effective_date: Optional[date] = Form(None),
     source_url: Optional[str] = Form(None),
+    visibility: Optional[str] = Form(None, description="'shared' or 'private'. Only superusers may upload to the shared library."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Direct document dropzone and manual submission endpoint:
     Requires authentication.
+    Superusers upload to the shared library by default and may choose 'private'.
+    Everyone else always uploads a private circular that only they can see.
     Validates PDF magic bytes, enforces 50MB file size limit,
     computes SHA-256 hash, stores in immutable storage,
     extracts page-by-page, and updates catalog.
     """
+    requested = (visibility or "").strip().lower()
+    if requested not in ("", "shared", "private"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="visibility must be 'shared' or 'private'."
+        )
+    if current_user.is_superuser:
+        owner_user_id = current_user.id if requested == "private" else None
+    else:
+        if requested == "shared":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only platform administrators can upload to the shared library."
+            )
+        owner_user_id = current_user.id
+
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,17 +111,17 @@ async def upload_document(
     # Verify structural integrity of PDF
     try:
         test_doc = fitz.open(stream=content, filetype="pdf")
-        if len(test_doc) == 0:
-            test_doc.close()
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Malformed PDF: document contains 0 pages."
-            )
+        page_total = len(test_doc)
         test_doc.close()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Malformed or corrupt PDF document: {str(e)}"
+        )
+    if page_total == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Malformed PDF: document contains 0 pages."
         )
 
     doc, version, page_count = await document_ingestion_service.ingest_document(
@@ -132,7 +135,8 @@ async def upload_document(
         title_bn=title_bn,
         document_type=document_type,
         effective_date=effective_date,
-        source_url=source_url
+        source_url=source_url,
+        owner_user_id=owner_user_id,
     )
 
     return DocumentUploadResponse(
@@ -144,13 +148,18 @@ async def upload_document(
 
 
 @router.get("/stats", response_model=DashboardStatsRead)
-async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
+async def get_dashboard_stats(
+    current_user: Optional[User] = Depends(get_document_reader),
+    db: AsyncSession = Depends(get_async_db),
+):
     """
     Computes truthful live metrics across genuine publications, extracted pages,
     synthetic test fixtures, and active source monitoring status.
     """
     # Fetch all documents with their versions
-    query = select(Document).options(selectinload(Document.versions))
+    query = select(Document).options(selectinload(Document.versions)).where(
+        visible_documents_condition(current_user)
+    )
     docs = (await db.execute(query)).scalars().all()
 
     total_docs = len(docs)
@@ -158,8 +167,8 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_async_db)):
     synthetic_docs = []
 
     for d in docs:
-        page_cnt = d.versions[0].page_count if d.versions else 0
-        if is_synthetic_record(d.title, d.reference_number, d.publication_status, page_cnt):
+        if is_synthetic_document(d.title, d.reference_number, flag=d.is_synthetic_fixture,
+                                 status=d.publication_status, version_count=len(d.versions)):
             synthetic_docs.append(d)
         else:
             genuine_docs.append(d)
@@ -216,15 +225,21 @@ async def list_documents(
     corpus_type: Optional[str] = Query(None, description="'GENUINE', 'SYNTHETIC_SAMPLE', or 'ALL'"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
     # Sort genuine official publications first, then by publication date desc
     order_clause = [
-        case((Document.title.ilike("Sample%"), 1), else_=0),
+        case((synthetic_sql_condition(), 1), else_=0),
         Document.publication_date.desc(),
         Document.created_at.desc(),
     ]
-    query = select(Document).options(selectinload(Document.versions)).order_by(*order_clause)
+    query = (
+        select(Document)
+        .options(selectinload(Document.versions))
+        .where(visible_documents_condition(current_user))
+        .order_by(*order_clause)
+    )
 
     if institution_id:
         query = query.where(Document.institution_id == institution_id)
@@ -242,7 +257,7 @@ async def list_documents(
         )
 
     # API-level isolation: professional feed defaults strictly to genuine publications
-    is_synthetic_sql = or_(*SYNTHETIC_SQL_CONDITIONS)
+    is_synthetic_sql = synthetic_sql_condition()
     c_upper = (corpus_type or "GENUINE").upper()
     if c_upper == "GENUINE":
         query = query.where(~is_synthetic_sql)
@@ -258,9 +273,14 @@ async def list_documents(
 @router.get("/{document_id}", response_model=DocumentRead)
 async def get_document(
     document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
-    query = select(Document).options(selectinload(Document.versions)).where(Document.id == document_id)
+    query = (
+        select(Document)
+        .options(selectinload(Document.versions))
+        .where(Document.id == document_id, visible_documents_condition(current_user))
+    )
     result = await db.execute(query)
     doc = result.scalar_one_or_none()
     if not doc:
@@ -272,8 +292,10 @@ async def get_document(
 async def get_document_pages(
     document_id: UUID,
     version_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
+    await get_visible_version(db, document_id, version_id, current_user)
     query = (
         select(DocumentPage)
         .where(DocumentPage.document_version_id == version_id)
@@ -290,11 +312,13 @@ async def get_document_pages(
 async def get_document_extraction_report(
     document_id: UUID,
     version_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Returns the comprehensive document extraction completeness and quality report.
     """
+    await get_visible_version(db, document_id, version_id, current_user)
     query = (
         select(DocumentPage)
         .where(DocumentPage.document_version_id == version_id)
@@ -313,7 +337,7 @@ async def get_document_extraction_report(
             "extraction_method": p.extraction_method,
             "ocr_confidence": p.ocr_confidence,
             "has_tables": p.has_tables,
-            "extracted_tables": p.extracted_tables or []
+            "extracted_tables": as_table_list(p.extracted_tables)
         }
         for p in pages
     ]
@@ -325,11 +349,13 @@ async def get_document_extraction_report(
 async def get_document_tables(
     document_id: UUID,
     version_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
     Retrieves all structured tables extracted across the pages of this document version.
     """
+    await get_visible_version(db, document_id, version_id, current_user)
     query = (
         select(DocumentPage)
         .where(
@@ -343,7 +369,9 @@ async def get_document_tables(
     
     all_tables = []
     for p in pages:
-        for tbl in p.extracted_tables or []:
+        for tbl in as_table_list(p.extracted_tables):
+            if not isinstance(tbl, dict):
+                continue
             tbl_copy = dict(tbl)
             tbl_copy["page_number"] = p.page_number
             all_tables.append(tbl_copy)
@@ -361,7 +389,17 @@ async def submit_human_correction(
 ):
     """
     Submits a human correction for a specific page without overwriting raw extracted text.
+    Regulatory documents are shared across organizations, so only platform
+    administrators may change their text.
     """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only platform administrators can correct regulatory document text."
+        )
+
+    await get_visible_version(db, document_id, version_id, current_user)
+
     query = select(DocumentPage).where(
         DocumentPage.document_version_id == version_id,
         DocumentPage.page_number == page_no
@@ -399,16 +437,20 @@ async def retrigger_extraction(
     """
     Retriggers page-level extraction for a document version.
     """
-    doc = await db.get(Document, document_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
+    doc = await get_visible_document(db, document_id, current_user)
+
     target_version_id = version_id or doc.current_version_id
     if not target_version_id:
         raise HTTPException(status_code=404, detail="Document has no active version")
 
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only platform administrators can re-extract regulatory documents."
+        )
+
     version = await db.get(DocumentVersion, target_version_id)
-    if not version:
+    if not version or version.document_id != doc.id:
         raise HTTPException(status_code=404, detail="Document version not found")
 
     pdf_bytes = storage_service.get_file_bytes(version.storage_path)
@@ -420,37 +462,46 @@ async def retrigger_extraction(
         preferred_language=preferred_language
     )
 
-    # Delete old pages and insert new pages
+    # Update pages in place so provisions, obligations and citations that point at
+    # a page keep working. Pages a person has corrected keep the corrected text.
     existing_pages_query = select(DocumentPage).where(DocumentPage.document_version_id == version.id)
-    existing_pages = (await db.execute(existing_pages_query)).scalars().all()
-    for ep in existing_pages:
-        await db.delete(ep)
-    await db.flush()
+    existing_pages = {ep.page_number: ep for ep in (await db.execute(existing_pages_query)).scalars().all()}
+    preserved_corrections = 0
 
     for p in extracted_pages:
-        page_record = DocumentPage(
-            document_version_id=version.id,
-            page_number=p["page_number"],
-            raw_text=p["raw_text"],
-            native_text=p.get("native_text"),
-            ocr_text=p.get("ocr_text"),
-            cleaned_text=p["cleaned_text"],
-            extraction_method=p["extraction_method"],
-            ocr_confidence=p["ocr_confidence"],
-            has_tables=p["has_tables"],
-            extracted_tables=p["extracted_tables"],
-            quality_status=p.get("quality_status", "SUCCESS_NATIVE"),
-            quality_score=p.get("quality_score", 1.0),
-            layout_hierarchy=p.get("layout_hierarchy", {}),
-            human_corrected_text=None,
-            is_human_corrected=False
-        )
-        db.add(page_record)
+        page_record = existing_pages.get(p["page_number"])
+        if page_record is None:
+            page_record = DocumentPage(
+                document_version_id=version.id,
+                page_number=p["page_number"],
+                human_corrected_text=None,
+                is_human_corrected=False
+            )
+            db.add(page_record)
+
+        page_record.raw_text = p["raw_text"]
+        page_record.native_text = p.get("native_text")
+        page_record.ocr_text = p.get("ocr_text")
+        page_record.ocr_confidence = p["ocr_confidence"]
+        page_record.has_tables = p["has_tables"]
+        page_record.extracted_tables = p["extracted_tables"]
+        page_record.layout_hierarchy = p.get("layout_hierarchy", {})
+
+        if page_record.is_human_corrected:
+            preserved_corrections += 1
+            continue
+        page_record.cleaned_text = p["cleaned_text"]
+        page_record.extraction_method = p["extraction_method"]
+        page_record.quality_status = p.get("quality_status", "SUCCESS_NATIVE")
+        page_record.quality_score = p.get("quality_score", 1.0)
+
+    version.page_count = max(version.page_count or 0, len(extracted_pages))
 
     await db.commit()
     return {
         "message": f"Successfully re-extracted {len(extracted_pages)} pages for document {doc.title}.",
-        "page_count": len(extracted_pages)
+        "page_count": len(extracted_pages),
+        "human_corrections_preserved": preserved_corrections
     }
 
 
@@ -458,6 +509,7 @@ async def retrigger_extraction(
 async def stream_document_pdf(
     document_id: UUID,
     version_id: Optional[UUID] = None,
+    current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -465,16 +517,11 @@ async def stream_document_pdf(
     to power side-by-side verification and in-browser reading.
     Public regulatory circulars are publicly accessible, but protected by existence checks.
     """
-    if version_id:
-        version = await db.get(DocumentVersion, version_id)
-    else:
-        doc = await db.get(Document, document_id)
-        if not doc or not doc.current_version_id:
-            raise HTTPException(status_code=404, detail="Document or active version not found")
-        version = await db.get(DocumentVersion, doc.current_version_id)
-
-    if not version:
-        raise HTTPException(status_code=404, detail="Document version not found")
+    doc = await get_visible_document(db, document_id, current_user)
+    target_version_id = version_id or doc.current_version_id
+    if not target_version_id:
+        raise HTTPException(status_code=404, detail="Document or active version not found")
+    version = await get_visible_version(db, document_id, target_version_id, current_user)
 
     try:
         pdf_bytes = storage_service.get_file_bytes(version.storage_path)
@@ -488,6 +535,6 @@ async def stream_document_pdf(
             "Content-Disposition": f"inline; filename={version.file_sha256[:12]}.pdf",
             "Content-Length": str(len(pdf_bytes)),
             "X-SHA256-Checksum": version.file_sha256,
-            "Cache-Control": "public, max-age=86400"
+            "Cache-Control": "public, max-age=86400" if doc.owner_user_id is None else "private, no-store"
         }
     )

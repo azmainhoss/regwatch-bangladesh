@@ -99,7 +99,11 @@ async def test_source_monitoring_run_with_mocked_network():
             "password": "Password12345!",
             "full_name": "Source Admin"
         })
-        token = user_resp.json()["access_token"]
+        plain_headers = {"Authorization": f"Bearer {user_resp.json()['access_token']}"}
+
+        # Source administration is reserved for platform superusers
+        from backend.app.tests.factories import make_user
+        _admin, token = await make_user(is_superuser=True)
         headers = {"Authorization": f"Bearer {token}"}
 
         # 2. Get existing Bangladesh Bank source from database
@@ -109,6 +113,10 @@ async def test_source_monitoring_run_with_mocked_network():
         assert len(sources) >= 1
         bb_source = sources[0]
         source_id = bb_source["id"]
+
+        # A freshly registered (non-admin) user cannot trigger a crawl
+        denied = await client.post(f"/api/v1/sources/{source_id}/trigger", headers=plain_headers)
+        assert denied.status_code == 403
 
         # 3. Simulate a successful discovery run using mocked HTML
         with patch.object(httpx.AsyncClient, "get") as mock_get:

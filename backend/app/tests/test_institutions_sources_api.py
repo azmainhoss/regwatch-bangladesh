@@ -27,7 +27,15 @@ async def test_institutions_and_sources_api():
             "website_url": "https://sec.gov.bd",
             "is_active": True
         }
-        create_resp = await client.post("/api/v1/institutions", json=nbr_payload)
+        # Anonymous callers cannot create institutions
+        anon_resp = await client.post("/api/v1/institutions", json=nbr_payload)
+        assert anon_resp.status_code == 401
+
+        from backend.app.tests.factories import make_user
+        _admin, admin_token = await make_user(is_superuser=True)
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        create_resp = await client.post("/api/v1/institutions", json=nbr_payload, headers=admin_headers)
         assert create_resp.status_code == 201
         nbr_data = create_resp.json()
         assert nbr_data["code"] == test_code
@@ -38,7 +46,7 @@ async def test_institutions_and_sources_api():
             "name": "Customs & Modernization",
             "name_bn": "শুল্ক আধুনিকায়ন"
         }
-        dept_resp = await client.post(f"/api/v1/institutions/{nbr_data['id']}/departments", json=dept_payload)
+        dept_resp = await client.post(f"/api/v1/institutions/{nbr_data['id']}/departments", json=dept_payload, headers=admin_headers)
         assert dept_resp.status_code == 201
         assert dept_resp.json()["code"] == "CUSTOMS"
 

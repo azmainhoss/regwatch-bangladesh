@@ -23,7 +23,9 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import {
+  ApiError,
   AuthUser,
+  AUTH_CHANGED_EVENT,
   DocumentItem,
   Institution,
   ProviderStatusInfo,
@@ -31,6 +33,9 @@ import {
   SourceDiscovery,
   SourceStats,
   approveDiscovery,
+  documentPdfUrl,
+  openDocumentPdf,
+  fetchCurrentUser,
   fetchDiscoveries,
   fetchDocuments,
   fetchInstitutions,
@@ -38,7 +43,6 @@ import {
   fetchSources,
   fetchSourceStats,
   getStoredUser,
-  loginUser,
   rejectDiscovery,
   testProviderConnection,
   toggleSourceActive,
@@ -48,11 +52,13 @@ import {
   uploadDocument,
 } from "@/services/api";
 import GeminiSetupModal from "@/components/GeminiSetupModal";
+import AccountModal from "@/components/AccountModal";
 
 export default function AdminConsolePage() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [adminLoginLoading, setAdminLoginLoading] = useState(false);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -69,6 +75,7 @@ export default function AdminConsolePage() {
   const [pubDate, setPubDate] = useState(new Date().toISOString().split("T")[0]);
   const [effectiveDate, setEffectiveDate] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
+  const [visibility, setVisibility] = useState<"shared" | "private">("shared");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -91,37 +98,39 @@ export default function AdminConsolePage() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionTestFeedback, setConnectionTestFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
-  useEffect(() => {
-    const user = getStoredUser();
-    setCurrentUser(user);
-    setCheckingAuth(false);
-    if (user?.is_superuser) {
-      loadAllData();
-    }
-  }, []);
-
-  const handleAdminLogin = async () => {
+  // Confirm the role with the backend (GET /auth/me) instead of trusting the cached copy.
+  const verifyUser = async () => {
     try {
-      setAdminLoginLoading(true);
-      const user = await loginUser("admin@regwatch.bd", "AdminPassword123!");
+      const user = await fetchCurrentUser();
       setCurrentUser(user);
-      loadAllData();
+      if (user?.is_superuser) {
+        loadAllData();
+      }
     } catch (err: any) {
-      alert("Admin sign-in failed: " + err.message);
+      setCurrentUser(null);
+      setLoadError(err.message || "Could not verify your account with the backend.");
     } finally {
-      setAdminLoginLoading(false);
+      setCheckingAuth(false);
     }
   };
+
+  useEffect(() => {
+    verifyUser();
+    const onAuthChanged = () => setCurrentUser(getStoredUser());
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+  }, []);
 
   const loadAllData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const [insts, docs, srcs, disc, provStatus] = await Promise.all([
         fetchInstitutions(),
         fetchDocuments(),
         fetchSources(),
         fetchDiscoveries(),
-        fetchProviderStatus().catch(() => null),
+        fetchProviderStatus(),
       ]);
       setInstitutions(insts);
       if (insts.length > 0) {
@@ -141,21 +150,16 @@ export default function AdminConsolePage() {
         }
       }
       setDiscoveries(disc);
-      if (provStatus) {
-        setProviderInfo(provStatus);
-        setGeminiConfigured(provStatus.gemini_api_key_configured);
-        setActiveModel(provStatus.default_model);
-      }
-    } catch (err) {
+      setProviderInfo(provStatus);
+      setGeminiConfigured(provStatus.gemini_api_key_configured);
+      setActiveModel(provStatus.default_model);
+    } catch (err: any) {
       console.error(err);
+      setLoadError(err.message || "Failed to load data from the backend.");
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadAllData();
-  }, []);
 
   const handleTestProviderConnection = async () => {
     try {
@@ -163,9 +167,13 @@ export default function AdminConsolePage() {
       setConnectionTestFeedback(null);
       const res = await testProviderConnection();
       setProviderInfo(res);
+      // The backend answers 200 even when the probe fails; the outcome is in test_result.
+      const ok = res.test_result?.success === true;
       setConnectionTestFeedback({
-        success: true,
-        message: `Handshake successful: Latency ${res.test_result?.latency_ms ?? res.admin_diagnostics?.last_latency_ms ?? 0}ms. Service State: "${res.service_state || "AI Analysis Available"}".`,
+        success: ok,
+        message: ok
+          ? `Handshake successful: Latency ${res.test_result?.latency_ms ?? "unknown"}ms. Service state: "${res.service_state || res.status}".`
+          : `Handshake failed: ${res.test_result?.error || "the provider did not respond successfully"}.`,
       });
     } catch (err: any) {
       setConnectionTestFeedback({
@@ -202,6 +210,7 @@ export default function AdminConsolePage() {
       formData.append("publication_date", pubDate);
       if (effectiveDate) formData.append("effective_date", effectiveDate);
       if (sourceUrl) formData.append("source_url", sourceUrl);
+      formData.append("visibility", visibility);
 
       const result = await uploadDocument(formData);
       setUploadMessage({
@@ -236,7 +245,7 @@ export default function AdminConsolePage() {
       } else {
         setMonitoringNotice({
           type: "success",
-          text: `Monitoring complete: Inspected ${run.pages_inspected ?? 5} pages, discovered ${run.candidate_links_discovered ?? 3} candidates (${run.valid_documents_discovered ?? 3} valid, ${run.duplicate_count ?? 0} duplicates).`,
+          text: `Run ${run.status}: inspected ${run.pages_inspected ?? 0} pages, found ${run.candidate_links_discovered ?? 0} candidates (${run.valid_documents_discovered ?? 0} valid, ${run.duplicate_count ?? 0} duplicates).${run.error_log ? ` Errors: ${run.error_log}` : ""}`,
         });
       }
       const [refreshedSources, refreshedDisc] = await Promise.all([fetchSources(), fetchDiscoveries()]);
@@ -255,7 +264,7 @@ export default function AdminConsolePage() {
       const refreshed = await fetchSources();
       setSources(refreshed);
     } catch (err: any) {
-      alert("Failed to toggle source status: " + err.message);
+      setMonitoringNotice({ type: "error", text: "Failed to change source status: " + err.message });
     }
   };
 
@@ -264,8 +273,8 @@ export default function AdminConsolePage() {
       setDiscoveryLoading(true);
       const run = await triggerDiscoveryScan(sourceId);
       setMonitoringNotice({
-        type: "success",
-        text: `Discovery Scan Complete: Cataloged ${run.candidate_links_discovered ?? 3} publications (${run.valid_documents_discovered ?? 3} new candidates, ${run.duplicate_count ?? 0} existing).`
+        type: run.status === "FAILED" || run.access_restricted ? "warning" : "success",
+        text: `Discovery scan ${run.status}: found ${run.candidate_links_discovered ?? 0} publications (${run.valid_documents_discovered ?? 0} new candidates, ${run.duplicate_count ?? 0} existing).${run.error_log ? ` Errors: ${run.error_log}` : ""}`
       });
       const stats = await fetchSourceStats(sourceId);
       setSourceStats(stats);
@@ -285,7 +294,9 @@ export default function AdminConsolePage() {
         batch_size: 10,
         department: backfillDept || undefined
       });
-      setBackfillResultNotice(`Batch Backfill Succeeded: Collected & Ingested ${res.successful ?? 10} official circular(s) into repository.`);
+      setBackfillResultNotice(
+        `${res.message || `Backfill ${res.status}`} (attempted ${res.attempted ?? 0}, ingested ${res.successful ?? 0}, duplicates ${res.duplicates ?? 0}, failed ${res.failed ?? 0}).`
+      );
       const stats = await fetchSourceStats(sourceId);
       setSourceStats(stats);
       await loadAllData();
@@ -298,13 +309,21 @@ export default function AdminConsolePage() {
 
   const handleApproveDiscovery = async (discoveryId: string) => {
     try {
-      await approveDiscovery(discoveryId);
-      alert("Discovery approved and queued for ingestion!");
+      const res = await approveDiscovery(discoveryId);
+      setMonitoringNotice({ type: "success", text: res?.message || "Discovery approved and ingested." });
+    } catch (err: any) {
+      if (err instanceof ApiError && err.status === 409) {
+        setMonitoringNotice({ type: "warning", text: `Already handled: ${err.message}` });
+      } else {
+        setMonitoringNotice({ type: "error", text: "Approval failed: " + err.message });
+      }
+    }
+    try {
       const [refreshedDisc, refreshedDocs] = await Promise.all([fetchDiscoveries(), fetchDocuments()]);
       setDiscoveries(refreshedDisc);
       setDocuments(refreshedDocs);
     } catch (err: any) {
-      alert("Approval error: " + err.message);
+      setLoadError(err.message || "Failed to refresh the review queue.");
     }
   };
 
@@ -316,7 +335,7 @@ export default function AdminConsolePage() {
       const refreshedDisc = await fetchDiscoveries();
       setDiscoveries(refreshedDisc);
     } catch (err: any) {
-      alert("Rejection error: " + err.message);
+      setMonitoringNotice({ type: "error", text: "Rejection failed: " + err.message });
     }
   };
 
@@ -342,8 +361,10 @@ export default function AdminConsolePage() {
         </p>
         <div className="p-3 bg-tealNavy-950 rounded-xl border border-tealNavy-800 text-xs text-slate-400 text-left">
           <span className="block font-semibold text-slate-300 mb-1">Current User:</span>
-          <span>{currentUser?.full_name || "Unauthenticated User"} ({currentUser?.email || "No active session"})</span>
-          <span className="block text-[11px] text-amber-400 mt-1">Role: Compliance Officer (Standard Professional)</span>
+          <span>{currentUser ? `${currentUser.full_name} (${currentUser.email})` : "Not signed in"}</span>
+          {currentUser && (
+            <span className="block text-[11px] text-amber-400 mt-1">Role: standard user (no administrator rights)</span>
+          )}
         </div>
         <div className="flex gap-3 justify-center pt-2">
           <Link
@@ -353,13 +374,22 @@ export default function AdminConsolePage() {
             Back to Official Circulars
           </Link>
           <button
-            onClick={handleAdminLogin}
-            disabled={adminLoginLoading}
+            onClick={() => setIsAccountModalOpen(true)}
             className="px-4 py-2 bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 text-xs font-bold rounded-lg transition disabled:opacity-50"
           >
-            {adminLoginLoading ? "Authorizing..." : "Sign in as Administrator"}
+            {currentUser ? "Switch Account" : "Sign In"}
           </button>
         </div>
+        {loadError && <p className="text-xs text-rose-300">{loadError}</p>}
+        <AccountModal
+          isOpen={isAccountModalOpen}
+          onClose={() => setIsAccountModalOpen(false)}
+          currentUser={currentUser}
+          onUserChange={(u) => {
+            setCurrentUser(u);
+            if (u?.is_superuser) loadAllData();
+          }}
+        />
       </div>
     );
   }
@@ -403,6 +433,13 @@ export default function AdminConsolePage() {
           </div>
         </div>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-xl border text-xs font-mono flex items-center gap-2.5 bg-rose-950/80 border-rose-800 text-rose-200">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* Connection Feedback Banner */}
       {connectionTestFeedback && (
@@ -468,29 +505,35 @@ export default function AdminConsolePage() {
             <span className="text-turquoise font-bold block mt-1 truncate">
               {providerInfo?.admin_diagnostics?.model_identifier || activeModel}
             </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Free-Tier Target</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">{providerInfo?.configured_provider || "-"}</span>
           </div>
 
           <div className="p-3 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Financial Policy</span>
-            <span className="text-semantic-success font-bold block mt-1">ZERO-COST</span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Billing Disabled</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Billing Policy</span>
+            <span className="text-semantic-success font-bold block mt-1 truncate">{providerInfo?.billing_policy || "-"}</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">{providerInfo?.admin_diagnostics?.billing_tier || ""}</span>
           </div>
 
           <div className="p-3 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Last Latency</span>
             <span className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-bold block mt-1">
-              {providerInfo?.admin_diagnostics?.last_latency_ms ? `${providerInfo.admin_diagnostics.last_latency_ms} ms` : "Verified"}
+              {providerInfo?.admin_diagnostics?.last_latency_ms ? `${providerInfo.admin_diagnostics.last_latency_ms} ms` : "Not tested yet"}
             </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">HTTP 200 Handshake</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              {providerInfo?.admin_diagnostics?.last_status_code ? `Last status ${providerInfo.admin_diagnostics.last_status_code}` : ""}
+            </span>
           </div>
 
           <div className="p-3 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
-            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Free-Tier Limits</span>
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Rate Limits</span>
             <span className="text-slate-300 dark:text-slate-300 light:text-slate-700 font-bold block mt-1">
-              15 RPM / 1M TPM
+              {providerInfo?.admin_diagnostics?.rate_limits
+                ? `${providerInfo.admin_diagnostics.rate_limits.requests_per_minute} RPM / ${providerInfo.admin_diagnostics.rate_limits.tokens_per_minute} TPM`
+                : "-"}
             </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">1,500 Requests/Day</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              {providerInfo?.admin_diagnostics?.rate_limits ? `${providerInfo.admin_diagnostics.rate_limits.requests_per_day} requests/day` : ""}
+            </span>
           </div>
         </div>
       </div>
@@ -530,7 +573,7 @@ export default function AdminConsolePage() {
           <div className="p-3.5 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Archive Discovered</span>
             <span className="text-xl font-bold text-turquoise mt-1 block font-mono">
-              {sourceStats?.total_discovered ?? "5,189"}
+              {sourceStats?.total_discovered ?? "-"}
             </span>
             <span className="text-[10px] text-slate-500 block mt-0.5">Official BB Portal Catalog</span>
           </div>
@@ -538,7 +581,7 @@ export default function AdminConsolePage() {
           <div className="p-3.5 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Ingested & Stored</span>
             <span className="text-xl font-bold text-emerald-400 mt-1 block font-mono">
-              {sourceStats?.total_ingested ?? "16"}
+              {sourceStats?.total_ingested ?? "-"}
             </span>
             <span className="text-[10px] text-slate-500 block mt-0.5">Validated SHA-256 PDF Files</span>
           </div>
@@ -546,7 +589,7 @@ export default function AdminConsolePage() {
           <div className="p-3.5 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Pending Ingestion</span>
             <span className="text-xl font-bold text-amber-400 mt-1 block font-mono">
-              {sourceStats?.total_pending ?? "5,160"}
+              {sourceStats?.total_pending ?? "-"}
             </span>
             <span className="text-[10px] text-slate-500 block mt-0.5">Cataloged for Backfill</span>
           </div>
@@ -554,9 +597,9 @@ export default function AdminConsolePage() {
           <div className="p-3.5 rounded-xl bg-tealNavy-950/70 dark:bg-tealNavy-950/70 light:bg-slate-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Collector Health</span>
             <span className="text-xl font-bold text-emerald-300 mt-1 block font-mono">
-              100% CLEAR
+              {sourceStats?.access_restriction_status ?? "-"}
             </span>
-            <span className="text-[10px] text-slate-500 block mt-0.5">Zero WAF Restrictions</span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">Portal access status</span>
           </div>
         </div>
 
@@ -622,6 +665,11 @@ export default function AdminConsolePage() {
         </div>
 
         <div className="space-y-3">
+          {!loading && sources.length === 0 && (
+            <div className="p-8 text-center border border-dashed border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl text-slate-400 text-xs">
+              No sources registered yet.
+            </div>
+          )}
           {sources.map((s) => (
             <div
               key={s.id}
@@ -957,6 +1005,20 @@ export default function AdminConsolePage() {
               />
             </div>
 
+            <div>
+              <label className="block text-slate-300 dark:text-slate-300 light:text-tealNavy-950 font-semibold mb-1.5">
+                Who can see it
+              </label>
+              <select
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value as "shared" | "private")}
+                className="w-full bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl px-3 py-2 text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise"
+              >
+                <option value="shared">Shared library (everyone)</option>
+                <option value="private">Private (only me)</option>
+              </select>
+            </div>
+
             <button
               type="submit"
               disabled={uploading}
@@ -979,7 +1041,9 @@ export default function AdminConsolePage() {
 
             <div className="space-y-2.5 max-h-[580px] overflow-y-auto">
               {documents.length === 0 ? (
-                <p className="text-xs text-slate-400 py-4 text-center">No publications in database yet.</p>
+                <p className="text-xs text-slate-400 py-4 text-center">
+                  {loading ? "Loading..." : "No documents yet. Upload a circular or approve a discovery to add one."}
+                </p>
               ) : (
                 documents.map((d) => (
                   <div
@@ -994,6 +1058,11 @@ export default function AdminConsolePage() {
                         <span className="text-[10px] text-slate-400 dark:text-slate-400 light:text-slate-500 font-mono">
                           {d.publication_date}
                         </span>
+                        {d.is_private && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-200 border border-slate-600">
+                            Private
+                          </span>
+                        )}
                       </div>
                       <p className="text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-medium mt-0.5 line-clamp-1">
                         {d.title}
@@ -1020,9 +1089,14 @@ export default function AdminConsolePage() {
                         {d.versions?.[0]?.page_count || 0} pgs
                       </span>
                       <a
-                        href={`http://localhost:8000/api/v1/documents/${d.id}/pdf`}
+                        href={documentPdfUrl(d.id)}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={(e) => {
+                          if (!d.is_private) return;
+                          e.preventDefault();
+                          openDocumentPdf(d.id).catch((err) => alert(err.message));
+                        }}
                         className="text-[11px] text-turquoise hover:underline font-mono flex items-center gap-0.5"
                       >
                         <span>PDF</span>

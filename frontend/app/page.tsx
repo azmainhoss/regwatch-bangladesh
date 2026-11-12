@@ -26,6 +26,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import {
+  AUTH_CHANGED_EVENT,
   AuthUser,
   DashboardStats,
   DocumentAnalysisData,
@@ -35,6 +36,9 @@ import {
   ObligationItem,
   ProvisionItem,
   RelationshipItem,
+  documentPdfUrl,
+  fetchCurrentUser,
+  fetchDocument,
   fetchDocumentAnalysis,
   fetchDocumentObligations,
   fetchDocumentPages,
@@ -44,12 +48,26 @@ import {
   fetchDocuments,
   fetchInstitutions,
   getStoredUser,
-  loginUser,
+  openDocumentPdf,
   queryResearchAssistant,
+  reextractDocument,
   triggerDocumentAnalysis,
   reviewDocumentAnalysis,
 } from "@/services/api";
 import AccountModal from "@/components/AccountModal";
+import MyCircularUpload from "@/components/MyCircularUpload";
+
+function PrivateBadge() {
+  return (
+    <span
+      title="Private: only you can see this circular"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-200 border border-slate-600"
+    >
+      <Lock className="w-2.5 h-2.5" />
+      Private
+    </span>
+  );
+}
 
 function renderPublicationBadge(status: string) {
   switch (status) {
@@ -74,7 +92,7 @@ function renderPublicationBadge(status: string) {
     default:
       return (
         <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-slate-200 text-slate-300 dark:text-slate-300 light:text-slate-700 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 font-mono">
-          Official Publication
+          {status ? status.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "Unknown status"}
         </span>
       );
   }
@@ -99,7 +117,6 @@ interface DetailProps {
   handleRunQa: (e: React.FormEvent) => void;
   currentUser: AuthUser | null;
   onOpenAuthModal: () => void;
-  onFastLogin: () => void;
   onRefreshDoc: () => void;
 }
 
@@ -122,22 +139,22 @@ function CircularDetailView({
   handleRunQa,
   currentUser,
   onOpenAuthModal,
-  onFastLogin,
   onRefreshDoc,
 }: DetailProps) {
   const [adminAnalyzing, setAdminAnalyzing] = useState(false);
   const [adminPublishing, setAdminPublishing] = useState(false);
-  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+  const [adminReextracting, setAdminReextracting] = useState(false);
+  const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const handleAdminTriggerAnalysis = async () => {
     try {
       setAdminAnalyzing(true);
       setAdminMessage(null);
       await triggerDocumentAnalysis(selectedDoc.id, "gemini");
-      setAdminMessage("Analysis successfully completed and updated.");
+      setAdminMessage({ type: "success", text: "Analysis finished. The document now needs a human sign-off." });
       onRefreshDoc();
     } catch (e: any) {
-      setAdminMessage("Analysis failed: " + (e.message || String(e)));
+      setAdminMessage({ type: "error", text: "Analysis failed: " + (e.message || String(e)) });
     } finally {
       setAdminAnalyzing(false);
     }
@@ -147,13 +164,31 @@ function CircularDetailView({
     try {
       setAdminPublishing(true);
       setAdminMessage(null);
-      await reviewDocumentAnalysis(selectedDoc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
-      setAdminMessage("Status updated to PUBLISHED_HUMAN_REVIEWED.");
+      const res = await reviewDocumentAnalysis(selectedDoc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
+      setAdminMessage({ type: "success", text: res?.message || `Status updated to ${res?.publication_status}.` });
       onRefreshDoc();
     } catch (e: any) {
-      setAdminMessage("Sign-off failed: " + (e.message || String(e)));
+      setAdminMessage({ type: "error", text: "Sign-off failed: " + (e.message || String(e)) });
     } finally {
       setAdminPublishing(false);
+    }
+  };
+
+  const handleAdminReextract = async () => {
+    try {
+      setAdminReextracting(true);
+      setAdminMessage(null);
+      const res = await reextractDocument(selectedDoc.id);
+      const kept = res.human_corrections_preserved ?? 0;
+      setAdminMessage({
+        type: "success",
+        text: `${res.message} ${kept > 0 ? `${kept} human-corrected page(s) kept their corrected text.` : "No human corrections to keep."}`,
+      });
+      onRefreshDoc();
+    } catch (e: any) {
+      setAdminMessage({ type: "error", text: "Re-extraction failed: " + (e.message || String(e)) });
+    } finally {
+      setAdminReextracting(false);
     }
   };
 
@@ -186,6 +221,13 @@ function CircularDetailView({
             >
               {adminPublishing ? "Signing Off..." : "Approve & Sign Off"}
             </button>
+            <button
+              onClick={handleAdminReextract}
+              disabled={adminReextracting}
+              className="px-2.5 py-1 rounded border border-tealNavy-700 bg-tealNavy-850 text-slate-300 font-mono text-[11px] hover:text-white transition disabled:opacity-50"
+            >
+              {adminReextracting ? "Re-extracting..." : "Re-extract Pages"}
+            </button>
             <Link
               href="/admin"
               className="px-2.5 py-1 rounded border border-tealNavy-700 bg-tealNavy-850 text-slate-300 font-mono text-[11px] hover:text-white"
@@ -194,8 +236,12 @@ function CircularDetailView({
             </Link>
           </div>
           {adminMessage && (
-            <div className="w-full text-turquoise font-mono text-[10px] pt-1 border-t border-tealNavy-900">
-              {adminMessage}
+            <div
+              className={`w-full font-mono text-[10px] pt-1 border-t border-tealNavy-900 ${
+                adminMessage.type === "error" ? "text-rose-300" : "text-turquoise"
+              }`}
+            >
+              {adminMessage.text}
             </div>
           )}
         </div>
@@ -208,15 +254,27 @@ function CircularDetailView({
             {selectedDoc.reference_number || "OFFICIAL CIRCULAR"}
           </span>
           <div className="flex items-center space-x-2">
-            <a
-              href={selectedDoc.source_url || `/api/v1/documents/${selectedDoc.id}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Official Circular</span>
-            </a>
+            {selectedDoc.is_private && <PrivateBadge />}
+            {selectedDoc.is_private && !selectedDoc.source_url ? (
+              <button
+                type="button"
+                onClick={() => openDocumentPdf(selectedDoc.id).catch((err) => alert(err.message))}
+                className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Open PDF</span>
+              </button>
+            ) : (
+              <a
+                href={selectedDoc.source_url || documentPdfUrl(selectedDoc.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Official Circular</span>
+              </a>
+            )}
           </div>
         </div>
 
@@ -405,14 +463,14 @@ function CircularDetailView({
                       </div>
 
                       <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1 flex-wrap gap-2">
-                        <span>Target: {obl.applicability_summary || "Scheduled Commercial Banks"}</span>
+                        <span>Target: {obl.applicability_summary || "Not stated"}</span>
                         <div className="flex items-center gap-3">
                           {obl.explicit_deadline && (
                             <span className="text-turquoise font-semibold">
                               Deadline: {obl.explicit_deadline}
                             </span>
                           )}
-                          <span>{citedPage ? `Page ${citedPage}` : "Verified Reference"}</span>
+                          <span>{citedPage ? `Page ${citedPage}` : "Page not linked"}</span>
                         </div>
                       </div>
                     </div>
@@ -446,7 +504,7 @@ function CircularDetailView({
                       const targets = Array.from(new Set(obligations.map((o) => o.applicability_summary).filter(Boolean)));
                       if (targets.length > 0) return targets.join(", ");
                     }
-                    return "All Scheduled Commercial Banks operating in Bangladesh";
+                    return "Not identified yet. Read the circular text for who it applies to.";
                   })()}
                 </span>
               </div>
@@ -474,7 +532,7 @@ function CircularDetailView({
               <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Enforcement / Effective Date</span>
                 <span className="text-sm font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-mono">
-                  {analysis?.structured_payload?.deadlines?.effective_date || selectedDoc.effective_date || "With immediate effect"}
+                  {analysis?.structured_payload?.deadlines?.effective_date || selectedDoc.effective_date || "Not stated"}
                 </span>
               </div>
               <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
@@ -482,7 +540,7 @@ function CircularDetailView({
                 <span className="text-sm font-semibold text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
                   {analysis?.structured_payload?.deadlines?.compliance_deadline ||
                     obligations.find((o) => o.explicit_deadline)?.explicit_deadline ||
-                    "Until Further Notice"}
+                    "Not stated"}
                 </span>
               </div>
             </div>
@@ -515,9 +573,7 @@ function CircularDetailView({
                   return <span>{cond}</span>;
                 }
                 return (
-                  <span>
-                    Issued under Section 45 of the Bank Company Act, 1991. Standard regulatory compliance applies; no special exemptions or dispensations are granted in this circular.
-                  </span>
+                  <span>No exemptions or special conditions identified yet.</span>
                 );
               })()}
             </div>
@@ -689,6 +745,7 @@ export default function ProfessionalCircularsPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedDept, setSelectedDept] = useState<string>("ALL");
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
@@ -709,36 +766,56 @@ export default function ProfessionalCircularsPage() {
   const [qaError, setQaError] = useState<string | null>(null);
 
   useEffect(() => {
-    const user = getStoredUser();
-    setCurrentUser(user);
+    // Show the cached user immediately, then confirm the role with GET /auth/me.
+    setCurrentUser(getStoredUser());
+    fetchCurrentUser()
+      .then((u) => setCurrentUser(u))
+      .catch(() => setCurrentUser(getStoredUser()));
+    const onAuthChanged = () => setCurrentUser(getStoredUser());
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
   const loadData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const [docs, insts, dashboardStats] = await Promise.all([
         fetchDocuments({ search, corpus_type: "GENUINE" }),
-        fetchInstitutions().catch(() => []),
-        fetchDocumentStats().catch(() => null),
+        fetchInstitutions(),
+        fetchDocumentStats(),
       ]);
 
       setDocuments(docs);
-      if (insts.length > 0) setInstitutions(insts);
-      if (dashboardStats) setStats(dashboardStats);
+      setInstitutions(insts);
+      setStats(dashboardStats);
 
       if (!selectedDoc && docs.length > 0) {
         handleSelectDoc(docs[0]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Data loading error:", err);
+      setLoadError(err.message || "Failed to load circulars from the backend.");
     } finally {
       setLoading(false);
     }
   };
 
+  // Re-reads one document after an admin action so its status badge is current.
+  const refreshDocument = async (doc: DocumentItem) => {
+    try {
+      const fresh = await fetchDocument(doc.id);
+      setDocuments((prev) => prev.map((d) => (d.id === fresh.id ? fresh : d)));
+      await handleSelectDoc(fresh);
+    } catch (err: any) {
+      setLoadError(err.message || "Failed to refresh the document.");
+    }
+  };
+
+  // Reload when the signed-in user changes so their private circulars appear or disappear.
   useEffect(() => {
     loadData();
-  }, [search]);
+  }, [search, currentUser?.id]);
 
   const handleSelectDoc = async (doc: DocumentItem) => {
     setSelectedDoc(doc);
@@ -784,18 +861,6 @@ export default function ProfessionalCircularsPage() {
       setQaError(err.message || "Failed to process question.");
     } finally {
       setQaLoading(false);
-    }
-  };
-
-  const handleFastLogin = async () => {
-    try {
-      const user = await loginUser("cco@abcbank.bd", "CCOPassword123!");
-      setCurrentUser(user);
-      if (selectedDoc) {
-        handleSelectDoc(selectedDoc);
-      }
-    } catch (e: any) {
-      alert("Demo sign-in failed: " + e.message);
     }
   };
 
@@ -892,9 +957,21 @@ export default function ProfessionalCircularsPage() {
             <span>Bangladesh Bank</span>
           </div>
 
+          {currentUser && !currentUser.is_superuser && (
+            <MyCircularUpload institutions={institutions} onUploaded={loadData} />
+          )}
+
           {loading ? (
             <div className="p-8 text-center text-slate-400 text-sm border border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
               Loading circular repository...
+            </div>
+          ) : loadError ? (
+            <div className="p-8 text-center text-rose-300 text-sm border border-rose-800 rounded-xl bg-rose-950/40">
+              {loadError}
+            </div>
+          ) : documents.length === 0 && !search ? (
+            <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
+              No circulars have been added yet.
             </div>
           ) : filteredDocuments.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
@@ -916,8 +993,11 @@ export default function ProfessionalCircularsPage() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-xs font-mono font-bold text-turquoise dark:text-turquoise light:text-teal-800">
-                        {doc.reference_number || "Official Circular"}
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-turquoise dark:text-turquoise light:text-teal-800">
+                          {doc.reference_number || "Official Circular"}
+                        </span>
+                        {doc.is_private && <PrivateBadge />}
                       </span>
                       <span className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 font-mono">
                         {doc.publication_date}
@@ -960,8 +1040,7 @@ export default function ProfessionalCircularsPage() {
                         handleRunQa={handleRunQa}
                         currentUser={currentUser}
                         onOpenAuthModal={() => setIsAccountModalOpen(true)}
-                        onFastLogin={handleFastLogin}
-                        onRefreshDoc={() => handleSelectDoc(doc)}
+                        onRefreshDoc={() => refreshDocument(doc)}
                       />
                     </div>
                   )}
@@ -993,8 +1072,7 @@ export default function ProfessionalCircularsPage() {
               handleRunQa={handleRunQa}
               currentUser={currentUser}
               onOpenAuthModal={() => setIsAccountModalOpen(true)}
-              onFastLogin={handleFastLogin}
-              onRefreshDoc={() => handleSelectDoc(selectedDoc)}
+              onRefreshDoc={() => refreshDocument(selectedDoc)}
             />
           ) : (
             <div className="p-12 text-center border border-dashed border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-2xl text-slate-400 font-mono text-xs">

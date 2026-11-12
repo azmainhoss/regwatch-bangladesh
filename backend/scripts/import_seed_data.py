@@ -22,12 +22,13 @@ import sys
 import uuid
 from datetime import date, datetime
 from pathlib import Path
-from sqlalchemy import select, Boolean, Date, DateTime
+from sqlalchemy import select, Boolean, Date, DateTime, JSON
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Ensure root is in sys.path
 sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), "../..")))
 
+from backend.app.core.config import settings
 from backend.app.database.session import AsyncSessionLocal
 from backend.app.database.models import Base
 from backend.app.database.base import GUID
@@ -35,6 +36,15 @@ import backend.app.database.models
 from backend.app.modules.documents.models import Document
 
 SEED_FILE = Path(__file__).resolve().parent.parent / "app" / "fixtures" / "production_seed.json"
+
+def _decode_json_value(val):
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except ValueError:
+            return val
+    return val
+
 
 async def import_seed(db: AsyncSession):
     if not SEED_FILE.exists():
@@ -71,6 +81,13 @@ async def import_seed(db: AsyncSession):
         "claim_citations"
     ]
 
+    # The fixture ships demo accounts with well-known passwords (including a superuser).
+    # Those must never be created in production.
+    if settings.is_production:
+        skipped = {"users", "user_profiles", "organization_members"}
+        tables = [t for t in tables if t not in skipped]
+        print("[SEED] Production environment: demo user accounts are not imported.")
+
     for table in tables:
         rows = data.get(table, [])
         if not rows:
@@ -97,8 +114,10 @@ async def import_seed(db: AsyncSession):
                     row_dict[col.name] = date.fromisoformat(str(val)) if isinstance(val, str) else val
                 elif isinstance(col.type, Boolean):
                     row_dict[col.name] = bool(int(val) if str(val).isdigit() else val)
-                elif isinstance(val, (dict, list)):
-                    row_dict[col.name] = val
+                elif isinstance(col.type, JSON):
+                    # The fixture was exported from SQLite, so JSON columns arrive as text.
+                    # Decode them, otherwise they are stored as a JSON string, not a list/object.
+                    row_dict[col.name] = _decode_json_value(val)
                 else:
                     row_dict[col.name] = val
             cleaned_rows.append(row_dict)

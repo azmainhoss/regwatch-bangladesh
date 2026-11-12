@@ -16,6 +16,11 @@ from backend.app.modules.sources.models import Source
 
 
 async def seed():
+    # This script creates demo accounts with well-known passwords (including a superuser).
+    from backend.app.core.config import settings
+    if settings.is_production:
+        raise SystemExit("Refusing to run the demo seed with ENVIRONMENT=production.")
+
     async with AsyncSessionLocal() as session:
         print("🌱 Starting database seeding...")
 

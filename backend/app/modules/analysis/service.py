@@ -56,18 +56,26 @@ class AnalysisService:
         if doc.publication_status == "ANALYZING" and updated_at and (now - updated_at).total_seconds() < 300:
             raise ValueError(f"Document analysis already in progress (started at {updated_at}).")
 
-        # Acquire durable database-backed lease across all workers/processes
+        # Acquire durable database-backed lease across all workers/processes.
+        # The lease is the concurrency guard; the document status is left alone
+        # until a new analysis has been produced and saved.
         worker_id = f"worker-{os.getpid()}-{uuid4().hex[:6]}"
         lease_token = await AnalysisLeaseManager.acquire_lease(db, doc.id, worker_id)
-        doc.publication_status = "ANALYZING"
-        doc.updated_at = now
         await db.commit()
+        prior_status = doc.publication_status
+        doc_id = doc.id
 
-        # Clean up any previous analysis artifacts for this version
-        await db.execute(delete(Obligation).where(Obligation.document_version_id == version.id))
-        await db.execute(delete(Provision).where(Provision.document_version_id == version.id))
-        await db.execute(delete(DocumentRelationship).where(DocumentRelationship.source_document_id == doc.id))
-        await db.flush()
+        async def _fail(reason: str) -> None:
+            # Discard anything half-written, keep the previous results and status,
+            # and record the failure on the lease (the record of this analysis run).
+            await db.rollback()
+            try:
+                await AnalysisLeaseManager.release_lease(db, doc_id, lease_token, status="FAILED")
+                await db.commit()
+            except Exception as lease_err:
+                await db.rollback()
+                logger.error(f"Could not record failed analysis run for document {doc_id}: {lease_err}")
+            logger.error(f"Analysis failed for document {doc_id}; previous results kept. Reason: {reason}")
 
         # Prepare page dictionary for pipeline
         pages_payload = [
@@ -80,21 +88,58 @@ class AnalysisService:
             for p in version.pages
         ]
 
-        provider = get_ai_provider(provider_name)
-        pipeline = RegulatoryIntelligencePipeline(provider)
+        try:
+            provider = get_ai_provider(provider_name)
+            pipeline = RegulatoryIntelligencePipeline(provider)
 
-        result: PipelineExecutionResult = await pipeline.execute_document_analysis(
-            pages=pages_payload,
-            document_title=doc.title,
-            reference_hint=doc.reference_number,
-            force_human_review=force_human_review
-        )
+            result: PipelineExecutionResult = await pipeline.execute_document_analysis(
+                pages=pages_payload,
+                document_title=doc.title,
+                reference_hint=doc.reference_number,
+                force_human_review=force_human_review
+            )
+        except Exception as e:
+            await _fail(str(e))
+            raise RuntimeError(f"AI analysis pipeline failed: {e}") from e
 
         if not result.success:
-            doc.publication_status = "EXTRACTION_FAILED"
-            await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="FAILED")
-            await db.commit()
+            await _fail(str(result.error))
             raise RuntimeError(f"AI analysis pipeline failed: {result.error}")
+
+        try:
+            analysis = await AnalysisService._replace_analysis_results(
+                db=db,
+                doc=doc,
+                version=version,
+                result=result,
+                prior_status=prior_status,
+                lease_token=lease_token,
+            )
+        except Exception as e:
+            await _fail(str(e))
+            raise
+
+        logger.info(f"Analysis saved successfully for doc '{doc.title}'. Published status: {doc.publication_status}")
+        return analysis
+
+    @staticmethod
+    async def _replace_analysis_results(
+        db: AsyncSession,
+        doc: Document,
+        version: DocumentVersion,
+        result: PipelineExecutionResult,
+        prior_status: Optional[str],
+        lease_token: str,
+    ) -> DocumentAnalysis:
+        """Swaps the old provisions/obligations/relationships for the new ones in a single commit."""
+        await db.execute(delete(Obligation).where(Obligation.document_version_id == version.id))
+        await db.execute(delete(Provision).where(Provision.document_version_id == version.id))
+        await db.execute(delete(DocumentRelationship).where(DocumentRelationship.source_document_id == doc.id))
+        await db.flush()
+
+        # A document a person already reviewed and published must go back to review
+        # when its analysis changes, rather than silently showing unreviewed content.
+        needs_re_review = prior_status == "PUBLISHED_HUMAN_REVIEWED"
 
         payload = result.structured_payload
         exec_summary = payload.get("executive_summary", {})
@@ -120,7 +165,7 @@ class AnalysisService:
             tokens_used=result.token_usage.total_tokens,
             estimated_cost_usd=result.token_usage.estimated_cost_usd,
             processing_time_ms=result.latency_ms,
-            publication_decision="AWAITING_REVIEW" if result.publication_status == "AWAITING_REVIEW" else "APPROVED"
+            publication_decision="AWAITING_REVIEW" if (needs_re_review or result.publication_status == "AWAITING_REVIEW") else "APPROVED"
         )
         db.add(analysis)
         await db.flush()
@@ -213,12 +258,10 @@ class AnalysisService:
             db.add(citation)
 
         # Update Document publication status and release durable lease
-        doc.publication_status = result.publication_status
+        doc.publication_status = "AWAITING_REVIEW" if needs_re_review else result.publication_status
         await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="RELEASED")
         await db.commit()
         await db.refresh(analysis)
-
-        logger.info(f"Analysis saved successfully for doc '{doc.title}'. Published status: {doc.publication_status}")
         return analysis
 
     ALLOWED_REVIEW_DECISIONS = {
@@ -275,6 +318,11 @@ class AnalysisService:
                 raise ValueError("Publication requires an explicit reviewer_id for compliance auditability.")
             if not review_notes or not review_notes.strip():
                 raise ValueError("Publication requires non-empty review_notes documenting the human compliance verification.")
+
+            if analysis is None:
+                raise ValueError(
+                    "Publication blocked: this document version has no analysis. Run the analysis and verify it before publishing."
+                )
 
             if analysis:
                 # 2. Strict citation coverage threshold (must be 100% verified, partial coverage disallowed)
