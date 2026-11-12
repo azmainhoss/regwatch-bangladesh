@@ -61,6 +61,7 @@ class SourceRunRead(BaseModel):
     source_id: UUID
     run_type: str
     status: str
+    outcome: Optional[str] = None
     discovered_count: int = 0
     downloaded_count: int = 0
     pages_inspected: int
@@ -94,6 +95,9 @@ class SourceDiscoveryRead(BaseModel):
     publication_type: Optional[str] = "CIRCULAR"
     file_hash: Optional[str] = None
     file_size: Optional[int] = None
+    etag: Optional[str] = None
+    last_modified: Optional[str] = None
+    fetched_at: Optional[datetime] = None
     retry_count: int = 0
     last_attempted_at: Optional[datetime] = None
     error_message: Optional[str] = None

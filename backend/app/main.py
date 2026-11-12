@@ -18,6 +18,7 @@ from backend.app.modules.research.router import router as research_router
 from backend.app.modules.organizations.router import router as organizations_router
 from backend.app.modules.compliance.router import router as compliance_router
 from backend.app.workers.scheduler import monitoring_scheduler
+from backend.app.modules.extraction.vision_jobs import vision_worker
 
 
 @asynccontextmanager
@@ -44,10 +45,16 @@ async def lifespan(app: FastAPI):
         await monitoring_scheduler.start()
     else:
         logger.info("Source monitoring scheduler disabled in this process (SCHEDULER_ENABLED=false).")
+    # Bangla and scanned pages are read from their image by a background job, never inside a request.
+    run_vision = settings.SCHEDULER_ENABLED or settings.VISION_WORKER_ENABLED
+    if run_vision:
+        await vision_worker.start()
     yield
     logger.info("Shutting down application...")
     if settings.SCHEDULER_ENABLED:
         await monitoring_scheduler.stop()
+    if run_vision:
+        await vision_worker.stop()
     await async_engine.dispose()
 
 

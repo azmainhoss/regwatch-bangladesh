@@ -37,7 +37,10 @@ class SourceRun(Base):
         String(32),
         nullable=False,
         default="STARTED"
-    )  # STARTED, COMPLETED, FAILED, RESTRICTED, CANCELLED
+    )  # STARTED, COMPLETED, FAILED, FAILED_RETRY, RESTRICTED, CANCELLED
+    # Result of the listing check: OK, CHALLENGE, NO_TABLE, HTTP_ERROR, NETWORK_ERROR.
+    # Anything but OK leaves the run FAILED_RETRY, never COMPLETED with 0 new.
+    outcome = Column(String(32), nullable=True)
     discovered_count = Column(Integer, default=0, nullable=False)
     downloaded_count = Column(Integer, default=0, nullable=False)
     pages_inspected = Column(Integer, default=0, nullable=False)
@@ -73,6 +76,10 @@ class SourceDiscovery(Base):
     publication_type = Column(String(64), default="CIRCULAR", nullable=False)
     file_hash = Column(String(64), nullable=True)
     file_size = Column(Integer, nullable=True)
+    # Reply headers of the download, kept for the archive re-check.
+    etag = Column(String(256), nullable=True)
+    last_modified = Column(String(64), nullable=True)
+    fetched_at = Column(DateTime(timezone=True), nullable=True)
     retry_count = Column(Integer, default=0, nullable=False)
     last_attempted_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
@@ -82,7 +89,8 @@ class SourceDiscovery(Base):
         String(32),
         nullable=False,
         default="DISCOVERED"
-    )  # DISCOVERED, VALIDATED, DUPLICATE, REJECTED, DOWNLOAD_PENDING, DOWNLOADED, INGESTED, RESTRICTED, FAILED, REVIEW_REQUIRED
+    )  # DISCOVERED, VALIDATED, DUPLICATE, REJECTED, DOWNLOAD_PENDING, DOWNLOADED, INGESTED, RESTRICTED, FAILED,
+    # REVIEW_REQUIRED, SKIPPED_REJECTED (the site answered "Request Rejected" for this one file)
 
     source_run = relationship("SourceRun", back_populates="discoveries")
     document = relationship("Document")

@@ -13,7 +13,7 @@ RegWatch monitors official publications from regulatory institutions in Banglade
 ## Architecture Overview
 - **Modular Monolith:** Strict domain modularity (`identity`, `organizations`, `institutions`, `sources`, `ingestion`, `documents`, `extraction`, `analysis`, `provisions`, `relationships`, `obligations`, `compliance`, `audit`).
 - **Backend:** FastAPI (Python 3.11+ / 3.14), SQLAlchemy 2.0 (async & sync), Alembic migrations, Pydantic v2.
-- **Document Processing:** PyMuPDF (fitz), Tesseract OCR (Bengali & English support), `bijoy2unicode` font normalization.
+- **Document Processing:** PyMuPDF 1.x for English text-layer pages; Gemini (gemini-3.5-flash-lite) reads Bangla, legacy-font and scanned pages from the page image in a background job.
 - **Frontend:** Next.js 14 (App Router), TypeScript, React 18, Tailwind CSS.
 - **Storage:** Dual-namespace immutable object storage (`originals/` for regulatory documents, `evidence/` for tenant compliance files).
 - **Database:** PostgreSQL 16 with `pgvector` and JSONB (with full SQLite fallback for zero-dependency local testing).

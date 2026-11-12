@@ -17,22 +17,19 @@ MOCK_BB_CIRCULAR_HTML = """
 <head><title>Bangladesh Bank Circulars</title></head>
 <body>
   <div class="content">
-    <table>
+    <table class="table">
+      <tr><th>Date</th><th>Title</th><th>English</th><th>Bangla</th></tr>
       <tr>
         <td>27-11-2024</td>
-        <td>
-          <a href="/mediaroom/circulars/brpd/nov272024brpd15e.pdf">
-            BRPD Circular No. 15 : Master Policy on Loan Classification and Provisioning Alignment with IFRS 9
-          </a>
-        </td>
+        <td class="text-left"> BRPD Circular No. 15 : Master Policy on Loan Classification and Provisioning Alignment with IFRS 9 </td>
+        <td><a href="/mediaroom/circulars/brpd/nov272024brpd15e.pdf" target="_blank">Download</a></td>
+        <td>Not Available</td>
       </tr>
       <tr>
         <td>01-12-2024</td>
-        <td>
-          <a href="/mediaroom/circulars/brpd/dec012024brpd16e.pdf">
-            BRPD Circular No. 16 : Guidelines on Ultimate Beneficial Ownership (UBO) Disclosure
-          </a>
-        </td>
+        <td class="text-left"> BRPD Circular No. 16 : Guidelines on Ultimate Beneficial Ownership (UBO) Disclosure </td>
+        <td><a href="/mediaroom/circulars/brpd/dec012024brpd16e.pdf" target="_blank">Download</a></td>
+        <td>Not Available</td>
       </tr>
     </table>
   </div>
@@ -53,6 +50,19 @@ MOCK_IMPERVA_CHALLENGE_HTML = """
 </body>
 </html>
 """
+
+
+_REAL_POST = httpx.AsyncClient.post
+_REAL_GET = httpx.AsyncClient.get
+
+
+def _site_only(real, reply):
+    """Answers requests to bb.org.bd with `reply`; the test's own API calls go through."""
+    async def fake(self, url, *args, **kwargs):
+        if "bb.org.bd" in str(url):
+            return reply
+        return await real(self, url, *args, **kwargs)
+    return fake
 
 
 def test_bangladesh_bank_connector_html_parsing():
@@ -85,7 +95,7 @@ def test_anti_bot_challenge_detection():
     assert challenge.is_blocked is True
     assert challenge.challenge_type == "IMPERVA_TSPD_CAPTCHA"
     assert challenge.support_id == "2165770898338673683"
-    assert "Automation halted" in challenge.details
+    assert "retried" in challenge.details
 
 
 @pytest.mark.asyncio
@@ -118,17 +128,23 @@ async def test_source_monitoring_run_with_mocked_network():
         denied = await client.post(f"/api/v1/sources/{source_id}/trigger", headers=plain_headers)
         assert denied.status_code == 403
 
-        # 3. Simulate a successful discovery run using mocked HTML
-        with patch.object(httpx.AsyncClient, "get") as mock_get:
-            mock_resp = AsyncMock()
-            mock_resp.status_code = 200
-            mock_resp.text = MOCK_BB_CIRCULAR_HTML
-            mock_get.return_value = mock_resp
+        # 3. Simulate a successful new-circular check (date-filter POST) using mocked HTML.
+        # Downloads that follow get a 404 so nothing leaves the machine.
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 200
+        mock_resp.text = MOCK_BB_CIRCULAR_HTML
+        not_found = AsyncMock()
+        not_found.status_code = 404
+        not_found.text = "Not Found"
+        not_found.content = b"Not Found"
+        with patch.object(httpx.AsyncClient, "post", new=_site_only(_REAL_POST, mock_resp)), \
+                patch.object(httpx.AsyncClient, "get", new=_site_only(_REAL_GET, not_found)):
 
             run_resp = await client.post(f"/api/v1/sources/{source_id}/trigger", headers=headers)
             assert run_resp.status_code == 200
             run_data = run_resp.json()
             assert run_data["status"] == "COMPLETED"
+            assert run_data["outcome"] == "OK"
             assert run_data["candidate_links_discovered"] == 2
             assert run_data["access_restricted"] is False
 
@@ -149,17 +165,17 @@ async def test_source_monitoring_run_with_mocked_network():
         assert reject_resp.json()["status"] == "REJECTED"
         assert reject_resp.json()["rejection_reason"] == "Internal draft not for public distribution."
 
-        # 6. Simulate an Anti-bot WAF Challenge run
-        with patch.object(httpx.AsyncClient, "get") as mock_get:
-            mock_challenge_resp = AsyncMock()
-            mock_challenge_resp.status_code = 200
-            mock_challenge_resp.text = MOCK_IMPERVA_CHALLENGE_HTML
-            mock_get.return_value = mock_challenge_resp
+        # 6. Simulate a bot check page: the run fails and is retried later, never "0 new"
+        mock_challenge_resp = AsyncMock()
+        mock_challenge_resp.status_code = 200
+        mock_challenge_resp.text = MOCK_IMPERVA_CHALLENGE_HTML
+        with patch.object(httpx.AsyncClient, "post", new=_site_only(_REAL_POST, mock_challenge_resp)):
 
             blocked_run_resp = await client.post(f"/api/v1/sources/{source_id}/trigger", headers=headers)
             assert blocked_run_resp.status_code == 200
             blocked_data = blocked_run_resp.json()
-            assert blocked_data["status"] == "RESTRICTED"
+            assert blocked_data["status"] == "FAILED_RETRY"
+            assert blocked_data["outcome"] == "CHALLENGE"
             assert blocked_data["access_restricted"] is True
             assert blocked_data["access_restriction_details"]["challenge_type"] == "IMPERVA_TSPD_CAPTCHA"
 

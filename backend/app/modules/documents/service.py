@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, Tuple
 from uuid import UUID
 from sqlalchemy import select
@@ -10,7 +10,37 @@ from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.core.storage import storage_service
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
-from backend.app.modules.extraction.service import extraction_service
+from backend.app.modules.extraction.service import STATUS_PENDING_VISION, extraction_service
+
+LANGUAGE_NAMES = {"english": "en", "en": "en", "bangla": "bn", "bengali": "bn", "bn": "bn", "mixed": "mixed"}
+
+
+def normalize_language(value: Optional[str]) -> Optional[str]:
+    """'English' / 'Bangla' (as the source listing says) or en / bn / mixed -> en / bn / mixed."""
+    if not value:
+        return None
+    return LANGUAGE_NAMES.get(value.strip().lower())
+
+
+def _url_key(url: Optional[str]) -> Optional[str]:
+    """Compares URLs without caring about http/https or letter case."""
+    if not url:
+        return None
+    url = url.strip().lower()
+    for prefix in ("https://", "http://"):
+        if url.startswith(prefix):
+            return url[len(prefix):]
+    return url
+
+
+def _effective_url(version: DocumentVersion, doc: Document) -> Optional[str]:
+    return _url_key(version.source_url or doc.source_url)
+
+
+def replaces(old: DocumentVersion, doc: Document, language: str, source_url: Optional[str]) -> bool:
+    """A new file only replaces an older version with the same language and the same source URL.
+    An English and a Bangla file of one circular are language variants: both stay CURRENT."""
+    return old.language == language and _effective_url(old, doc) == _url_key(source_url)
 
 
 def _same_owner(owner_user_id: Optional[UUID]):
@@ -35,9 +65,23 @@ class DocumentIngestionService:
         effective_date: Optional[date] = None,
         source_url: Optional[str] = None,
         owner_user_id: Optional[UUID] = None,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        fetched_at: Optional[datetime] = None,
+        target_document_id: Optional[UUID] = None,
+        language: Optional[str] = None,
     ) -> Tuple[Document, DocumentVersion, int]:
         """
         Ingests a PDF document into the system.
+
+        language ("English"/"Bangla" or en/bn/mixed) is the file's language as the source lists
+        it; without it the language is worked out from the pages. A new file supersedes only
+        older versions with the same language and the same source URL, so an English and a
+        Bangla file with the same reference number are kept side by side as language variants.
+
+        etag, last_modified and fetched_at are the download's reply headers; they are kept
+        on the new version for the archive re-check. target_document_id files the PDF as a
+        new version of that document (used when a known file was replaced on the site).
 
         owner_user_id=None files the document in the shared library; a user id makes it
         a private upload. Duplicate detection (same file hash, same reference number) only
@@ -78,7 +122,16 @@ class DocumentIngestionService:
 
         # Check if document with same reference number exists under institution
         doc = None
-        if reference_number:
+        if target_document_id is not None:
+            target_query = await db.execute(
+                select(Document)
+                .where(Document.id == target_document_id, _same_owner(owner_user_id))
+                .options(selectinload(Document.versions))
+            )
+            doc = target_query.scalars().first()
+            if doc is None:
+                raise LookupError(f"Document {target_document_id} not found in this scope.")
+        elif reference_number:
             existing_doc_query = await db.execute(
                 select(Document).where(
                     Document.institution_id == institution_id,
@@ -106,6 +159,10 @@ class DocumentIngestionService:
                 storage_path=storage_path,
                 file_sha256=file_sha256,
                 file_size=file_size,
+                etag=etag,
+                last_modified=last_modified,
+                fetched_at=fetched_at,
+                language=language,
             )
         except Exception:
             # Leave no half-created document behind and no existing document stuck mid-extraction.
@@ -130,7 +187,12 @@ class DocumentIngestionService:
         storage_path: str,
         file_sha256: str,
         file_size: int,
+        etag: Optional[str] = None,
+        last_modified: Optional[str] = None,
+        fetched_at: Optional[datetime] = None,
+        language: Optional[str] = None,
     ) -> Tuple[Document, DocumentVersion, int]:
+        previous_versions = []
         if not doc:
             doc = Document(
                 institution_id=institution_id,
@@ -150,23 +212,19 @@ class DocumentIngestionService:
             version_num = 1
         else:
             # Existing document: its status only changes once the new version is extracted.
-            version_num = len(doc.versions) + 1
+            previous_versions = list(doc.versions)
+            version_num = max((v.version_number for v in previous_versions), default=0) + 1
 
-        # Run page extraction in worker thread so event loop remains responsive for health checks
-        should_ocr = (len(pdf_bytes) <= 2500000) and (getattr(settings, "ENVIRONMENT", "development") != "production")
-        extracted_pages = await asyncio.to_thread(
-            extraction_service.extract_document_pages,
-            pdf_bytes=pdf_bytes,
-            ocr_fallback=should_ocr
-        )
+        # Run page extraction in a worker thread so the event loop stays responsive.
+        # Only text-layer pages are read here; Bangla and scanned pages wait for the vision job.
+        extracted_pages = await asyncio.to_thread(extraction_service.extract_document_pages, pdf_bytes=pdf_bytes)
         page_count = len(extracted_pages)
-        is_scanned = any(p["extraction_method"] == "OCR_TESSERACT" for p in extracted_pages)
+        is_scanned = any(p.get("route_reason") == "near_empty" for p in extracted_pages)
 
-        # Determine language
-        sample_text = " ".join([p["raw_text"][:200] for p in extracted_pages[:3]])
-        has_bangla = bool(any(ord(c) >= 0x0980 and ord(c) <= 0x09FF for c in sample_text))
-        has_english = bool(any(c.isalpha() and ord(c) < 128 for c in sample_text))
-        lang = "mixed" if (has_bangla and has_english) else ("bn" if has_bangla else "en")
+        lang = normalize_language(language)
+        if lang is None:
+            page_langs = {p.get("language") for p in extracted_pages if p.get("language")}
+            lang = "bn" if page_langs == {"bn"} else ("mixed" if page_langs == {"en", "bn"} else "en")
 
         version = DocumentVersion(
             document_id=doc.id,
@@ -177,12 +235,36 @@ class DocumentIngestionService:
             storage_path=storage_path,
             page_count=page_count,
             language=lang,
-            is_scanned=is_scanned
+            is_scanned=is_scanned,
+            source_url=source_url,
+            etag=etag,
+            last_modified=last_modified,
+            fetched_at=fetched_at,
+            status="CURRENT",
         )
         db.add(version)
         await db.flush()
 
-        doc.current_version_id = version.id
+        # Older files with the same language and source URL stay in the archive, marked as replaced.
+        # Language variants (English and Bangla files of one circular) are left CURRENT.
+        replaced_ids = set()
+        for old in previous_versions:
+            if old.status != "SUPERSEDED" and replaces(old, doc, lang, source_url):
+                old.status = "SUPERSEDED"
+                replaced_ids.add(old.id)
+
+        # The document's main version: the new file, unless it is only a language variant
+        # of a current English file (English is read from the text layer and is ready first).
+        current = next((v for v in previous_versions if v.id == doc.current_version_id), None)
+        keep_current = (
+            current is not None
+            and current.id not in replaced_ids
+            and current.status == "CURRENT"
+            and current.language == "en"
+            and lang != "en"
+        )
+        if not keep_current:
+            doc.current_version_id = version.id
         doc.publication_status = "EXTRACTED"
 
         # Insert page records
@@ -201,12 +283,16 @@ class DocumentIngestionService:
                 quality_status=p.get("quality_status", "SUCCESS_NATIVE"),
                 quality_score=p.get("quality_score", 1.0),
                 layout_hierarchy=p.get("layout_hierarchy", {}),
+                line_boxes=p.get("line_boxes"),
                 human_corrected_text=None,
                 is_human_corrected=False
             )
             db.add(page_record)
 
         await db.commit()
+        if any(p.get("quality_status") == STATUS_PENDING_VISION for p in extracted_pages):
+            from backend.app.modules.extraction.vision_jobs import vision_worker
+            vision_worker.kick()
         # Reload doc with versions eager loaded for Pydantic serialization
         doc_query = await db.execute(
             select(Document).options(selectinload(Document.versions)).where(Document.id == doc.id)

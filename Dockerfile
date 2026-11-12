@@ -4,14 +4,10 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8000 \
-    ENVIRONMENT=production \
-    TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+    ENVIRONMENT=production
 
-# Install essential system libraries, Tesseract OCR with English and Bengali language packs
+# Install essential system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    tesseract-ocr-ben \
     libgl1 \
     libglib2.0-0 \
     curl \

@@ -1,8 +1,10 @@
 import asyncio
 import re
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date, datetime, timedelta, timezone
+from html import unescape
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 import httpx
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
@@ -11,7 +13,10 @@ from backend.app.modules.sources.connector.base import (
     BaseSourceConnector,
     CandidatePublication,
     DiscoveryResult,
+    FetchedFile,
+    ListingOutcome,
 )
+from backend.app.modules.sources.connector.pacing import bb_request_gate
 from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
 
 MAX_REDIRECTS = 5
@@ -30,24 +35,8 @@ class BangladeshBankConnector(BaseSourceConnector):
     def _get_headers(self) -> Dict[str, str]:
         return {
             "User-Agent": self.user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
+            "Accept": "text/html,application/pdf,*/*",
         }
-
-    async def _safe_get(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
-        """GET a URL on the allow-list, following redirects only within the allow-list."""
-        current = validate_source_url(url, upgrade_http=True)
-        for _ in range(MAX_REDIRECTS + 1):
-            resp = await client.get(current, headers=self._get_headers())
-            status_code = getattr(resp, "status_code", None)
-            if status_code in REDIRECT_STATUSES:
-                location = resp.headers.get("location") if getattr(resp, "headers", None) is not None else None
-                if not location:
-                    return resp
-                current = validate_source_url(urljoin(current, location), upgrade_http=True)
-                continue
-            return resp
-        raise DisallowedSourceURL(f"Too many redirects while fetching {url}")
 
     @staticmethod
     def parse_publication_date(date_str: str) -> Optional[date]:
@@ -100,161 +89,259 @@ class BangladeshBankConnector(BaseSourceConnector):
             return "POLICY_GUIDELINE"
         return "CIRCULAR"
 
+    # A PDF link inside a quoted attribute: href="..." or onclick="loadPDFDynamically('...')".
+    _PDF_LINK = re.compile(r"""['"]([^'"\s<>]+?\.pdf)['"]""", re.IGNORECASE)
+    _ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+    _CELL = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
+    _REF = re.compile(
+        r"((?:BRPD|DOS|FEPD|PSD|SFD|DBI|SMESPD|ACD|SDAD|FID|FEID|DFIM|DMD|DCM)[\w\-]*(?:\s+Circular\s+Letter|\s+Circular|\s+Letter)?\s*(?:No\.|Letter No\.)?\s*[\w\-\/]+)",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _clean_cell_text(cell_html: str) -> str:
+        return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", cell_html))).strip()
+
+    @staticmethod
+    def classify_listing(status_code: int, html: str) -> Tuple[ListingOutcome, str]:
+        """Sorts a listing reply into an outcome (same rules as research/detect/detect_test.py)."""
+        low = html.lower()
+        if "/tspd/" in low or "bobcmn" in low or "what code is in the image" in low:
+            return ListingOutcome.CHALLENGE, "Bot check page instead of the circular list."
+        if "request rejected" in low or "the requested url was rejected" in low:
+            return ListingOutcome.HTTP_ERROR, "Request Rejected page instead of the circular list."
+        if status_code != 200:
+            return ListingOutcome.HTTP_ERROR, f"HTTP {status_code} from the circular list."
+        i = low.find("<table")
+        if i < 0 or "<th" not in low[i:i + 2000]:
+            return ListingOutcome.NO_TABLE, "Reply has no circular table."
+        return ListingOutcome.OK, ""
+
     def parse_listing_html(self, html_content: str, source_page_url: str) -> List[CandidatePublication]:
         """
-        Parses Bangladesh Bank circular listing HTML table or links.
-        Extracts high-fidelity candidate circular items with dates, references, and PDF URLs.
-        Collects both English and Bangla publications.
+        Parses the circular table: Date | Title | English | Bangla.
+        Every PDF link in the English or Bangla cell becomes one candidate, keyed by its URL.
+        Rows without a PDF link (for example "Not Available") give no candidate.
         """
         candidates: List[CandidatePublication] = []
+        for row_html in self._ROW.findall(html_content):
+            cells = self._CELL.findall(row_html)
+            if len(cells) < 4:
+                continue
+            date_str = self._clean_cell_text(cells[0])
+            title = self._clean_cell_text(cells[1])
+            if not title or len(title) < 4:
+                continue
 
-        # Strategy 1: High-fidelity Table Row parsing (Official BB Circular format)
-        row_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
-        cell_pattern = re.compile(r"<td[^>]*>(.*?)</td>", re.DOTALL | re.IGNORECASE)
-        link_pattern = re.compile(r'href=["\']([^"\']+\.pdf)["\']', re.IGNORECASE)
+            pub_date = self.parse_publication_date(date_str)
+            pub_type = self.infer_publication_type(title, None)
+            ref_match = self._REF.search(title)
+            ref_no = ref_match.group(1).strip() if ref_match else None
 
-        rows = row_pattern.findall(html_content)
-        for row_html in rows:
-            cells = cell_pattern.findall(row_html)
-            if len(cells) >= 4:
-                date_str = re.sub(r"<[^>]+>", "", cells[0]).strip()
-                title_raw = re.sub(r"<[^>]+>", "", cells[1]).strip()
-
-                links_cell2 = link_pattern.findall(cells[2])
-                links_cell3 = link_pattern.findall(cells[3])
-
-                if not title_raw or len(title_raw) < 4:
-                    continue
-
-                pub_date = self.parse_publication_date(date_str)
-                pub_type = self.infer_publication_type(title_raw, None)
-
-                # Extract reference number from title (e.g. BRPD Circular No. 15, DOS Circular Letter No. 02)
-                ref_match = re.search(
-                    r"((?:BRPD|DOS|FEPD|PSD|SFD|DBI|SMESPD|ACD|SDAD|FID|FEID|DFIM|DMD|DCM)[\w\-]*(?:\s+Circular\s+Letter|\s+Circular|\s+Letter)?\s*(?:No\.|Letter No\.)?\s*[\w\-\/]+)",
-                    title_raw,
-                    re.IGNORECASE
-                )
-                ref_no = ref_match.group(1).strip() if ref_match else None
-
-                # Process English PDF link
-                if links_cell2:
-                    eng_pdf_rel = links_cell2[0]
-                    eng_pdf_url = urljoin(source_page_url, eng_pdf_rel)
-                    dept_code = self.infer_department_code(title_raw, ref_no, eng_pdf_url)
+            for lang, language, cell in (("en", "English", cells[2]), ("bn", "Bangla", cells[3])):
+                seen_urls = []
+                for href in self._PDF_LINK.findall(cell):
+                    pdf_url = urljoin(source_page_url, unescape(href))
+                    if pdf_url in seen_urls:
+                        continue
+                    seen_urls.append(pdf_url)
                     candidates.append(CandidatePublication(
-                        title=title_raw,
+                        title=title,
                         reference_number=ref_no,
-                        department_code=dept_code,
+                        department_code=self.infer_department_code(title, ref_no, pdf_url),
                         publication_date=pub_date,
                         detail_url=source_page_url,
-                        file_url=eng_pdf_url,
-                        language="English",
+                        file_url=pdf_url,
+                        language=language,
                         publication_type=pub_type,
-                        metadata={"raw_date": date_str, "language": "English", "relative_href": eng_pdf_rel}
+                        metadata={"raw_date": date_str, "language": language, "lang": lang, "relative_href": href},
                     ))
-
-                # Process Bangla PDF link
-                if links_cell3:
-                    bn_pdf_rel = links_cell3[0]
-                    bn_pdf_url = urljoin(source_page_url, bn_pdf_rel)
-                    dept_code = self.infer_department_code(title_raw, ref_no, bn_pdf_url)
-                    candidates.append(CandidatePublication(
-                        title=title_raw,
-                        reference_number=ref_no,
-                        department_code=dept_code,
-                        publication_date=pub_date,
-                        detail_url=source_page_url,
-                        file_url=bn_pdf_url,
-                        language="Bangla",
-                        publication_type=pub_type,
-                        metadata={"raw_date": date_str, "language": "Bangla", "relative_href": bn_pdf_rel}
-                    ))
-
-        if candidates:
-            return candidates
-
-        # Strategy 2: Fallback anchor tag parsing
-        anchor_pattern = re.compile(
-            r'<a[^>]+href=["\']([^"\']+\.pdf)["\'][^>]*>(.*?)</a>',
-            re.IGNORECASE | re.DOTALL
-        )
-
-        for match in anchor_pattern.finditer(html_content):
-            href, anchor_text = match.groups()
-            cleaned_anchor = re.sub(r"<[^>]+>", "", anchor_text).strip()
-            
-            full_pdf_url = urljoin(source_page_url, href)
-
-            ref_match = re.search(
-                r"((?:BRPD|DOS|FEPD|PSD|SFD|DBI|DFIM|SMESPD|ACD|FID|FEID)\s*(?:Circular|Circular Letter)?\s*(?:No\.|Letter No\.)?\s*[\w\-\/]+)",
-                cleaned_anchor,
-                re.IGNORECASE
-            )
-            ref_number = ref_match.group(1).strip() if ref_match else None
-
-            date_match = re.search(r"(\d{1,2}[-\/\s]([A-Za-z]{3,}|\d{1,2})[-\/\s]\d{2,4})", cleaned_anchor)
-            pub_date = self.parse_publication_date(date_match.group(1)) if date_match else None
-
-            if not pub_date:
-                url_date_match = re.search(r"([a-z]{3})(\d{1,2})(\d{4})", full_pdf_url.lower())
-                if url_date_match:
-                    month_str, day_str, year_str = url_date_match.groups()
-                    try:
-                        pub_date = datetime.strptime(f"{day_str} {month_str} {year_str}", "%d %b %Y").date()
-                    except ValueError:
-                        pass
-
-            dept_code = self.infer_department_code(cleaned_anchor, ref_number, full_pdf_url)
-            title = cleaned_anchor if len(cleaned_anchor) > 5 else (ref_number or "Bangladesh Bank Circular")
-            pub_type = self.infer_publication_type(title, ref_number)
-
-            candidates.append(CandidatePublication(
-                title=title,
-                reference_number=ref_number,
-                department_code=dept_code,
-                publication_date=pub_date,
-                detail_url=source_page_url,
-                file_url=full_pdf_url,
-                language="English" if "e.pdf" in full_pdf_url.lower() else "Bangla",
-                publication_type=pub_type,
-                metadata={"raw_anchor": cleaned_anchor, "relative_href": href}
-            ))
-
         return candidates
 
-    async def discover_publications(self, max_pages: int = 1) -> DiscoveryResult:
+    # ---------------------------------------------------------------- requests
+
+    async def _safe_request(self, client: httpx.AsyncClient, method: str, url: str) -> httpx.Response:
+        """GET/HEAD a URL on the allow-list, following redirects only within the allow-list.
+        Every hop is its own paced request."""
+        current = validate_source_url(url, upgrade_http=True)
+        for _ in range(MAX_REDIRECTS + 1):
+            async with bb_request_gate.slot():
+                if method == "HEAD":
+                    resp = await client.head(current, headers=self._get_headers())
+                else:
+                    resp = await client.get(current, headers=self._get_headers())
+            status_code = getattr(resp, "status_code", None)
+            if status_code in REDIRECT_STATUSES:
+                location = _header(resp, "location")
+                if not location:
+                    return resp
+                current = validate_source_url(urljoin(current, location), upgrade_http=True)
+                continue
+            return resp
+        raise DisallowedSourceURL(f"Too many redirects while fetching {url}")
+
+    async def _safe_get(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        return await self._safe_request(client, "GET", url)
+
+    async def _check_listing(self, method: str, form: Optional[Dict[str, str]] = None) -> DiscoveryResult:
         result = DiscoveryResult()
-        
-        async with httpx.AsyncClient(timeout=25.0, follow_redirects=False) as client:
-            try:
-                resp = await self._safe_get(client, self.base_url)
-                result.pages_inspected += 1
+        try:
+            async with httpx.AsyncClient(timeout=120.0, follow_redirects=False) as client:
+                if method == "POST":
+                    async with bb_request_gate.slot():
+                        resp = await client.post(self.base_url, data=form, headers=self._get_headers())
+                else:
+                    resp = await self._safe_get(client, self.base_url)
+        except (httpx.RequestError, httpx.TimeoutException) as req_err:
+            logger.error(f"Network error checking {self.base_url}: {req_err}")
+            result.outcome = ListingOutcome.NETWORK_ERROR
+            result.errors.append(f"Network error: {type(req_err).__name__}: {req_err}")
+            return result
+        except DisallowedSourceURL as url_err:
+            logger.error(f"Blocked fetch outside the source allow-list: {url_err}")
+            result.outcome = ListingOutcome.HTTP_ERROR
+            result.errors.append(str(url_err))
+            return result
 
-                # 1. Anti-bot challenge inspection
-                challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
-                if challenge:
-                    logger.warning(f"Anti-bot challenge detected while accessing {self.base_url}: {challenge.challenge_type}")
-                    result.anti_bot_challenge = challenge
-                    return result
+        result.pages_inspected = 1
+        status_code = getattr(resp, "status_code", 0)
+        html = resp.text if isinstance(getattr(resp, "text", None), str) else ""
+        result.status_code = status_code
+        result.bytes_received = len(html.encode("utf-8", "replace"))
 
-                if resp.status_code != 200:
-                    result.errors.append(f"HTTP {resp.status_code} received from {self.base_url}")
-                    return result
+        outcome, detail = self.classify_listing(status_code, html)
+        result.outcome = outcome
+        if outcome != ListingOutcome.OK:
+            if outcome == ListingOutcome.CHALLENGE:
+                result.anti_bot_challenge = self.detect_anti_bot_challenge(html, status_code) or AntiBotChallenge(
+                    is_blocked=True, challenge_type="IMPERVA_TSPD_CAPTCHA", status_code=status_code, details=detail
+                )
+            logger.warning(f"Listing check of {self.base_url} failed: {outcome.value} ({detail})")
+            result.errors.append(detail)
+            return result
 
-                # 2. Parse candidates from HTML
-                candidates = self.parse_listing_html(resp.text, self.base_url)
-                result.candidate_publications = candidates
-                logger.info(f"Discovered {len(candidates)} candidate circulars from {self.base_url}")
-
-            except httpx.RequestError as req_err:
-                logger.error(f"Network error connecting to {self.base_url}: {req_err}")
-                result.errors.append(str(req_err))
-            except DisallowedSourceURL as url_err:
-                logger.error(f"Blocked fetch outside the source allow-list: {url_err}")
-                result.errors.append(str(url_err))
-
+        result.candidate_publications = self.parse_listing_html(html, self.base_url)
+        logger.info(f"Listing check found {len(result.candidate_publications)} PDF links on {self.base_url}")
         return result
+
+    async def poll_recent(self, days: Optional[int] = None, today: Optional[date] = None) -> DiscoveryResult:
+        """New-circular check: the site's date filter for the last `days` days (both ends inclusive)."""
+        days = settings.BB_POLL_DAYS if days is None else days
+        today = today or datetime.now(ZoneInfo(settings.MONITOR_TIMEZONE)).date()
+        form = {
+            "from_date": (today - timedelta(days=days)).strftime("%Y-%m-%d"),
+            "to_date": today.strftime("%Y-%m-%d"),
+            "search_circular": "Search",
+        }
+        return await self._check_listing("POST", form)
+
+    async def full_reconcile(self) -> DiscoveryResult:
+        """Daily double-check: the full circular list (about 2.6 MB), same parser."""
+        return await self._check_listing("GET")
+
+    async def discover_publications(self, max_pages: int = 1, mode: str = "poll") -> DiscoveryResult:
+        if mode == "reconcile":
+            return await self.full_reconcile()
+        return await self.poll_recent()
+
+    # --------------------------------------------------------------- downloads
+
+    def _classify_file_reply(self, resp) -> Optional[AntiBotChallenge]:
+        """Returns why a non-PDF reply is not a usable file."""
+        status_code = getattr(resp, "status_code", 0)
+        text = resp.text if isinstance(getattr(resp, "text", None), str) else ""
+        low = text.lower()
+        # Same order as the reference script: a real bot check first, then a per-file rejection.
+        if "/tspd/" in low or "bobcmn" in low or "what code is in the image" in low:
+            return self.detect_anti_bot_challenge(text, status_code)
+        if self.is_request_rejected(text):
+            return AntiBotChallenge(
+                is_blocked=False,
+                challenge_type="REQUEST_REJECTED",
+                status_code=status_code,
+                details="The site answered 'Request Rejected' for this one file. Skipped; other files carry on.",
+            )
+        return self.detect_anti_bot_challenge(text, status_code)
+
+    async def fetch_document(
+        self,
+        file_url: str,
+        max_retries: int = 3,
+        backoff_base_seconds: float = 1.0,
+    ) -> FetchedFile:
+        """Downloads one file (paced) and keeps its ETag and Last-Modified headers."""
+        try:
+            file_url = validate_source_url(file_url, upgrade_http=True)
+        except DisallowedSourceURL as url_err:
+            return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                is_blocked=False, challenge_type="DISALLOWED_URL", status_code=0, details=str(url_err)
+            ))
+
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
+            last_challenge = None
+            for attempt in range(max_retries):
+                try:
+                    try:
+                        resp = await self._safe_get(client, file_url)
+                    except DisallowedSourceURL as url_err:
+                        return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                            is_blocked=False, challenge_type="DISALLOWED_URL", status_code=0, details=str(url_err)
+                        ))
+                    status_code = getattr(resp, "status_code", 0)
+                    content = getattr(resp, "content", b"")
+                    if status_code == 200 and isinstance(content, bytes) and content.startswith(b"%PDF-"):
+                        return FetchedFile(
+                            url=file_url,
+                            content=content,
+                            etag=_header(resp, "etag"),
+                            last_modified=_header(resp, "last-modified"),
+                            fetched_at=datetime.now(timezone.utc),
+                        )
+
+                    problem = self._classify_file_reply(resp)
+                    if problem:
+                        return FetchedFile(url=file_url, challenge=problem)
+
+                    if status_code == 200:
+                        return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                            is_blocked=True,
+                            challenge_type="INVALID_CONTENT_TYPE",
+                            status_code=status_code,
+                            details="Response returned non-PDF content (likely an unrecognized bot challenge or error page).",
+                        ))
+                    if status_code in (500, 502, 503, 504):
+                        logger.warning(f"HTTP {status_code} downloading {file_url} (attempt {attempt + 1}/{max_retries})")
+                        last_challenge = AntiBotChallenge(
+                            is_blocked=False,
+                            challenge_type="HTTP_SERVER_ERROR",
+                            status_code=status_code,
+                            details=f"Transient HTTP {status_code} error from source.",
+                        )
+                    else:
+                        return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                            is_blocked=False,
+                            challenge_type="HTTP_ERROR",
+                            status_code=status_code,
+                            details=f"Download failed with HTTP status {status_code}",
+                        ))
+                except (httpx.RequestError, httpx.TimeoutException) as req_err:
+                    logger.warning(f"Network error downloading {file_url} (attempt {attempt + 1}/{max_retries}): {req_err}")
+                    last_challenge = AntiBotChallenge(
+                        is_blocked=False,
+                        challenge_type="NETWORK_EXCEPTION",
+                        status_code=0,
+                        details=f"Network exception downloading file: {req_err}",
+                    )
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(backoff_base_seconds * (2 ** attempt))
+
+            return FetchedFile(url=file_url, challenge=last_challenge or AntiBotChallenge(
+                is_blocked=False,
+                challenge_type="MAX_RETRIES_EXCEEDED",
+                status_code=0,
+                details=f"Failed to download after {max_retries} attempts.",
+            ))
 
     async def download_document(
         self,
@@ -262,85 +349,48 @@ class BangladeshBankConnector(BaseSourceConnector):
         max_retries: int = 3,
         backoff_base_seconds: float = 1.0
     ) -> Tuple[Optional[bytes], Optional[AntiBotChallenge]]:
-        """
-        Downloads a document file from the official source with exponential backoff retry
-        and strict magic-bytes verification.
-        """
+        fetched = await self.fetch_document(file_url, max_retries=max_retries, backoff_base_seconds=backoff_base_seconds)
+        return fetched.content, fetched.challenge
+
+    async def head_document(self, file_url: str) -> FetchedFile:
+        """HEAD request (paced) for the archive re-check. Returns headers only, no content."""
         try:
-            file_url = validate_source_url(file_url, upgrade_http=True)
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                resp = await self._safe_request(client, "HEAD", file_url)
         except DisallowedSourceURL as url_err:
-            return None, AntiBotChallenge(
+            return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                is_blocked=False, challenge_type="DISALLOWED_URL", status_code=0, details=str(url_err)
+            ))
+        except (httpx.RequestError, httpx.TimeoutException) as req_err:
+            return FetchedFile(url=file_url, challenge=AntiBotChallenge(
+                is_blocked=False, challenge_type="NETWORK_EXCEPTION", status_code=0, details=str(req_err)
+            ))
+        status_code = getattr(resp, "status_code", 0)
+        if status_code != 200:
+            text = resp.text if isinstance(getattr(resp, "text", None), str) else ""
+            return FetchedFile(url=file_url, challenge=self.detect_anti_bot_challenge(text, status_code) or AntiBotChallenge(
                 is_blocked=False,
-                challenge_type="DISALLOWED_URL",
-                status_code=0,
-                details=str(url_err)
-            )
-
-        async with httpx.AsyncClient(timeout=35.0, follow_redirects=False) as client:
-            last_challenge = None
-            for attempt in range(max_retries):
-                try:
-                    try:
-                        resp = await self._safe_get(client, file_url)
-                    except DisallowedSourceURL as url_err:
-                        return None, AntiBotChallenge(
-                            is_blocked=False,
-                            challenge_type="DISALLOWED_URL",
-                            status_code=0,
-                            details=str(url_err)
-                        )
-                    # Check for challenge in response
-                    challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
-                    if challenge:
-                        return None, challenge
-
-                    if resp.status_code == 200:
-                        content = resp.content
-                        # Ensure it is genuinely a PDF (%PDF-) and not an HTML challenge or error page
-                        if not content.startswith(b"%PDF-"):
-                            challenge = self.detect_anti_bot_challenge(resp.text, resp.status_code)
-                            if challenge:
-                                return None, challenge
-                            return None, AntiBotChallenge(
-                                is_blocked=True,
-                                challenge_type="INVALID_CONTENT_TYPE",
-                                status_code=resp.status_code,
-                                details="Response returned non-PDF content (likely an unrecognized bot challenge or error page)."
-                            )
-                        return content, None
-                    elif resp.status_code in [500, 502, 503, 504]:
-                        # Transient server error on Bangladesh Bank side, retry with backoff
-                        logger.warning(f"HTTP {resp.status_code} downloading {file_url} (attempt {attempt + 1}/{max_retries})")
-                        last_challenge = AntiBotChallenge(
-                            is_blocked=False,
-                            challenge_type="HTTP_SERVER_ERROR",
-                            status_code=resp.status_code,
-                            details=f"Transient HTTP {resp.status_code} error from source."
-                        )
-                    else:
-                        return None, AntiBotChallenge(
-                            is_blocked=False,
-                            challenge_type="HTTP_ERROR",
-                            status_code=resp.status_code,
-                            details=f"Download failed with HTTP status {resp.status_code}"
-                        )
-                except (httpx.RequestError, httpx.TimeoutException) as req_err:
-                    logger.warning(f"Network error downloading {file_url} (attempt {attempt + 1}/{max_retries}): {req_err}")
-                    last_challenge = AntiBotChallenge(
-                        is_blocked=False,
-                        challenge_type="NETWORK_EXCEPTION",
-                        status_code=0,
-                        details=f"Network exception downloading file: {str(req_err)}"
-                    )
-
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(backoff_base_seconds * (2 ** attempt))
-
-            return None, last_challenge or AntiBotChallenge(
-                is_blocked=False,
-                challenge_type="MAX_RETRIES_EXCEEDED",
-                status_code=0,
-                details=f"Failed to download after {max_retries} attempts."
-            )
+                challenge_type="HTTP_ERROR",
+                status_code=status_code,
+                details=f"HEAD returned HTTP {status_code}",
+            ))
+        return FetchedFile(
+            url=file_url,
+            etag=_header(resp, "etag"),
+            last_modified=_header(resp, "last-modified"),
+            fetched_at=datetime.now(timezone.utc),
+        )
 
 
+def _header(resp, name: str) -> Optional[str]:
+    headers = getattr(resp, "headers", None)
+    if headers is None:
+        return None
+    try:
+        value = headers.get(name)
+        if value is None and isinstance(headers, dict):
+            lowered = {str(k).lower(): v for k, v in headers.items()}
+            value = lowered.get(name.lower())
+    except Exception:
+        return None
+    return value if isinstance(value, str) else None

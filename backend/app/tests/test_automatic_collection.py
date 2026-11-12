@@ -225,7 +225,7 @@ async def test_source_monitoring_stats(db_session):
 
 @pytest.mark.asyncio
 async def test_scheduled_monitoring_service_lifecycle():
-    service = ScheduledMonitoringService(interval_seconds=1)
+    service = ScheduledMonitoringService()
     assert service._is_running is False
     await service.start()
     assert service._is_running is True

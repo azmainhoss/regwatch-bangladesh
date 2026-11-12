@@ -430,7 +430,6 @@ async def submit_human_correction(
 async def retrigger_extraction(
     document_id: UUID,
     version_id: Optional[UUID] = None,
-    preferred_language: str = Query("auto"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
@@ -454,13 +453,8 @@ async def retrigger_extraction(
         raise HTTPException(status_code=404, detail="Document version not found")
 
     pdf_bytes = storage_service.get_file_bytes(version.storage_path)
-    from backend.app.modules.extraction.service import extraction_service
-    extracted_pages = await asyncio.to_thread(
-        extraction_service.extract_document_pages,
-        pdf_bytes=pdf_bytes,
-        ocr_fallback=True,
-        preferred_language=preferred_language
-    )
+    from backend.app.modules.extraction.service import STATUS_PENDING_VISION, VISION_DONE_STATUSES, extraction_service
+    extracted_pages = await asyncio.to_thread(extraction_service.extract_document_pages, pdf_bytes)
 
     # Update pages in place so provisions, obligations and citations that point at
     # a page keep working. Pages a person has corrected keep the corrected text.
@@ -479,21 +473,28 @@ async def retrigger_extraction(
             )
             db.add(page_record)
 
-        page_record.raw_text = p["raw_text"]
         page_record.native_text = p.get("native_text")
+        if page_record.is_human_corrected:
+            preserved_corrections += 1
+            continue
+        # A page already read from its image (by the API or by hand) keeps that reading.
+        if p.get("quality_status") == STATUS_PENDING_VISION and page_record.quality_status in VISION_DONE_STATUSES:
+            continue
+
+        page_record.raw_text = p["raw_text"]
         page_record.ocr_text = p.get("ocr_text")
         page_record.ocr_confidence = p["ocr_confidence"]
         page_record.has_tables = p["has_tables"]
         page_record.extracted_tables = p["extracted_tables"]
         page_record.layout_hierarchy = p.get("layout_hierarchy", {})
-
-        if page_record.is_human_corrected:
-            preserved_corrections += 1
-            continue
+        page_record.line_boxes = p.get("line_boxes")
         page_record.cleaned_text = p["cleaned_text"]
         page_record.extraction_method = p["extraction_method"]
         page_record.quality_status = p.get("quality_status", "SUCCESS_NATIVE")
         page_record.quality_score = p.get("quality_score", 1.0)
+        if page_record.quality_status == STATUS_PENDING_VISION:
+            page_record.vision_attempts = 0
+            page_record.vision_error = None
 
     version.page_count = max(version.page_count or 0, len(extracted_pages))
 

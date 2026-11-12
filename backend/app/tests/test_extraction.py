@@ -11,7 +11,7 @@ def test_page_by_page_extraction_on_corpus():
         pdf_bytes = f.read()
 
     service = ExtractionService()
-    pages = service.extract_document_pages(pdf_bytes, ocr_fallback=False)
+    pages = service.extract_document_pages(pdf_bytes)
 
     # BRPD 15 has exactly 2 pages
     assert len(pages) == 2
@@ -22,7 +22,9 @@ def test_page_by_page_extraction_on_corpus():
     assert "BANGLADESH BANK" in p1["raw_text"]
     assert "BRPD Circular No. 15" in p1["raw_text"]
     assert "IFRS 9" in p1["raw_text"]
-    assert p1["extraction_method"] == "PYMUPDF_NATIVE"
+    assert p1["extraction_method"] == "TEXT_LAYER"
+    assert p1["quality_status"] == "SUCCESS_NATIVE"
+    assert p1["line_boxes"], "text-layer pages carry one box per line"
 
     # Check page 2
     p2 = pages[1]
@@ -31,12 +33,3 @@ def test_page_by_page_extraction_on_corpus():
     assert "Bank Company Act, 1991" in p2["raw_text"]
     assert p2["has_tables"] is True
 
-
-def test_bijoy_detection():
-    service = ExtractionService()
-    # Typical Bijoy ANSI string
-    bijoy_sample = "Avwg Ges wKsev cÖwZôvb n‡e"
-    assert service.is_bijoy_encoded(bijoy_sample) is True
-    
-    clean_english = "This is standard English text for Bangladesh Bank."
-    assert service.is_bijoy_encoded(clean_english) is False

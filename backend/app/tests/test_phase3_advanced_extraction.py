@@ -1,28 +1,14 @@
-import io
 from pathlib import Path
 import pytest
 import pymupdf as fitz
-from PIL import Image
 
 from backend.app.modules.extraction.service import extraction_service
-from backend.app.modules.extraction.ocr import ocr_manager
 from backend.app.modules.extraction.tables import TableExtractor
 from backend.app.modules.extraction.layout import LayoutAwareExtractor
 from backend.app.modules.extraction.quality import ExtractionQualityAssessor
-from backend.app.modules.extraction.bijoy import BijoyConverter
 from backend.app.tests.fixtures.gold_corpus_manifest import GOLD_CORPUS_MANIFEST
 
 CORPUS_DIR = Path("backend/app/tests/fixtures/corpus")
-
-
-def test_tesseract_ocr_dependency_and_bengali_support():
-    """Verifies that Tesseract is available and configured with English and Bengali support."""
-    assert ocr_manager.has_english_support, "English language support must be present"
-    assert ocr_manager.has_bengali_support, "Bengali (ben) language pack must be present and configured"
-    selected_lang = ocr_manager.select_ocr_language("bn")
-    assert selected_lang == "ben"
-    selected_mixed = ocr_manager.select_ocr_language("mixed")
-    assert "ben" in selected_mixed and "eng" in selected_mixed
 
 
 def test_native_digital_extraction_and_clause_hierarchy():
@@ -33,12 +19,12 @@ def test_native_digital_extraction_and_clause_hierarchy():
     with open(pdf_path, "rb") as f:
         pdf_bytes = f.read()
 
-    pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=True)
+    pages = extraction_service.extract_document_pages(pdf_bytes)
     assert len(pages) == 2, "Expected 2 pages"
 
     # Page 1: Native digital text
     p1 = pages[0]
-    assert p1["extraction_method"] == "PYMUPDF_NATIVE"
+    assert p1["extraction_method"] == "TEXT_LAYER"
     assert "BRPD Circular No. 15" in p1["raw_text"]
     assert "Mandatory Staging Framework" in p1["raw_text"]
     assert p1["quality_status"] == "SUCCESS_NATIVE"
@@ -63,71 +49,33 @@ def test_native_digital_extraction_and_clause_hierarchy():
     assert len(table["raw_rows"]) >= 3
 
 
-def test_legacy_bijoy_conversion_on_gold_corpus():
-    """Tests automatic detection and conversion of legacy ANSI Bijoy SutonnyMJ text."""
-    pdf_path = CORPUS_DIR / "gold_legacy_bijoy.pdf"
-    assert pdf_path.exists(), f"Fixture missing: {pdf_path}"
-
-    with open(pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-
-    pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=True)
+def test_legacy_bijoy_page_goes_to_vision_queue():
+    """A legacy Bijoy page is not converted locally: it waits for page-image reading, with no text."""
+    pdf_bytes = (CORPUS_DIR / "gold_legacy_bijoy.pdf").read_bytes()
+    pages = extraction_service.extract_document_pages(pdf_bytes)
     assert len(pages) == 1
     p1 = pages[0]
-    
-    # Must be recognized as Bijoy converted
-    assert p1["extraction_method"] == "BIJOY_UNICODE_CONVERTED"
-    assert p1["quality_status"] == "SUCCESS_NORMALIZED"
-    
-    # Converted text should contain genuine Bengali Unicode characters
-    converted_text = p1["raw_text"]
-    has_unicode_bangla = any(0x0980 <= ord(c) <= 0x09FF for c in converted_text)
-    assert has_unicode_bangla, "Converted text must contain Unicode Bengali characters"
-    assert "বাংলাদেশ ব্যাংক" in converted_text or "বাংলাদেশ" in converted_text or "সার্কুলার" in converted_text
+    assert p1["quality_status"] == "PENDING_VISION"
+    assert p1["extraction_method"] == "GEMINI_VISION"
+    assert p1["raw_text"] == ""
+    assert p1["route_reason"] in ("legacy_bangla_font", "legacy_bangla_glyphs")
 
 
-def test_scanned_english_pdf_ocr_execution():
-    """Tests OCR fallback on a bitmap-only PDF with 0 native character streams."""
-    pdf_path = CORPUS_DIR / "gold_scanned_english.pdf"
-    assert pdf_path.exists(), f"Fixture missing: {pdf_path}"
+def test_scanned_pages_wait_for_vision_without_placeholder_text():
+    """Image-only pages are never filled with placeholder text; they wait as PENDING_VISION."""
+    for name in ("gold_scanned_english.pdf", "gold_scanned_bangla.pdf"):
+        pdf_bytes = (CORPUS_DIR / name).read_bytes()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        assert len(doc[0].get_text("text").strip()) == 0, "Scanned fixture must have no text layer"
+        doc.close()
 
-    with open(pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-
-    # Verify that native PyMuPDF alone returns empty text
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    native_text = doc[0].get_text("text").strip()
-    assert len(native_text) == 0, "Scanned PDF fixture must have 0 native characters"
-    doc.close()
-
-    # Now run extraction with OCR fallback
-    pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=True, preferred_language="en")
-    assert len(pages) == 1
-    p1 = pages[0]
-    
-    assert p1["extraction_method"] == "OCR_TESSERACT"
-    assert p1["ocr_confidence"] is not None and p1["ocr_confidence"] > 0.50
-    assert "BANGLADESH BANK" in p1["raw_text"].upper()
-    assert "CASH RESERVE" in p1["raw_text"].upper() or "SLR" in p1["raw_text"] or "LIQUIDITY" in p1["raw_text"].upper()
-
-
-def test_scanned_bangla_pdf_bengali_ocr():
-    """Tests OCR fallback on a Bengali image-only PDF using Tesseract 'ben' language data."""
-    pdf_path = CORPUS_DIR / "gold_scanned_bangla.pdf"
-    assert pdf_path.exists(), f"Fixture missing: {pdf_path}"
-
-    with open(pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-
-    pages = extraction_service.extract_document_pages(pdf_bytes, ocr_fallback=True, preferred_language="bn")
-    assert len(pages) == 1
-    p1 = pages[0]
-
-    assert p1["extraction_method"] == "OCR_TESSERACT"
-    assert p1["ocr_confidence"] is not None
-    # Verify Bengali characters are present in extracted OCR output
-    has_bangla = any(0x0980 <= ord(c) <= 0x09FF for c in p1["raw_text"])
-    assert has_bangla, "Bengali OCR must produce Unicode Bengali text"
+        pages = extraction_service.extract_document_pages(pdf_bytes)
+        assert len(pages) == 1
+        p1 = pages[0]
+        assert p1["quality_status"] == "PENDING_VISION"
+        assert p1["route_reason"] == "near_empty"
+        assert p1["raw_text"] == ""
+        assert "Scanned document page" not in p1["cleaned_text"]
 
 
 def test_table_heavy_regulatory_extraction():
@@ -170,20 +118,25 @@ def test_document_completeness_report_and_quality_gates():
     empty_metric = ExtractionQualityAssessor.assess_page(
         page_number=1,
         raw_text="",
-        extraction_method="PYMUPDF_NATIVE"
+        extraction_method="TEXT_LAYER"
     )
     assert empty_metric.status == "EMPTY"
     assert empty_metric.quality_score == 0.0
 
-    # Low confidence OCR page
-    low_conf_metric = ExtractionQualityAssessor.assess_page(
+    # Damaged text-layer page
+    damaged_metric = ExtractionQualityAssessor.assess_page(
         page_number=2,
         raw_text="garbled ??? \ufffd\ufffd text",
-        extraction_method="OCR_TESSERACT",
-        ocr_confidence=0.42
+        extraction_method="TEXT_LAYER",
     )
-    assert low_conf_metric.status in ("LOW_CONFIDENCE", "NEEDS_HUMAN_REVIEW")
-    assert low_conf_metric.quality_score < 0.65
+    assert damaged_metric.status in ("PARTIAL", "NEEDS_HUMAN_REVIEW")
+    assert damaged_metric.quality_score < 0.65
+
+    # A page waiting for page-image reading counts as not extracted yet
+    pending = [dict(pages[0], raw_text="", quality_status="PENDING_VISION", extraction_method="GEMINI_VISION")]
+    pending_report = extraction_service.generate_document_report(pending)
+    assert pending_report.extracted_pages == 0
+    assert pending_report.requires_human_review is True
 
 
 def test_gold_corpus_manifest_integrity():

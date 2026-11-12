@@ -3,6 +3,10 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+# Methods that read the page image instead of the PDF text layer.
+VISION_METHODS = ("GEMINI_VISION", "MANUAL_SUBSCRIPTION_READING")
+
+
 class PageQualityMetric(BaseModel):
     page_number: int
     char_count: int
@@ -109,22 +113,14 @@ class ExtractionQualityAssessor:
         density_factor = min(word_count / 50.0, 1.0)  # expect at least 50 words on a normal page
         penalty = min((rep_count + garbled_count) / 20.0, 0.4)
         
-        if extraction_method == "OCR_TESSERACT" and ocr_confidence is not None:
-            base_score = (printable_ratio * 0.35) + (density_factor * 0.35) + (ocr_confidence * 0.30) - penalty
-        else:
-            base_score = (printable_ratio * 0.50) + (density_factor * 0.50) - penalty
+        base_score = (printable_ratio * 0.50) + (density_factor * 0.50) - penalty
 
         quality_score = max(0.0, min(1.0, round(base_score, 4)))
 
         # 6. Status Determination
-        if extraction_method == "BIJOY_UNICODE_CONVERTED":
-            status = "SUCCESS_NORMALIZED"
-        elif extraction_method == "OCR_TESSERACT":
-            if ocr_confidence is not None and ocr_confidence < 0.60:
-                status = "LOW_CONFIDENCE"
-                issues.append(f"Low OCR confidence ({ocr_confidence:.2f})")
-            else:
-                status = "SUCCESS_OCR"
+        if extraction_method in VISION_METHODS:
+            # Read from the page image: the text is a transcription, not a text layer.
+            status = "SUCCESS_VISION_MANUAL" if extraction_method == "MANUAL_SUBSCRIPTION_READING" else "SUCCESS_VISION"
         elif quality_score >= 0.80 and word_count >= 30:
             status = "SUCCESS_NATIVE"
         elif word_count < 30 and not has_tables:
@@ -135,7 +131,7 @@ class ExtractionQualityAssessor:
         else:
             status = "SUCCESS_NATIVE"
 
-        if quality_score < 0.65 and status not in ("LOW_CONFIDENCE", "EMPTY"):
+        if quality_score < 0.65 and status not in ("LOW_CONFIDENCE", "EMPTY") and extraction_method not in VISION_METHODS:
             status = "NEEDS_HUMAN_REVIEW"
 
         return PageQualityMetric(
@@ -179,8 +175,9 @@ class ExtractionQualityAssessor:
                 quality_summary="Document has no pages."
             )
 
-        empty_pages = sum(1 for p in page_metrics if p.status == "EMPTY")
-        ocr_pages = sum(1 for p in page_metrics if p.extraction_method == "OCR_TESSERACT")
+        # A page still waiting for page-image reading has no text yet: it counts as empty.
+        empty_pages = sum(1 for p in page_metrics if p.status in ("EMPTY", "PENDING_VISION"))
+        ocr_pages = sum(1 for p in page_metrics if p.extraction_method in VISION_METHODS)
         low_conf_pages = sum(1 for p in page_metrics if p.status in ("LOW_CONFIDENCE", "NEEDS_HUMAN_REVIEW"))
         failed_pages = sum(1 for p in page_metrics if p.status == "FAILED")
         extracted_pages = total_pages - empty_pages - failed_pages

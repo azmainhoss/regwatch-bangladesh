@@ -20,8 +20,18 @@ class DocumentPageRead(BaseModel):
     layout_hierarchy: Dict[str, Any] = {}
     human_corrected_text: Optional[str] = None
     is_human_corrected: bool = False
+    # One entry per line: {"text": str, "box_2d": [ymin, xmin, ymax, xmax]} on a 0-1000 page scale.
+    line_boxes: Optional[List[Dict[str, Any]]] = None
+    vision_attempts: int = 0
+    vision_error: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("line_boxes", mode="before")
+    @classmethod
+    def _coerce_boxes(cls, value: Any) -> Optional[List[Dict[str, Any]]]:
+        value = _decode_json_text(value)
+        return value if isinstance(value, list) else None
 
     @field_validator("extracted_tables", mode="before")
     @classmethod
@@ -77,6 +87,11 @@ class DocumentVersionRead(BaseModel):
     page_count: int
     language: str
     is_scanned: bool
+    status: Optional[str] = "CURRENT"
+    source_url: Optional[str] = None
+    etag: Optional[str] = None
+    last_modified: Optional[str] = None
+    fetched_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

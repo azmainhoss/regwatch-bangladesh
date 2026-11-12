@@ -37,7 +37,7 @@ Financial institutions in Bangladesh adhere to strict confidentiality and superv
 - Strict Pydantic models validate all incoming payloads (e.g. `UserCreate.password` enforces `min_length=8`).
 - Uploaded files undergo MIME type verification (magic bytes `%PDF-`), a hard 50 MB file size ceiling (`MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024`), and PyMuPDF structural integrity checks to reject corrupt or malformed payloads before persistent storage.
 - File system access paths are deterministically validated via `safe_join` / `resolve().is_relative_to()`, completely preventing directory traversal attacks.
-- Automated crawler adheres to polite crawling etiquette (minimum 3s backoff, standard user-agent identification, anti-bot detection without CAPTCHA bypass).
+- The bb.org.bd checker uses its own name (`RegWatchBot/0.1`), sends one request at a time at least 15 s apart, backs off from 30 min to 6 h after repeated failures, runs home-hosted in Bangladesh, and never bypasses bot checks. Manual upload stays as a backup path.
 
 ---
 

@@ -25,9 +25,7 @@ from backend.app.modules.analysis.service import AnalysisService
 from backend.app.modules.documents.models import Document, DocumentVersion, DocumentPage
 from backend.app.modules.evaluation.benchmark import RegulatoryBenchmarkRunner
 from backend.app.modules.evaluation.registry import evaluation_registry
-from backend.app.modules.extraction.bijoy import BijoyConverter
 from backend.app.modules.extraction.layout import LayoutAwareExtractor
-from backend.app.modules.extraction.ocr import MissingTrainedDataError, ocr_manager
 from backend.app.modules.extraction.quality import ExtractionQualityAssessor, PageQualityMetric
 from backend.app.modules.extraction.service import extraction_service
 from backend.app.modules.extraction.tables import TableExtractor
@@ -164,28 +162,6 @@ def test_genuine_document_provenance_validation():
     assert metrics.text_accuracy_score is None
 
 
-# 2. Bengali OCR regression and missing data error
-def test_bengali_ocr_regression_and_missing_data_error():
-    assert ocr_manager.has_bengali_support is True
-    lang = ocr_manager.select_ocr_language("bn", strict=True)
-    assert lang == "ben"
-
-    with pytest.raises(MissingTrainedDataError):
-        ocr_manager.select_ocr_language("nonexistent_lang", strict=True)
-
-
-# 3. English OCR regression
-def test_english_ocr_regression():
-    pdf_path = Path("backend/app/tests/fixtures/corpus/gold_scanned_english.pdf")
-    assert pdf_path.exists()
-    pages = extraction_service.extract_document_pages(pdf_path.read_bytes())
-    assert len(pages) == 1
-    assert pages[0]["extraction_method"] == "OCR_TESSERACT"
-    assert pages[0]["ocr_confidence"] is not None
-    assert pages[0]["ocr_confidence"] > 0.60
-    assert "BANGLADESH BANK" in pages[0]["raw_text"]
-
-
 # 4. Mixed-language extraction
 def test_mixed_language_extraction():
     mixed_text = (
@@ -196,18 +172,10 @@ def test_mixed_language_extraction():
     metric = ExtractionQualityAssessor.assess_page(
         page_number=1,
         raw_text=mixed_text,
-        extraction_method="PYMUPDF_NATIVE"
+        extraction_method="TEXT_LAYER"
     )
     assert metric.detected_language == "mixed"
     assert metric.quality_score >= 0.75
-
-
-# 5. Bijoy conversion
-def test_bijoy_conversion_regression():
-    bijoy_str = "evsjv‡`k e¨vsK FY †kÖwYKib"
-    converted, was_bijoy = BijoyConverter.convert_to_unicode(bijoy_str)
-    assert was_bijoy is True
-    assert "বাংলাদেশ ব্যাংক" in converted
 
 
 # 6. Clause hierarchy edge cases
@@ -296,12 +264,12 @@ def test_missing_page_and_duplicate_page_detection():
     p1 = PageQualityMetric(
         page_number=1, char_count=200, word_count=50, printable_ratio=1.0,
         replacement_char_count=0, garbled_char_count=0, detected_language="en",
-        extraction_method="PYMUPDF_NATIVE", status="SUCCESS_NATIVE", quality_score=1.0
+        extraction_method="TEXT_LAYER", status="SUCCESS_NATIVE", quality_score=1.0
     )
     p3 = PageQualityMetric(
         page_number=3, char_count=200, word_count=50, printable_ratio=1.0,
         replacement_char_count=0, garbled_char_count=0, detected_language="en",
-        extraction_method="PYMUPDF_NATIVE", status="SUCCESS_NATIVE", quality_score=1.0
+        extraction_method="TEXT_LAYER", status="SUCCESS_NATIVE", quality_score=1.0
     )
     report = ExtractionQualityAssessor.assess_document([p1, p3])
     assert report.missing_page_numbers == [2]

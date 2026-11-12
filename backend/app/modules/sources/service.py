@@ -1,6 +1,6 @@
 import asyncio
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 from sqlalchemy import func, select
@@ -14,8 +14,59 @@ from backend.app.modules.documents.models import Document, DocumentVersion
 from backend.app.modules.documents.service import document_ingestion_service
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.sources.connector.bangladesh_bank import BangladeshBankConnector
-from backend.app.modules.sources.connector.base import BaseSourceConnector
+from backend.app.modules.sources.connector.base import BaseSourceConnector, ListingOutcome
 from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRun
+from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
+
+# Bot checks on a file download mean the whole site is refusing us: stop and back off.
+SITE_BLOCK_TYPES = ("IMPERVA_TSPD_CAPTCHA", "CLOUDFLARE_CHALLENGE", "RATE_LIMIT_429")
+
+
+def backoff_minutes(consecutive_failures: int) -> int:
+    """Minutes to wait after this many failed checks in a row.
+    One failure: no extra wait (the next scheduled check is the retry).
+    Two: 30 min, then doubling, never more than 6 h (both configurable)."""
+    if consecutive_failures < 2:
+        return 0
+    start = settings.BB_BACKOFF_START_MINUTES
+    return min(start * 2 ** (consecutive_failures - 2), settings.BB_BACKOFF_MAX_MINUTES)
+
+
+def source_retry_after(source: Source) -> Optional[datetime]:
+    raw = (source.config or {}).get("retry_after")
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def source_in_backoff(source: Source, now: Optional[datetime] = None) -> bool:
+    retry_after = source_retry_after(source)
+    return bool(retry_after and (now or datetime.now(timezone.utc)) < retry_after)
+
+
+def _note_failure(source: Source, reason: str) -> None:
+    config = dict(source.config or {})
+    failures = int(config.get("consecutive_failures", 0)) + 1
+    config["consecutive_failures"] = failures
+    wait = backoff_minutes(failures)
+    if wait:
+        config["retry_after"] = (datetime.now(timezone.utc) + timedelta(minutes=wait)).isoformat()
+        logger.warning(f"Source '{source.name}': {failures} failed checks in a row, backing off {wait} min ({reason}).")
+    else:
+        config.pop("retry_after", None)
+    source.config = config  # reassign so the JSON change is saved
+
+
+def _note_success(source: Source) -> None:
+    config = dict(source.config or {})
+    if config.get("consecutive_failures") or config.get("retry_after"):
+        config.pop("consecutive_failures", None)
+        config.pop("retry_after", None)
+        source.config = config
 
 
 class SourceMonitoringService:
@@ -41,15 +92,16 @@ class SourceMonitoringService:
         self,
         db: AsyncSession,
         source_id: UUID,
-        run_type: str = "SCHEDULED_POLL"
+        run_type: str = "SCHEDULED_POLL",
+        mode: str = "poll",
     ) -> SourceRun:
         """
         Executes a continuous monitoring cycle:
-        1. Runs discovery scan to find newly published circulars.
-        2. Automatically collects and ingests newest publications into the repository.
+        1. Runs the listing check (mode "poll": last 7 days by date filter; "reconcile": full list).
+        2. Downloads and ingests the newest discoveries (paced, one request at a time).
         3. Updates audit logs and source health metrics.
         """
-        run = await self.execute_discovery_scan(db=db, source_id=source_id, run_type=run_type)
+        run = await self.execute_discovery_scan(db=db, source_id=source_id, run_type=run_type, mode=mode)
         if run.status == "COMPLETED":
             # Automatically ingest newly discovered circulars or steadily drain the pending queue
             batch_count = min(run.valid_documents_discovered, 5) if run.valid_documents_discovered > 0 else 5
@@ -74,7 +126,8 @@ class SourceMonitoringService:
         self,
         db: AsyncSession,
         source_id: UUID,
-        run_type: str = "DISCOVERY_SCAN"
+        run_type: str = "DISCOVERY_SCAN",
+        mode: str = "poll",
     ) -> SourceRun:
         """
         Discovers and catalogs publications from the official source into the SourceDiscovery registry.
@@ -103,80 +156,67 @@ class SourceMonitoringService:
             connector = self.get_connector_for_source(source)
             # Hold the lock across fetch and dedupe so two scans cannot insert the same URL.
             async with self._crawler_lock:
-                discovery_result = await connector.discover_publications(max_pages=1)
+                discovery_result = await connector.discover_publications(max_pages=1, mode=mode)
                 return await self._record_discovery_result(db, source, run, discovery_result)
         except Exception as e:
             logger.error(f"Error during discovery scan {run_id}: {e}")
             await db.rollback()
             run = await db.get(SourceRun, run_id)
             source = await db.get(Source, source_id)
-            run.status = "FAILED"
+            run.status = "FAILED_RETRY"
             run.error_count += 1
             run.error_log = str(e)
             run.completed_at = datetime.now(timezone.utc)
             source.last_error = str(e)
+            _note_failure(source, str(e))
             await db.commit()
             await db.refresh(run)
             return run
 
     async def _record_discovery_result(self, db: AsyncSession, source: Source, run: SourceRun, discovery_result) -> SourceRun:
-        """Stores the candidates found by a scan. Called while holding the crawler lock."""
+        """Stores the candidates found by a listing check. Called while holding the crawler lock."""
+        now = datetime.now(timezone.utc)
+        outcome = getattr(discovery_result, "outcome", ListingOutcome.OK)
+        run.outcome = outcome.value
         run.pages_inspected = discovery_result.pages_inspected
         run.candidate_links_discovered = len(discovery_result.candidate_publications)
+        source.last_checked_at = now
 
-        # Check if anti-bot challenge was triggered
-        if discovery_result.anti_bot_challenge:
+        # Anything but a clean table is "failed, try later", never "nothing new".
+        if outcome != ListingOutcome.OK:
+            details = "; ".join(discovery_result.errors) or outcome.value
+            run.status = "FAILED_RETRY"
+            run.error_count += 1
+            run.error_log = f"{outcome.value}: {details}"
+            run.completed_at = now
             ch = discovery_result.anti_bot_challenge
-            run.status = "RESTRICTED"
-            run.access_restricted = True
-            run.access_restriction_details = ch.model_dump()
-            run.error_log = ch.details
-            run.completed_at = datetime.now(timezone.utc)
-
-            source.access_restriction_status = ch.challenge_type or "RESTRICTED"
-            source.last_error = ch.details
-            source.last_checked_at = datetime.now(timezone.utc)
-
+            if ch:
+                run.access_restricted = True
+                run.access_restriction_details = ch.model_dump()
+                source.access_restriction_status = ch.challenge_type or "RESTRICTED"
+            source.last_error = run.error_log
+            _note_failure(source, run.error_log)
             await db.commit()
             await db.refresh(run)
-            logger.warning(f"Source run {run.id} restricted: {ch.details}")
+            logger.warning(f"Source run {run.id} failed ({outcome.value}); will retry: {details}")
             return run
 
-        # Query this source's existing file_urls and reference_numbers for fast in-memory deduplication
+        # Dedupe key: the PDF URL, per source. Parsed rows are compared, never raw HTML.
         existing_urls_q = await db.execute(
             self._scope_to_source(select(SourceDiscovery.file_url), source.id)
         )
         existing_urls = {u for u in existing_urls_q.scalars().all() if u}
 
-        existing_doc_refs_q = await db.execute(
-            select(Document.reference_number).where(
-                Document.institution_id == source.institution_id,
-                Document.reference_number != None,
-                # Private uploads must not hide a circular from the shared library.
-                Document.owner_user_id.is_(None),
-            )
-        )
-        existing_doc_refs = {r for r in existing_doc_refs_q.scalars().all() if r}
-
         new_discoveries = []
         for cand in discovery_result.candidate_publications:
             if not cand.file_url:
                 continue
-
             if cand.file_url in existing_urls:
                 run.duplicate_count += 1
                 continue
-
-            is_dup_ref = bool(cand.reference_number and cand.reference_number in existing_doc_refs)
-            status_disc = "DUPLICATE" if is_dup_ref else "VALIDATED"
-            if status_disc == "DUPLICATE":
-                run.duplicate_count += 1
-            else:
-                run.valid_documents_discovered += 1
-
             existing_urls.add(cand.file_url)
-
-            discovery = SourceDiscovery(
+            run.valid_documents_discovered += 1
+            new_discoveries.append(SourceDiscovery(
                 source_run_id=run.id,
                 source_url=cand.detail_url,
                 file_url=cand.file_url,
@@ -187,25 +227,24 @@ class SourceMonitoringService:
                 language=cand.language,
                 publication_type=cand.publication_type or "CIRCULAR",
                 discovered_metadata=cand.metadata,
-                status=status_disc
-            )
-            new_discoveries.append(discovery)
+                status="VALIDATED",
+            ))
 
         if new_discoveries:
             db.add_all(new_discoveries)
+            source.last_discovered_publication_at = now
 
         run.discovered_count = run.valid_documents_discovered
         run.status = "COMPLETED"
-        run.completed_at = datetime.now(timezone.utc)
+        run.completed_at = now
         source.access_restriction_status = "CLEAR"
-        source.last_successful_run_at = datetime.now(timezone.utc)
-        source.last_checked_at = datetime.now(timezone.utc)
-        source.last_discovered_publication_at = datetime.now(timezone.utc)
+        source.last_successful_run_at = now
         source.last_error = None
+        _note_success(source)
 
         await db.commit()
         await db.refresh(run)
-        logger.info(f"Discovery scan {run.id} completed: {run.valid_documents_discovered} new, {run.duplicate_count} duplicate.")
+        logger.info(f"Discovery scan {run.id} completed: {run.valid_documents_discovered} new, {run.duplicate_count} already known.")
         return run
 
     async def execute_backfill_batch(
@@ -265,8 +304,10 @@ class SourceMonitoringService:
         successful = 0
         duplicates = 0
         failed = 0
+        skipped = 0
         ingested_items = []
 
+        # The connector paces every request (one at a time, BB_REQUEST_INTERVAL_SECONDS apart).
         async with self._crawler_lock:
             candidate_ids = [c.id for c in candidates]
             for disc_id in candidate_ids:
@@ -275,20 +316,38 @@ class SourceMonitoringService:
                     continue
                 disc.last_attempted_at = datetime.now(timezone.utc)
                 try:
-                    # Polite download pause respecting central bank rate limits
-                    pause_sec = getattr(settings, "BB_REQUEST_INTERVAL_SECONDS", 2.0)
-                    await asyncio.sleep(pause_sec)
+                    fetched = await connector.fetch_document(disc.file_url or disc.source_url)
+                    challenge = fetched.challenge
 
-                    pdf_bytes, challenge = await connector.download_document(disc.file_url or disc.source_url)
+                    if fetched.rejected:
+                        # One refused file is not a block: note it and carry on with the next one.
+                        disc.status = "SKIPPED_REJECTED"
+                        disc.error_message = challenge.details
+                        skipped += 1
+                        await db.commit()
+                        continue
+
+                    if challenge and challenge.challenge_type in SITE_BLOCK_TYPES:
+                        # The site is refusing us: leave the file queued, stop, and back off.
+                        disc.status = "DOWNLOAD_PENDING"
+                        disc.error_message = challenge.details
+                        source = await db.get(Source, source_id)
+                        source.access_restriction_status = challenge.challenge_type
+                        source.last_error = challenge.details
+                        _note_failure(source, challenge.details)
+                        failed += 1
+                        await db.commit()
+                        break
 
                     if challenge:
-                        disc.status = "RESTRICTED" if challenge.is_blocked else "FAILED"
+                        disc.status = "FAILED"
                         disc.retry_count += 1
                         disc.error_message = challenge.details
                         failed += 1
                         await db.commit()
                         continue
 
+                    pdf_bytes = fetched.content
                     if not pdf_bytes:
                         disc.status = "FAILED"
                         disc.retry_count += 1
@@ -296,6 +355,10 @@ class SourceMonitoringService:
                         failed += 1
                         await db.commit()
                         continue
+
+                    disc.etag = fetched.etag
+                    disc.last_modified = fetched.last_modified
+                    disc.fetched_at = fetched.fetched_at
 
                     # Same file already in the repository: record it as a duplicate, do not re-ingest.
                     file_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
@@ -327,16 +390,24 @@ class SourceMonitoringService:
                         title=disc.title or "Official Circular",
                         publication_date=disc.publication_date or datetime.now(timezone.utc).date(),
                         source_url=disc.file_url or disc.source_url,
-                        document_type=disc.publication_type or "CIRCULAR"
+                        document_type=disc.publication_type or "CIRCULAR",
+                        language=disc.language,
+                        etag=fetched.etag,
+                        last_modified=fetched.last_modified,
+                        fetched_at=fetched.fetched_at,
                     )
 
                     # Mark as honest machine-processed publication
                     doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
 
+                    disc = await db.get(SourceDiscovery, disc_id)
                     disc.status = "INGESTED"
                     disc.document_id = doc.id
                     disc.file_hash = version.file_sha256
                     disc.file_size = version.file_size_bytes
+                    disc.etag = fetched.etag
+                    disc.last_modified = fetched.last_modified
+                    disc.fetched_at = fetched.fetched_at
                     disc.error_message = None
                     successful += 1
 
@@ -388,8 +459,125 @@ class SourceMonitoringService:
             "successful": successful,
             "duplicates": duplicates,
             "failed": failed,
+            "skipped_rejected": skipped,
             "ingested_documents": ingested_items
         }
+
+    async def recheck_archive(self, db: AsyncSession, connector: Optional[BaseSourceConnector] = None) -> Dict[str, Any]:
+        """
+        Weekly check for silently replaced files (DECISIONS.md 5).
+
+        For every CURRENT version (each language variant has its own) of a shared-library
+        document that came from bb.org.bd:
+        HEAD the PDF; if its ETag or Last-Modified changed, download it. A different SHA-256
+        becomes a new version of the same document (the old one is kept, marked SUPERSEDED);
+        the same SHA-256 only refreshes the stored headers. A version with no stored headers
+        yet just records them. Private uploads (owner_user_id set) are never rechecked.
+        Every request goes through the same pace and lock as the new-circular check.
+        """
+        connector = connector or BangladeshBankConnector()
+        rows = (await db.execute(
+            select(DocumentVersion.id, Document.id, func.coalesce(DocumentVersion.source_url, Document.source_url))
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                Document.owner_user_id.is_(None),
+                Document.is_synthetic_fixture.is_(False),
+                DocumentVersion.status == "CURRENT",
+            )
+            .order_by(Document.publication_date.desc())
+        )).all()
+
+        summary = {"checked": 0, "unchanged": 0, "baselined": 0, "same_file": 0, "new_versions": 0,
+                   "skipped_rejected": 0, "errors": 0, "stopped": None}
+        for version_id, doc_id, url in rows:
+            if not url:
+                continue
+            try:
+                url = validate_source_url(url, upgrade_http=True)
+            except DisallowedSourceURL:
+                continue
+
+            async with self._crawler_lock:
+                head = await connector.head_document(url)
+            summary["checked"] += 1
+            if head.challenge:
+                if head.challenge.challenge_type in SITE_BLOCK_TYPES + ("NETWORK_EXCEPTION",):
+                    summary["stopped"] = head.challenge.details
+                    break
+                summary["errors"] += 1
+                continue
+
+            version = await db.get(DocumentVersion, version_id)
+            if version.etag is None and version.last_modified is None:
+                version.etag, version.last_modified, version.fetched_at = head.etag, head.last_modified, head.fetched_at
+                version.source_url = version.source_url or url
+                summary["baselined"] += 1
+                await db.commit()
+                continue
+
+            changed = (head.etag is not None and head.etag != version.etag) or (
+                head.last_modified is not None and head.last_modified != version.last_modified
+            )
+            if not changed:
+                summary["unchanged"] += 1
+                continue
+
+            async with self._crawler_lock:
+                fetched = await connector.fetch_document(url)
+            if fetched.rejected:
+                summary["skipped_rejected"] += 1
+                continue
+            if fetched.challenge or not fetched.content:
+                if fetched.challenge and fetched.challenge.challenge_type in SITE_BLOCK_TYPES:
+                    summary["stopped"] = fetched.challenge.details
+                    break
+                summary["errors"] += 1
+                continue
+
+            new_sha = hashlib.sha256(fetched.content).hexdigest()
+            version = await db.get(DocumentVersion, version_id)
+            if new_sha == version.file_sha256:
+                version.etag, version.last_modified, version.fetched_at = fetched.etag, fetched.last_modified, fetched.fetched_at
+                summary["same_file"] += 1
+                await db.commit()
+                continue
+
+            doc = await db.get(Document, doc_id)
+            try:
+                _doc, new_version, _pages = await document_ingestion_service.ingest_document(
+                    db=db,
+                    pdf_bytes=fetched.content,
+                    institution_id=doc.institution_id,
+                    department_id=doc.department_id,
+                    reference_number=doc.reference_number,
+                    title=doc.title,
+                    publication_date=doc.publication_date,
+                    document_type=doc.document_type,
+                    source_url=url,
+                    etag=fetched.etag,
+                    last_modified=fetched.last_modified,
+                    fetched_at=fetched.fetched_at,
+                    target_document_id=doc_id,
+                    language=version.language,
+                )
+            except Exception as e:
+                logger.error(f"Archive recheck could not store the new version of {url}: {e}")
+                summary["errors"] += 1
+                continue
+
+            if new_version.document_id == doc_id and new_version.id != version_id:
+                _doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
+                summary["new_versions"] += 1
+                logger.info(f"Archive recheck: {url} was replaced on the site; stored as version {new_version.version_number}.")
+            else:
+                # The new bytes match a file already stored elsewhere: keep the headers only.
+                version = await db.get(DocumentVersion, version_id)
+                version.etag, version.last_modified, version.fetched_at = fetched.etag, fetched.last_modified, fetched.fetched_at
+                summary["same_file"] += 1
+            await db.commit()
+
+        logger.info(f"Archive recheck finished: {summary}")
+        return summary
 
     async def get_source_stats(self, db: AsyncSession, source_id: UUID) -> Dict[str, Any]:
         """Calculates comprehensive operational coverage and telemetry metrics."""
@@ -482,10 +670,18 @@ class SourceMonitoringService:
 
         connector = self.get_connector_for_source(source)
         async with self._crawler_lock:
-            pdf_bytes, challenge = await connector.download_document(discovery.file_url or discovery.source_url)
+            fetched = await connector.fetch_document(discovery.file_url or discovery.source_url)
+        pdf_bytes, challenge = fetched.content, fetched.challenge
+
+        if fetched.rejected:
+            discovery.status = "SKIPPED_REJECTED"
+            discovery.error_message = challenge.details
+            await db.commit()
+            raise PermissionError(f"Download skipped: {challenge.details}")
 
         if challenge:
-            discovery.status = "RESTRICTED"
+            discovery.status = "RESTRICTED" if challenge.challenge_type in SITE_BLOCK_TYPES else "FAILED"
+            discovery.error_message = challenge.details
             await db.commit()
             raise PermissionError(f"Download restricted: {challenge.details}")
 
@@ -516,7 +712,11 @@ class SourceMonitoringService:
                 title=discovery.title or "Official Circular",
                 publication_date=discovery.publication_date or datetime.now(timezone.utc).date(),
                 source_url=discovery.file_url or discovery.source_url,
-                document_type=discovery.publication_type or "CIRCULAR"
+                document_type=discovery.publication_type or "CIRCULAR",
+                language=discovery.language,
+                etag=fetched.etag,
+                last_modified=fetched.last_modified,
+                fetched_at=fetched.fetched_at,
             )
         except Exception as e:
             await db.rollback()
@@ -528,10 +728,14 @@ class SourceMonitoringService:
             raise
 
         doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
+        discovery = await db.get(SourceDiscovery, discovery_id)
         discovery.status = "INGESTED"
         discovery.document_id = doc.id
         discovery.file_hash = version.file_sha256
         discovery.file_size = version.file_size_bytes
+        discovery.etag = fetched.etag
+        discovery.last_modified = fetched.last_modified
+        discovery.fetched_at = fetched.fetched_at
         await db.commit()
         return doc
 

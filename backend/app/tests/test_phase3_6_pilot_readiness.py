@@ -240,7 +240,9 @@ def test_human_ground_truth_certification_workflow():
     metrics = RegulatoryBenchmarkRunner.evaluate_document(filename)
     assert metrics.status == "MEASURED"
     assert metrics.character_error_rate is not None
-    assert metrics.character_error_rate < 0.60  # Native Bangla text measured against ground truth excerpt
+    # Bangla pages are not read locally any more: they wait for page-image reading (PENDING_VISION),
+    # so until then the measured text is empty and every character counts as wrong.
+    assert metrics.character_error_rate == 1.0
 
 
 # ---------------------------------------------------------------------------

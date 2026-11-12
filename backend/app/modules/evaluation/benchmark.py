@@ -152,7 +152,7 @@ class RegulatoryBenchmarkRunner:
         bengali_ocr_acc = None
         english_ocr_acc = None
         for p in extracted_pages:
-            if p.get("extraction_method") == "OCR_TESSERACT":
+            if p.get("extraction_method") in ("GEMINI_VISION", "MANUAL_SUBSCRIPTION_READING"):
                 conf = p.get("ocr_confidence", 0.0)
                 if gt.provenance.department == "BRPD" and "bangla" in filename:
                     bengali_ocr_acc = conf

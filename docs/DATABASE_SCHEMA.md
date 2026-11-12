@@ -120,7 +120,10 @@
    - `page_number`: INTEGER NOT NULL
    - `raw_text`: TEXT NOT NULL
    - `cleaned_text`: TEXT
-   - `extraction_method`: VARCHAR(32) NOT NULL (`PYMUPDF_NATIVE`, `OCR_TESSERACT`, `BIJOY_UNICODE_CONVERTED`)
+   - `extraction_method`: VARCHAR(32) NOT NULL (`TEXT_LAYER`, `GEMINI_VISION`, `MANUAL_SUBSCRIPTION_READING`, `HUMAN_CORRECTED`)
+   - `quality_status`: `SUCCESS_NATIVE`, `SUCCESS_VISION`, `SUCCESS_VISION_MANUAL`, `PENDING_VISION`, `NEEDS_HUMAN_REVIEW`
+   - `line_boxes`: JSON, one `{text, box_2d: [ymin, xmin, ymax, xmax]}` per line on a 0-1000 page scale
+   - `vision_attempts`, `vision_error`: failed page-image reading jobs on this page
    - `ocr_confidence`: FLOAT
    - `has_tables`: BOOLEAN DEFAULT false
    - `extracted_tables`: JSONB
