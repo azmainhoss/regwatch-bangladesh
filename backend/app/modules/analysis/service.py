@@ -83,7 +83,8 @@ class AnalysisService:
                 "page_number": p.page_number,
                 "raw_text": p.cleaned_text or p.raw_text,
                 "cleaned_text": p.cleaned_text or p.raw_text,
-                "has_tables": p.has_tables
+                "has_tables": p.has_tables,
+                "line_boxes": p.line_boxes,
             }
             for p in version.pages
         ]
@@ -181,6 +182,8 @@ class AnalysisService:
                 provision_number=prov_data.get("provision_number"),
                 heading=prov_data.get("heading"),
                 verbatim_text=prov_data.get("verbatim_text", ""),
+                quote_span_ids=prov_data.get("quote_span_ids") or [],
+                quote_boxes=prov_data.get("quote_boxes") or [],
                 order_index=prov_idx + 1
             )
             db.add(prov_record)
@@ -211,6 +214,8 @@ class AnalysisService:
                 title=obl_data.get("title", "Regulatory Obligation"),
                 requirement_description=obl_data.get("requirement_description", ""),
                 supporting_text=obl_data.get("verbatim_quote", ""),
+                quote_span_ids=obl_data.get("quote_span_ids") or [],
+                quote_boxes=obl_data.get("quote_boxes") or [],
                 applicability_summary=obl_data.get("responsible_entity", "Scheduled Commercial Banks"),
                 explicit_deadline=explicit_date,
                 deadline_description=obl_data.get("explicit_deadline"),
@@ -230,6 +235,8 @@ class AnalysisService:
                 relationship_type=rel_data.get("relationship_type", "REFERENCES"),
                 source_page_id=target_page_id,
                 supporting_quote=rel_data.get("supporting_quote", ""),
+                quote_span_ids=rel_data.get("quote_span_ids") or [],
+                quote_boxes=rel_data.get("quote_boxes") or [],
                 confidence=float(rel_data.get("confidence", 0.9)),
                 detection_method="AI_INFERRED",
                 verification_status="VERIFIED" if rel_data.get("verification_status") in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED") else "PENDING_REVIEW"
@@ -253,6 +260,8 @@ class AnalysisService:
                 claim_id=claim.id,
                 page_id=target_page_id,
                 quoted_text=prov_data.get("verbatim_text", ""),
+                quote_span_ids=prov_data.get("quote_span_ids") or [],
+                quote_boxes=prov_data.get("quote_boxes") or [],
                 match_score=float(prov_data.get("citation_match_score", 1.0))
             )
             db.add(citation)

@@ -5,8 +5,14 @@ from pydantic import BaseModel, Field
 
 from backend.app.core.logging import logger
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse, TokenUsage
-from backend.app.modules.analysis.prompts import PROMPT_VERSION, SYSTEM_REGULATORY_PROMPT, USER_ANALYSIS_PROMPT_TEMPLATE
+from backend.app.modules.analysis.prompts import (
+    ANALYSIS_RESPONSE_SCHEMA,
+    PROMPT_VERSION,
+    SYSTEM_REGULATORY_PROMPT,
+    USER_ANALYSIS_PROMPT_TEMPLATE,
+)
 from backend.app.modules.analysis.citations import CitationValidator, ClaimValidationReport
+from backend.app.modules.analysis.sentences import SentenceIndex, apply_quote_ids
 
 
 class PipelineExecutionResult(BaseModel):
@@ -43,36 +49,44 @@ class RegulatoryIntelligencePipeline:
         force_human_review: bool = False
     ) -> PipelineExecutionResult:
         start_time = time.time()
-        
-        # Build text input with explicit page markers
-        pages_by_number: Dict[int, str] = {}
-        formatted_pages_list: List[str] = []
 
-        for p in sorted(pages, key=lambda x: x.get("page_number", 1)):
-            p_no = p.get("page_number", 1)
-            raw_text = p.get("cleaned_text") or p.get("raw_text", "")
-            pages_by_number[p_no] = raw_text
-            formatted_pages_list.append(f"--- START PAGE {p_no} ---\n{raw_text}\n--- END PAGE {p_no} ---")
-
-        full_document_context = "\n\n".join(formatted_pages_list)
+        # Step 1: split every page into sentences with stable IDs (p3.s12) and show the model
+        # the text with those IDs. The model answers with IDs; code copies the exact text.
+        sentence_index = SentenceIndex.build(pages)
+        pages_by_number: Dict[int, str] = dict(sentence_index.pages)
 
         user_prompt = USER_ANALYSIS_PROMPT_TEMPLATE.format(
-            document_pages_text=full_document_context
+            document_pages_text=sentence_index.render_for_prompt()
         )
 
         logger.info(f"Running regulatory intelligence pipeline for document with {len(pages)} pages using {self.provider.model_name}")
 
-        # Step 2: Call AI Provider
-        llm_response: LLMResponse = await self.provider.generate_structured_json(
-            system_prompt=SYSTEM_REGULATORY_PROMPT,
-            user_prompt=user_prompt,
-            temperature=0.0
-        )
+        # Step 2: Call AI Provider. Any failure here ends the run as FAILED, never as grounded.
+        try:
+            llm_response: LLMResponse = await self.provider.generate_structured_json(
+                system_prompt=SYSTEM_REGULATORY_PROMPT,
+                user_prompt=user_prompt,
+                json_schema=ANALYSIS_RESPONSE_SCHEMA,
+                temperature=0.0
+            )
+        except Exception as e:
+            logger.error(f"AI provider raised during analysis: {e}")
+            llm_response = LLMResponse(
+                raw_content="",
+                parsed_json=None,
+                model_name=self.provider.model_name,
+                success=False,
+                error=f"AI provider error: {e}",
+            )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
-        if not llm_response.success or not llm_response.parsed_json:
-            logger.error(f"AI provider pipeline step failed: {llm_response.error}")
+        usable = llm_response.success and isinstance(llm_response.parsed_json, dict) and bool(llm_response.parsed_json)
+        if not usable:
+            error = llm_response.error
+            if llm_response.success and not error:
+                error = "AI provider returned an answer that is not a JSON object."
+            logger.error(f"AI provider pipeline step failed: {error}")
             empty_report = ClaimValidationReport(
                 total_claims=0,
                 verified_claims=0,
@@ -91,10 +105,14 @@ class RegulatoryIntelligencePipeline:
                 latency_ms=elapsed_ms,
                 validation_report=empty_report,
                 publication_status="FAILED",
-                error=llm_response.error or "Empty structured output from provider."
+                error=error or "Empty structured output from provider."
             )
 
         payload = llm_response.parsed_json
+
+        # Step 2b: turn quote_span_ids into exact quotes. Unknown IDs drop the quote and
+        # flag the item for a person; no text is ever made up.
+        quote_problems = apply_quote_ids(payload, sentence_index)
 
         # Step 3: Mandatory Deterministic Citation Verification (Stage 9)
         validation_report: ClaimValidationReport = CitationValidator.validate_analysis_claims(
@@ -115,11 +133,12 @@ class RegulatoryIntelligencePipeline:
             for rel in payload.get("relationships", [])
         )
         has_high_impact = (
-            payload.get("impact_assessment", {}).get("overall_impact_severity") == "HIGH"
+            (payload.get("impact_assessment") or {}).get("overall_impact_severity") == "HIGH"
         )
 
         if (
             force_human_review
+            or quote_problems
             or not validation_report.is_publication_eligible
             or has_legal_alteration
             or has_high_impact

@@ -9,6 +9,8 @@ class CitationRead(BaseModel):
     page_id: UUID
     quoted_text: str
     match_score: float
+    quote_span_ids: Optional[List[str]] = None
+    quote_boxes: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -64,6 +66,8 @@ class ProvisionRead(BaseModel):
     heading: Optional[str] = None
     verbatim_text: str
     order_index: int
+    quote_span_ids: Optional[List[str]] = None
+    quote_boxes: Optional[List[Dict[str, Any]]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,6 +80,8 @@ class ObligationRead(BaseModel):
     title: str
     requirement_description: str
     supporting_text: str
+    quote_span_ids: Optional[List[str]] = None
+    quote_boxes: Optional[List[Dict[str, Any]]] = None
     applicability_summary: str
     explicit_deadline: Optional[date] = None
     frequency: str
@@ -91,6 +97,8 @@ class RelationshipRead(BaseModel):
     target_reference_hint: Optional[str] = None
     relationship_type: str
     supporting_quote: str
+    quote_span_ids: Optional[List[str]] = None
+    quote_boxes: Optional[List[Dict[str, Any]]] = None
     confidence: float
     verification_status: str
 

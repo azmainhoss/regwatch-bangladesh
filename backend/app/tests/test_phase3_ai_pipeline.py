@@ -180,7 +180,7 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
     analysis = analyze_res.json()
 
     assert analysis["model_name"] == "mock-regulatory-v1"
-    assert analysis["prompt_version"] == "v1.0.0"
+    assert analysis["prompt_version"] == "v2"
     assert analysis["citation_coverage_score"] >= 0.95
     assert len(analysis["key_changes"]) >= 2
     assert analysis["tokens_used"] > 0

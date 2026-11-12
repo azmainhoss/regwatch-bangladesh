@@ -59,6 +59,14 @@ async def test_provider_connection(current_user: User = Depends(get_current_supe
             "error": res.error
         }
         return info
+    except ValueError as e:
+        # Missing or unknown configuration: nothing was called, so no health result is recorded.
+        info = get_active_provider_info()
+        info["test_result"] = {
+            "success": False,
+            "error": str(e)
+        }
+        return info
     except Exception as e:
         from backend.app.modules.analysis.providers.factory import update_provider_health
         update_provider_health(status="TEMPORARILY_UNAVAILABLE", error=str(e))

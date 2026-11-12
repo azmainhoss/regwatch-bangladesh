@@ -1,109 +1,144 @@
 from typing import Optional
+
 from backend.app.core.config import settings
+from backend.app.modules.analysis.providers import health
 from backend.app.modules.analysis.providers.base import BaseAIProvider
-from backend.app.modules.analysis.providers.mock import MockAIProvider
 from backend.app.modules.analysis.providers.gemini import GeminiAIProvider
+from backend.app.modules.analysis.providers.mock import MockAIProvider
+from backend.app.modules.analysis.providers.openai_compat import OpenAICompatibleProvider
+
+SUPPORTED_PROVIDERS = ("mock", "gemini", "openai_compat")
+_ALIASES = {
+    "openai": "openai_compat",
+    "openai-compat": "openai_compat",
+    "openai_compatible": "openai_compat",
+    "openai-compatible": "openai_compat",
+}
+
+MOCK_MODEL = "mock-regulatory-v1"
+
+
+def normalize_provider_name(name: Optional[str]) -> str:
+    key = (name or "").strip().lower()
+    return _ALIASES.get(key, key)
+
+
+def configured_model(provider: str) -> str:
+    """The model the configured provider will use."""
+    if provider == "gemini":
+        return settings.ANALYSIS_MODEL or settings.GEMINI_ANALYSIS_DEFAULT_MODEL
+    if provider == "openai_compat":
+        return settings.ANALYSIS_MODEL or ""
+    return MOCK_MODEL
 
 
 def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
     """
-    Factory function returning the configured AI provider.
-    Rejects silent fallback: if 'gemini' is requested or configured but GEMINI_API_KEY
-    is not set, raises an explicit ValueError to prevent false confidence in production/pilot.
+    Returns the configured AI provider (ANALYSIS_PROVIDER, or the name passed in).
+    Rejects silent fallback: a real provider that is missing its settings raises ValueError
+    rather than quietly using the mock.
     """
-    selected = provider_type or settings.AI_PROVIDER
+    selected = normalize_provider_name(provider_type or settings.ANALYSIS_PROVIDER)
 
     if selected == "gemini":
         if not settings.GEMINI_API_KEY:
             raise ValueError(
                 "Configured AI provider is 'gemini', but GEMINI_API_KEY is not set in environment or settings. "
                 "Silent fallback to mock is forbidden in production/pilot. "
-                "Please configure GEMINI_API_KEY or set AI_PROVIDER='mock' explicitly for local testing."
+                "Please configure GEMINI_API_KEY or set ANALYSIS_PROVIDER='mock' explicitly for local testing."
             )
-        model = settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL
-        return GeminiAIProvider(model_name=model)
-    
+        return GeminiAIProvider(model_name=configured_model("gemini"))
+
+    if selected == "openai_compat":
+        missing = [name for name, value in (
+            ("OPENAI_COMPAT_BASE_URL", settings.OPENAI_COMPAT_BASE_URL),
+            ("ANALYSIS_MODEL", settings.ANALYSIS_MODEL),
+        ) if not value]
+        if missing:
+            raise ValueError(
+                f"Configured AI provider is 'openai_compat', but {', '.join(missing)} is not set. "
+                "Silent fallback to mock is forbidden."
+            )
+        return OpenAICompatibleProvider(model_name=settings.ANALYSIS_MODEL)
+
     if selected == "mock":
         return MockAIProvider()
 
-    raise ValueError(f"Unknown AI provider '{selected}'. Supported providers are: 'mock', 'gemini'.")
+    raise ValueError(
+        f"Unknown AI provider '{selected}'. Supported providers are: {', '.join(SUPPORTED_PROVIDERS)}."
+    )
 
 
-# In-memory operational health tracking for runtime AI telemetry
-_PROVIDER_HEALTH_CACHE = {
-    "status": "CONNECTED_TESTED" if bool(settings.GEMINI_API_KEY) else "NOT_CONFIGURED",
-    "last_latency_ms": 1042 if bool(settings.GEMINI_API_KEY) else None,
-    "last_status_code": 200 if bool(settings.GEMINI_API_KEY) else None,
-    "last_error": None,
-    "free_tier_eligible": True,
+def update_provider_health(status: str, latency_ms: Optional[int] = None, status_code: Optional[int] = None,
+                           error: Optional[str] = None):
+    """Records the outcome of a real check against the configured provider."""
+    provider = normalize_provider_name(settings.ANALYSIS_PROVIDER)
+    health.record_call(
+        provider, configured_model(provider), status == health.CONNECTED_TESTED,
+        latency_ms, status_code, error, status=status,
+    )
+
+
+def _is_configured(provider: str) -> bool:
+    if provider == "gemini":
+        return bool(settings.GEMINI_API_KEY)
+    if provider == "openai_compat":
+        return bool(settings.OPENAI_COMPAT_BASE_URL and settings.ANALYSIS_MODEL)
+    return provider == "mock"
+
+
+_USER_FACING = {
+    health.CONNECTED_TESTED: "AI Analysis Available",
+    health.QUOTA_EXCEEDED: "AI Usage Limit Reached",
+    health.TEMPORARILY_UNAVAILABLE: "AI Analysis Temporarily Unavailable",
+    health.AUTH_FAILED: "AI Analysis Not Connected",
+    health.CALL_FAILED: "AI Analysis Not Working",
+    health.NOT_TESTED: "AI Connection Not Checked Yet",
 }
-
-
-def update_provider_health(status: str, latency_ms: Optional[int] = None, status_code: Optional[int] = None, error: Optional[str] = None):
-    """Updates runtime telemetry from actual provider execution results."""
-    _PROVIDER_HEALTH_CACHE["status"] = status
-    if latency_ms is not None:
-        _PROVIDER_HEALTH_CACHE["last_latency_ms"] = latency_ms
-    if status_code is not None:
-        _PROVIDER_HEALTH_CACHE["last_status_code"] = status_code
-    if error is not None:
-        _PROVIDER_HEALTH_CACHE["last_error"] = error
 
 
 def get_active_provider_info() -> dict:
     """
-    Returns dual-layer AI telemetry:
-    1. Professional User Facing: Meaningful plain-language service states (NO raw model IDs).
-    2. Administrator Diagnostics: Raw model identifiers, quota tiers, and latency metrics.
+    Provider status from real calls only. Until a real call to the configured provider and model
+    has happened in this process, the status is NOT_TESTED and nothing else is claimed.
     """
-    selected = settings.AI_PROVIDER
-    has_gemini_key = bool(settings.GEMINI_API_KEY)
-    active_model = (settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL) if selected == "gemini" else "mock-regulatory-v1"
+    selected = normalize_provider_name(settings.ANALYSIS_PROVIDER)
+    model = configured_model(selected)
+    last = health.health_for(selected, model)
 
     if selected == "mock":
         raw_status = "MOCK_SANDBOX"
         user_facing_status = "Test Mode (Offline Rules)"
-    elif not has_gemini_key:
+    elif selected not in SUPPORTED_PROVIDERS or not _is_configured(selected):
         raw_status = "NOT_CONFIGURED"
         user_facing_status = "AI Analysis Not Connected"
     else:
-        raw_status = _PROVIDER_HEALTH_CACHE.get("status", "CONNECTION_NOT_TESTED")
-        if raw_status == "CONNECTED_TESTED":
-            user_facing_status = "AI Analysis Available"
-        elif raw_status == "QUOTA_EXCEEDED":
-            user_facing_status = "AI Usage Limit Reached"
-        elif raw_status == "TEMPORARILY_UNAVAILABLE":
-            user_facing_status = "AI Analysis Temporarily Unavailable"
-        else:
-            user_facing_status = "AI Analysis Not Connected"
+        raw_status = last["status"]
+        user_facing_status = _USER_FACING.get(raw_status, "AI Analysis Not Connected")
+
+    provider_names = {
+        "gemini": "Google Gemini",
+        "openai_compat": "OpenAI-compatible endpoint",
+        "mock": "Mock Heuristic Sandbox",
+    }
 
     return {
-        # Professional-facing clean telemetry (No raw model IDs)
         "service_state": user_facing_status,
         "is_available": raw_status == "CONNECTED_TESTED",
         "status": raw_status,
-        
-        # Legacy fields for backward compatibility with existing tests
         "configured_provider": selected,
-        "default_model": active_model,
-        "gemini_api_key_configured": has_gemini_key,
+        "default_model": model,
+        "gemini_api_key_configured": bool(settings.GEMINI_API_KEY),
         "timeout_seconds": settings.AI_TIMEOUT_SECONDS,
         "max_retries": settings.AI_MAX_RETRIES,
-        "billing_policy": "ZERO_COST_FREE_TIER",
-
-        # Administrator diagnostics (Administrator view only)
+        "last_checked_at": last["checked_at"],
         "admin_diagnostics": {
-            "provider_name": "Google Gemini" if selected == "gemini" else "Mock Heuristic Sandbox",
-            "model_identifier": active_model,
-            "free_tier_eligible": True,
-            "billing_tier": "Google AI Studio Free Tier (Zero-Cost)",
-            "rate_limits": {
-                "requests_per_minute": 15,
-                "tokens_per_minute": 1000000,
-                "requests_per_day": 1500,
-            },
-            "last_latency_ms": _PROVIDER_HEALTH_CACHE.get("last_latency_ms"),
-            "last_status_code": _PROVIDER_HEALTH_CACHE.get("last_status_code"),
-            "last_error": _PROVIDER_HEALTH_CACHE.get("last_error"),
-        }
+            "provider_name": provider_names.get(selected, selected),
+            "model_identifier": model,
+            "base_url": settings.OPENAI_COMPAT_BASE_URL if selected == "openai_compat" else None,
+            "last_checked_at": last["checked_at"],
+            "last_latency_ms": last["last_latency_ms"],
+            "last_status_code": last["last_status_code"],
+            "last_error": last["last_error"],
+        },
     }

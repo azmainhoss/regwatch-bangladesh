@@ -6,6 +6,45 @@ from typing import Any, Dict, List, Optional
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse, TokenUsage
 
 
+_SENTENCE_LINE = re.compile(r"^\[(p\d+\.s\d+)\] (.*)$", re.MULTILINE)
+_SENTENCE_TAG = re.compile(r"^\[p\d+\.s\d+\] ", re.MULTILINE)
+_QUOTE_FIELDS = (("provisions", "verbatim_text"), ("obligations", "verbatim_quote"), ("relationships", "supporting_quote"))
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def _ids_for_quote(quote: str, sentences: List[tuple]) -> List[str]:
+    """Finds the sentence IDs that make up a canned quote, the way a model would pick them."""
+    nq = _norm(quote)
+    if not nq:
+        return []
+    inside = [i for i, (_sid, text) in enumerate(sentences) if len(_norm(text)) >= 8 and _norm(text) in nq]
+    if inside:
+        runs: List[List[int]] = []
+        for i in inside:
+            if runs and runs[-1][-1] + 1 == i:
+                runs[-1].append(i)
+            else:
+                runs.append([i])
+        best = max(runs, key=lambda r: sum(len(sentences[i][1]) for i in r))
+        return [sentences[i][0] for i in best]
+    for sid, text in sentences:
+        if nq in _norm(text):
+            return [sid]
+    return []
+
+
+def _quotes_to_ids(response: Dict[str, Any], sentences: List[tuple]) -> None:
+    """Replaces typed quotes with quote_span_ids (prompt v2 answer shape)."""
+    for section, field_name in _QUOTE_FIELDS:
+        for item in response.get(section, []):
+            quote = item.pop(field_name, "")
+            item.pop("page_number", None)
+            item["quote_span_ids"] = _ids_for_quote(quote, sentences)
+
+
 class MockAIProvider(BaseAIProvider):
     """
     Deterministic mock provider for testing, local offline verification,
@@ -48,6 +87,11 @@ class MockAIProvider(BaseAIProvider):
                 success=False,
                 error="JSONDecodeError: Expecting property name enclosed in double quotes"
             )
+
+        # Sentence-ID prompts (analysis v2) show "[p1.s3] text" lines. Detection below reads the
+        # document text without the ID tags, so an ID like "p1.s105" can never look like content.
+        sentences = _SENTENCE_LINE.findall(user_prompt)
+        user_prompt = _SENTENCE_TAG.sub("", user_prompt)
 
         # Check if query is about an unrelated non-banking domain
         unrelated_domains = ["aerospace", "orbital", "satellite", "astronomy", "medical", "surgical", "rocket"]
@@ -356,6 +400,8 @@ class MockAIProvider(BaseAIProvider):
             # Generic valid fallback for any circular text
             first_line = user_prompt.splitlines()[0] if user_prompt else "Bangladesh Bank Circular"
             quote = user_prompt[:80] if len(user_prompt) >= 80 else user_prompt
+            if sentences:
+                quote = sentences[0][1]
             response_dict = {
                 "classification": {
                     "document_type": "CIRCULAR",
@@ -422,6 +468,19 @@ class MockAIProvider(BaseAIProvider):
                     "compliance": "Requires policy review and operational adherence."
                 }
             }
+            amending = next((text for _sid, text in sentences if re.search(r"\bamend", text, re.IGNORECASE)), None)
+            if amending:
+                response_dict["relationships"].append({
+                    "relationship_type": "AMENDS",
+                    "target_reference_hint": amending[:120],
+                    "supporting_quote": amending,
+                    "page_number": 1,
+                    "confidence": 0.9,
+                    "detection_method": "EXPLICIT_CITATION"
+                })
+
+        if sentences:
+            _quotes_to_ids(response_dict, sentences)
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         json_str = json.dumps(response_dict)

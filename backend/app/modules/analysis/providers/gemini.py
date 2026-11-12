@@ -1,26 +1,80 @@
+"""Google Gemini analysis provider (REST generateContent).
+
+- Sends a responseSchema (structured JSON output) when the caller passes a schema.
+- Retries 429, 5xx-busy replies and network errors with growing waits (see http_retry), up to
+  AI_MAX_RETRIES times, then fails with a clear error. An unreadable JSON answer is retried the
+  same way.
+- One key, GEMINI_API_KEY, is all it needs.
+"""
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
 import httpx
 
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
+from backend.app.modules.analysis.providers import health
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse, TokenUsage
+from backend.app.modules.analysis.providers.http_retry import (
+    SleepFn,
+    backoff_delay,
+    parse_json_text,
+    post_with_backoff,
+    redact_text,
+)
+
+PROVIDER_NAME = "gemini"
+
+_GEMINI_SCHEMA_KEYS = {"type", "properties", "items", "required", "nullable", "enum", "description", "format"}
+
+
+def to_gemini_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Converts a plain JSON schema (single types, `nullable` flags) to Gemini's responseSchema form."""
+    out: Dict[str, Any] = {}
+    for key, value in schema.items():
+        if key not in _GEMINI_SCHEMA_KEYS:
+            continue
+        if key == "type":
+            out["type"] = str(value).upper()
+        elif key == "properties":
+            out["properties"] = {name: to_gemini_schema(sub) for name, sub in value.items()}
+        elif key == "items":
+            out["items"] = to_gemini_schema(value)
+        else:
+            out[key] = value
+    return out
 
 
 class GeminiAIProvider(BaseAIProvider):
-    """
-    Google Gemini AI Provider integration using official REST endpoint
-    with structured JSON schema enforcement, token tracking, and retries.
-    """
-
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, model_name: Optional[str] = None, api_key: Optional[str] = None):
-        model = model_name or settings.GEMINI_MODEL or settings.DEFAULT_AI_MODEL
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None,
+        sleep: SleepFn = asyncio.sleep,
+    ):
+        model = model_name or settings.ANALYSIS_MODEL or settings.GEMINI_ANALYSIS_DEFAULT_MODEL
         super().__init__(model_name=model)
         self.api_key = api_key or settings.GEMINI_API_KEY
+        self._client = client
+        self._sleep = sleep
+
+    def _fail(self, error: str, raw: str = "", latency_ms: int = 0, status_code: Optional[int] = None,
+              usage: Optional[TokenUsage] = None) -> LLMResponse:
+        health.record_call(PROVIDER_NAME, self.model_name, False, latency_ms, status_code, error)
+        return LLMResponse(
+            raw_content=raw,
+            parsed_json=None,
+            token_usage=usage or TokenUsage(),
+            model_name=self.model_name,
+            latency_ms=latency_ms,
+            success=False,
+            error=error,
+        )
 
     async def generate_structured_json(
         self,
@@ -41,188 +95,118 @@ class GeminiAIProvider(BaseAIProvider):
             )
 
         endpoint = f"{self.BASE_URL}/{self.model_name}:generateContent"
-        headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": self.api_key
+        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        generation_config: Dict[str, Any] = {
+            "temperature": temperature,
+            "responseMimeType": "application/json",
         }
-
-        # Construct Gemini API payload
+        if json_schema:
+            generation_config["responseSchema"] = to_gemini_schema(json_schema)
         payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_prompt}]
-                }
-            ],
-            "systemInstruction": {
-                "parts": [{"text": system_prompt}]
-            },
-            "generationConfig": {
-                "temperature": temperature,
-                "responseMimeType": "application/json"
-            }
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": generation_config,
         }
 
-        start_time = time.time()
-        max_retries = settings.AI_MAX_RETRIES
+        max_retries = max(0, settings.AI_MAX_RETRIES)
+        start = time.time()
+        own_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS)
+        try:
+            # Outer loop only repeats when a 200 reply held unreadable JSON.
+            parse_attempt = 0
+            while True:
+                outcome = await post_with_backoff(
+                    client, endpoint, payload, headers,
+                    label=f"Gemini {self.model_name}",
+                    max_retries=max_retries,
+                    base_seconds=settings.AI_RETRY_BASE_SECONDS,
+                    max_seconds=settings.AI_RETRY_MAX_SECONDS,
+                    sleep=self._sleep,
+                    redact=self.api_key,
+                )
+                elapsed_ms = int((time.time() - start) * 1000)
+                resp = outcome.response
 
-        for attempt in range(max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS) as client:
-                    resp = await client.post(endpoint, json=payload, headers=headers)
-
-                elapsed_ms = int((time.time() - start_time) * 1000)
-
-                if resp.status_code == 200:
-                    from backend.app.modules.analysis.providers.factory import update_provider_health
-                    update_provider_health(status="CONNECTED_TESTED", latency_ms=elapsed_ms, status_code=200)
-
-                    resp_data = resp.json()
-                    candidates = resp_data.get("candidates", [])
-                    if not candidates:
-                        return LLMResponse(
-                            raw_content="",
-                            parsed_json=None,
-                            token_usage=TokenUsage(),
-                            model_name=self.model_name,
-                            latency_ms=elapsed_ms,
-                            success=False,
-                            error="No candidate response returned by Gemini."
-                        )
-
-                    raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                    
-                    # Extract usage metadata
-                    usage = resp_data.get("usageMetadata", {})
-                    prompt_toks = usage.get("promptTokenCount", 0)
-                    cand_toks = usage.get("candidatesTokenCount", 0)
-                    tot_toks = usage.get("totalTokenCount", 0)
-                    
-                    # Strictly Zero-Cost for Google AI Studio Free Tier
-                    est_cost = 0.0
-
-                    # Strip any markdown fences if model returned them
-                    cleaned = raw_text.strip()
-                    if cleaned.startswith("```json"):
-                        cleaned = cleaned[7:]
-                    elif cleaned.startswith("```"):
-                        cleaned = cleaned[3:]
-                    if cleaned.endswith("```"):
-                        cleaned = cleaned[:-3]
-                    cleaned = cleaned.strip()
-
-                    try:
-                        parsed = json.loads(cleaned)
-                        return LLMResponse(
-                            raw_content=raw_text,
-                            parsed_json=parsed,
-                            token_usage=TokenUsage(
-                                prompt_tokens=prompt_toks,
-                                completion_tokens=cand_toks,
-                                total_tokens=tot_toks,
-                                estimated_cost_usd=est_cost
-                            ),
-                            model_name=self.model_name,
-                            latency_ms=elapsed_ms,
-                            success=True,
-                            error=None
-                        )
-                    except json.JSONDecodeError as jde:
-                        logger.warning(f"Gemini API attempt {attempt + 1}: JSONDecodeError: {jde}")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(1.0)
-                            continue
-                        return LLMResponse(
-                            raw_content=raw_text,
-                            parsed_json=None,
-                            token_usage=TokenUsage(total_tokens=tot_toks),
-                            model_name=self.model_name,
-                            latency_ms=elapsed_ms,
-                            success=False,
-                            error=f"JSON parsing error: {jde}"
-                        )
-                elif resp.status_code == 429:
-                    from backend.app.modules.analysis.providers.factory import update_provider_health
-                    error_msg = (
-                        "Gemini free-tier quota exhausted or rate limit reached (HTTP 429). "
-                        "Execution halted to strictly honor Zero-Cost policy. Please retry after quota reset."
-                    )
-                    update_provider_health(status="QUOTA_EXCEEDED", latency_ms=elapsed_ms, status_code=429, error=error_msg)
-                    logger.warning(f"Gemini API attempt {attempt + 1}: {error_msg}")
-                    return LLMResponse(
-                        raw_content=resp.text,
-                        parsed_json=None,
-                        token_usage=TokenUsage(),
-                        model_name=self.model_name,
+                if resp is None:
+                    return self._fail(
+                        f"Gemini could not be reached after {outcome.attempts} attempts: {outcome.network_error}",
                         latency_ms=elapsed_ms,
-                        success=False,
-                        error=error_msg
-                    )
-                elif resp.status_code == 503:
-                    error_msg = (
-                        "Gemini free-tier service temporarily overloaded (HTTP 503). "
-                        "Zero-cost policy prevents paid fallback. Please retry shortly."
-                    )
-                    logger.warning(f"Gemini API attempt {attempt + 1}: {error_msg}")
-                    if attempt == max_retries - 1:
-                        return LLMResponse(
-                            raw_content=resp.text,
-                            parsed_json=None,
-                            token_usage=TokenUsage(),
-                            model_name=self.model_name,
-                            latency_ms=elapsed_ms,
-                            success=False,
-                            error=error_msg
-                        )
-                elif resp.status_code in (401, 403):
-                    error_msg = (
-                        f"Gemini authentication failed (HTTP {resp.status_code}). "
-                        "Please verify your Google AI Studio API key in backend/.env."
-                    )
-                    logger.error(error_msg)
-                    return LLMResponse(
-                        raw_content="[REDACTED_AUTH_ERROR]",
-                        parsed_json=None,
-                        token_usage=TokenUsage(),
-                        model_name=self.model_name,
-                        latency_ms=elapsed_ms,
-                        success=False,
-                        error=error_msg
-                    )
-                else:
-                    clean_text = resp.text.replace(self.api_key, "[REDACTED]") if self.api_key else resp.text
-                    error_msg = f"Gemini API returned status {resp.status_code}: {clean_text}"
-                    logger.warning(f"Gemini API attempt {attempt + 1} failed: {error_msg}")
-                    if attempt == max_retries - 1:
-                        return LLMResponse(
-                            raw_content=clean_text,
-                            parsed_json=None,
-                            token_usage=TokenUsage(),
-                            model_name=self.model_name,
-                            latency_ms=elapsed_ms,
-                            success=False,
-                            error=error_msg
-                        )
-            except Exception as e:
-                clean_err = str(e).replace(self.api_key, "[REDACTED]") if self.api_key else str(e)
-                logger.error(f"Gemini API request error on attempt {attempt + 1}: {clean_err}")
-                if attempt == max_retries - 1:
-                    return LLMResponse(
-                        raw_content="",
-                        parsed_json=None,
-                        token_usage=TokenUsage(),
-                        model_name=self.model_name,
-                        latency_ms=int((time.time() - start_time) * 1000),
-                        success=False,
-                        error=str(e)
                     )
 
-        return LLMResponse(
-            raw_content="",
-            parsed_json=None,
-            token_usage=TokenUsage(),
-            model_name=self.model_name,
-            latency_ms=0,
-            success=False,
-            error="Exhausted maximum retry attempts."
-        )
+                if resp.status_code == 429:
+                    return self._fail(
+                        f"Gemini rate limit or quota reached (HTTP 429); gave up after {outcome.attempts} attempts.",
+                        raw=redact_text(resp.text, self.api_key), latency_ms=elapsed_ms, status_code=429,
+                    )
+                if resp.status_code == 503:
+                    return self._fail(
+                        f"Gemini is overloaded (HTTP 503); gave up after {outcome.attempts} attempts.",
+                        raw=redact_text(resp.text, self.api_key), latency_ms=elapsed_ms, status_code=503,
+                    )
+                if resp.status_code in (401, 403):
+                    return self._fail(
+                        f"Gemini authentication failed (HTTP {resp.status_code}). Check GEMINI_API_KEY.",
+                        raw="[REDACTED_AUTH_ERROR]", latency_ms=elapsed_ms, status_code=resp.status_code,
+                    )
+                if resp.status_code != 200:
+                    clean = redact_text(resp.text, self.api_key)
+                    return self._fail(
+                        f"Gemini API returned status {resp.status_code}: {clean[:500]}",
+                        raw=clean, latency_ms=elapsed_ms, status_code=resp.status_code,
+                    )
+
+                try:
+                    data = resp.json()
+                except ValueError:
+                    return self._fail("Gemini returned a reply that is not JSON.", raw=resp.text[:2000],
+                                      latency_ms=elapsed_ms, status_code=200)
+
+                usage_meta = data.get("usageMetadata", {}) or {}
+                usage = TokenUsage(
+                    prompt_tokens=usage_meta.get("promptTokenCount", 0) or 0,
+                    completion_tokens=usage_meta.get("candidatesTokenCount", 0) or 0,
+                    total_tokens=usage_meta.get("totalTokenCount", 0) or 0,
+                    estimated_cost_usd=0.0,
+                )
+                candidates = data.get("candidates") or []
+                if not candidates:
+                    reason = (data.get("promptFeedback") or {}).get("blockReason")
+                    return self._fail(
+                        "No candidate response returned by Gemini." + (f" Block reason: {reason}." if reason else ""),
+                        latency_ms=elapsed_ms, status_code=200, usage=usage,
+                    )
+                parts = (candidates[0].get("content") or {}).get("parts") or []
+                raw_text = "".join(p.get("text", "") for p in parts)
+
+                try:
+                    parsed = parse_json_text(raw_text)
+                except json.JSONDecodeError as jde:
+                    if parse_attempt < max_retries:
+                        delay = backoff_delay(parse_attempt, settings.AI_RETRY_BASE_SECONDS, settings.AI_RETRY_MAX_SECONDS)
+                        logger.warning(f"Gemini answer was not valid JSON ({jde}); asking again in {delay:.0f} s.")
+                        parse_attempt += 1
+                        await self._sleep(delay)
+                        continue
+                    return self._fail(
+                        f"JSON parsing error: {jde} (finishReason={candidates[0].get('finishReason')})",
+                        raw=raw_text, latency_ms=elapsed_ms, status_code=200, usage=usage,
+                    )
+
+                health.record_call(PROVIDER_NAME, self.model_name, True, elapsed_ms, 200)
+                return LLMResponse(
+                    raw_content=raw_text,
+                    parsed_json=parsed,
+                    token_usage=usage,
+                    model_name=self.model_name,
+                    latency_ms=elapsed_ms,
+                    success=True,
+                    error=None,
+                )
+        except Exception as e:  # never let a provider bug look like a result
+            clean = redact_text(str(e), self.api_key)
+            logger.error(f"Gemini request error: {clean}")
+            return self._fail(f"Gemini request error: {clean}", latency_ms=int((time.time() - start) * 1000))
+        finally:
+            if own_client:
+                await client.aclose()

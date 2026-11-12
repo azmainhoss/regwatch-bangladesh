@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import relationship
 from backend.app.database.base import Base, GUID
 
@@ -17,6 +17,9 @@ class DocumentRelationship(Base):
     source_provision_id = Column(GUID(), ForeignKey("provisions.id", ondelete="SET NULL"), nullable=True)
     source_page_id = Column(GUID(), ForeignKey("document_pages.id", ondelete="SET NULL"), nullable=True)
     supporting_quote = Column(Text, nullable=False)
+    # Where the quote came from: sentence IDs (p3.s12) and the line boxes to highlight on the page image.
+    quote_span_ids = Column(JSON, nullable=True)
+    quote_boxes = Column(JSON, nullable=True)
     confidence = Column(Float, default=1.0, nullable=False)
     detection_method = Column(String(32), default="DETERMINISTIC_REGEX", nullable=False)  # DETERMINISTIC_REGEX, AI_INFERRED, MANUAL_ENTRY
     verification_status = Column(String(32), default="PENDING_REVIEW", nullable=False)  # PENDING_REVIEW, VERIFIED, REJECTED

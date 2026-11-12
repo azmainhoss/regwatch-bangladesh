@@ -49,6 +49,9 @@ class ClaimCitation(Base):
     claim_id = Column(GUID(), ForeignKey("analysis_claims.id", ondelete="CASCADE"), nullable=False, index=True)
     page_id = Column(GUID(), ForeignKey("document_pages.id", ondelete="CASCADE"), nullable=False, index=True)
     quoted_text = Column(Text, nullable=False)
+    # Where the quote came from: sentence IDs (p3.s12) and the line boxes to highlight on the page image.
+    quote_span_ids = Column(JSON, nullable=True)
+    quote_boxes = Column(JSON, nullable=True)
     match_score = Column(Float, default=1.0, nullable=False)
 
     claim = relationship("AnalysisClaim", back_populates="citations")

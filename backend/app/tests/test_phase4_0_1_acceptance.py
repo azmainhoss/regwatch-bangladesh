@@ -79,8 +79,12 @@ async def test_plain_language_provider_status_telemetry():
             "AI Usage Limit Reached",
             "AI Analysis Temporarily Unavailable",
             "Test Mode (Offline Rules)",
+            "AI Connection Not Checked Yet",
+            "AI Analysis Not Working",
         )
-        assert data["billing_policy"] == "ZERO_COST_FREE_TIER"
+        # No made-up figures: nothing is claimed before a real call has happened.
+        assert "billing_policy" not in data
+        assert "rate_limits" not in data["admin_diagnostics"]
         assert "admin_diagnostics" in data
         assert "GEMINI_API_KEY" not in str(data)
 

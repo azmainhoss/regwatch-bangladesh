@@ -152,7 +152,7 @@ def test_ai_provider_factory_rejects_silent_mock_fallback(monkeypatch):
     """Verifies that configuring 'gemini' without an API key raises an explicit error."""
     from backend.app.core.config import settings
 
-    monkeypatch.setattr(settings, "AI_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "gemini")
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
 
     with pytest.raises(ValueError, match="GEMINI_API_KEY is not set"):
@@ -160,10 +160,10 @@ def test_ai_provider_factory_rejects_silent_mock_fallback(monkeypatch):
 
 
 def test_ai_provider_factory_mock_when_explicit(monkeypatch):
-    """Verifies that MockAIProvider is returned when AI_PROVIDER='mock'."""
+    """Verifies that MockAIProvider is returned when ANALYSIS_PROVIDER='mock'."""
     from backend.app.core.config import settings
 
-    monkeypatch.setattr(settings, "AI_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "mock")
     provider = get_ai_provider()
     assert isinstance(provider, MockAIProvider)
 
@@ -172,7 +172,7 @@ def test_active_provider_info_metadata(monkeypatch):
     """Verifies safe metadata exposed by get_active_provider_info."""
     from backend.app.core.config import settings
 
-    monkeypatch.setattr(settings, "AI_PROVIDER", "mock")
+    monkeypatch.setattr(settings, "ANALYSIS_PROVIDER", "mock")
     info = get_active_provider_info()
     assert info["configured_provider"] == "mock"
     assert info["status"] == "MOCK_SANDBOX"

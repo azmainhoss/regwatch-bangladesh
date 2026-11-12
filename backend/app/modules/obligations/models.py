@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, Date, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import relationship
 from backend.app.database.base import Base, GUID
 
@@ -17,6 +17,9 @@ class Obligation(Base):
     title = Column(Text, nullable=False)
     requirement_description = Column(Text, nullable=False)
     supporting_text = Column(Text, nullable=False)
+    # Where the quote came from: sentence IDs (p3.s12) and the line boxes to highlight on the page image.
+    quote_span_ids = Column(JSON, nullable=True)
+    quote_boxes = Column(JSON, nullable=True)
     applicability_summary = Column(Text, nullable=False)
     explicit_deadline = Column(Date, nullable=True)
     deadline_description = Column(Text, nullable=True)

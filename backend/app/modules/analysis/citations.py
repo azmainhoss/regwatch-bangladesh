@@ -175,6 +175,9 @@ class CitationValidator:
         to detect WRONG_PAGE citations or SOURCE_MISSING states.
         """
         cited_page_number = safe_int_page(cited_page_number)
+        if not (quote or "").strip():
+            # An empty quote is never grounded (and "" would otherwise "match" every page).
+            return cls.validate_quote_against_page("", "", cited_page_number)
         if cited_page_number not in pages_by_number:
             # Check if quote exists elsewhere in the document
             clean_quote = quote.strip()
@@ -235,6 +238,51 @@ class CitationValidator:
 
         return page_res
 
+
+    @classmethod
+    def validate_item_quote(
+        cls,
+        quote: str,
+        cited_page_number: int,
+        pages_by_number: Dict[int, str],
+        fragments: Optional[List[Dict[str, Any]]] = None,
+    ) -> CitationValidationResult:
+        """Checks one item's quote. A quote copied from sentence IDs may be made of several
+        pieces (sentences that are not next to each other); each piece is checked on its own page
+        and the weakest result is kept."""
+        if not fragments or len(fragments) <= 1:
+            single = fragments[0] if fragments else None
+            if single:
+                return cls.validate_quote_across_document(
+                    single.get("text", ""), pages_by_number, single.get("page_number", cited_page_number)
+                )
+            return cls.validate_quote_across_document(quote, pages_by_number, cited_page_number)
+
+        rank = {
+            STATE_VERIFIED_EXACT: 0,
+            STATE_VERIFIED_NORMALIZED: 1,
+            STATE_CANDIDATE_FUZZY: 2,
+            STATE_WRONG_PAGE: 3,
+            STATE_UNVERIFIED: 4,
+            STATE_SOURCE_MISSING: 5,
+        }
+        worst: Optional[CitationValidationResult] = None
+        for frag in fragments:
+            res = cls.validate_quote_across_document(
+                frag.get("text", ""), pages_by_number, frag.get("page_number", cited_page_number)
+            )
+            if worst is None or rank.get(res.status, 9) > rank.get(worst.status, 9):
+                worst = res
+        return worst.model_copy(update={"quoted_text": quote, "page_number": safe_int_page(cited_page_number)})
+
+    # (payload section, item type label, quote field, identifier)
+    _SECTIONS = (
+        ("provisions", "PROVISION", "verbatim_text", lambda i: i.get("provision_number")),
+        ("obligations", "OBLIGATION", "verbatim_quote", lambda i: i.get("title")),
+        ("relationships", "RELATIONSHIP", "supporting_quote",
+         lambda i: f"{i.get('relationship_type')} -> {i.get('target_reference_hint')}"),
+    )
+
     @classmethod
     def validate_analysis_claims(
         cls,
@@ -243,7 +291,8 @@ class CitationValidator:
     ) -> ClaimValidationReport:
         """
         Validates all provisions, obligations, and relationships against stored page texts.
-        Enforces strict zero-tolerance publication gates.
+        Enforces strict zero-tolerance publication gates. An item whose quote could not be built
+        from its sentence IDs has an empty quote, so it always comes out UNVERIFIED.
         """
         total_claims = 0
         exact_count = 0
@@ -254,157 +303,59 @@ class CitationValidator:
         unverified_count = 0
         unverified_items: List[Dict[str, Any]] = []
 
-        # 1. Validate Provisions
-        for prov in analysis_payload.get("provisions", []):
-            total_claims += 1
-            quote = prov.get("verbatim_text", "")
-            p_no = safe_int_page(prov.get("page_number", 1))
-            prov["page_number"] = p_no
+        for section, item_type, quote_field, ident in cls._SECTIONS:
+            for item in analysis_payload.get(section, []) or []:
+                if not isinstance(item, dict):
+                    continue
+                total_claims += 1
+                quote = item.get(quote_field, "") or ""
+                p_no = safe_int_page(item.get("page_number", 1))
+                item["page_number"] = p_no
 
-            res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
-            prov["verification_status"] = res.status
-            prov["citation_match_score"] = res.match_score
-            prov["actual_page_found"] = res.actual_page_found
+                res = cls.validate_item_quote(quote, p_no, pages_by_number, item.get("quote_fragments"))
+                item["verification_status"] = res.status
+                item["citation_match_score"] = res.match_score
+                item["actual_page_found"] = res.actual_page_found
 
-            if res.status == STATE_VERIFIED_EXACT:
-                exact_count += 1
-            elif res.status == STATE_VERIFIED_NORMALIZED:
-                normalized_count += 1
-            elif res.status == STATE_CANDIDATE_FUZZY:
-                fuzzy_count += 1
-                unverified_items.append({
-                    "item_type": "PROVISION",
-                    "identifier": prov.get("provision_number"),
-                    "page_number": p_no,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-            elif res.status == STATE_WRONG_PAGE:
-                wrong_page_count += 1
-                unverified_items.append({
-                    "item_type": "PROVISION",
-                    "identifier": prov.get("provision_number"),
-                    "page_number": p_no,
-                    "actual_page": res.actual_page_found,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-            else:
-                unverified_count += 1
-                unverified_items.append({
-                    "item_type": "PROVISION",
-                    "identifier": prov.get("provision_number"),
-                    "page_number": p_no,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
+                issues = list(res.issues)
+                if item.get("quote_error"):
+                    issues.insert(0, item["quote_error"])
 
-        # 2. Validate Obligations
-        for obl in analysis_payload.get("obligations", []):
-            total_claims += 1
-            quote = obl.get("verbatim_quote", "")
-            p_no = safe_int_page(obl.get("page_number", 1))
-            obl["page_number"] = p_no
-
-            res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
-            obl["verification_status"] = res.status
-            obl["citation_match_score"] = res.match_score
-            obl["actual_page_found"] = res.actual_page_found
-
-            if res.status == STATE_VERIFIED_EXACT:
-                exact_count += 1
-            elif res.status == STATE_VERIFIED_NORMALIZED:
-                normalized_count += 1
-            elif res.status == STATE_CANDIDATE_FUZZY:
-                fuzzy_count += 1
-                unverified_items.append({
-                    "item_type": "OBLIGATION",
-                    "identifier": obl.get("title"),
+                entry = {
+                    "item_type": item_type,
+                    "identifier": ident(item),
                     "page_number": p_no,
                     "quote": quote,
                     "status": res.status,
-                    "issues": res.issues
-                })
-            elif res.status == STATE_WRONG_PAGE:
-                wrong_page_count += 1
-                unverified_items.append({
-                    "item_type": "OBLIGATION",
-                    "identifier": obl.get("title"),
-                    "page_number": p_no,
-                    "actual_page": res.actual_page_found,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-            else:
-                unverified_count += 1
-                unverified_items.append({
-                    "item_type": "OBLIGATION",
-                    "identifier": obl.get("title"),
-                    "page_number": p_no,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-
-        # 3. Validate Relationships
-        for rel in analysis_payload.get("relationships", []):
-            total_claims += 1
-            quote = rel.get("supporting_quote", "")
-            p_no = safe_int_page(rel.get("page_number", 1))
-            rel["page_number"] = p_no
-
-            res = cls.validate_quote_across_document(quote, pages_by_number, p_no)
-            rel["verification_status"] = res.status
-            rel["citation_match_score"] = res.match_score
-            rel["actual_page_found"] = res.actual_page_found
-
-            if res.status == STATE_VERIFIED_EXACT:
-                exact_count += 1
-            elif res.status == STATE_VERIFIED_NORMALIZED:
-                normalized_count += 1
-            elif res.status == STATE_CANDIDATE_FUZZY:
-                fuzzy_count += 1
-                unverified_items.append({
-                    "item_type": "RELATIONSHIP",
-                    "identifier": f"{rel.get('relationship_type')} -> {rel.get('target_reference_hint')}",
-                    "page_number": p_no,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-            elif res.status == STATE_WRONG_PAGE:
-                wrong_page_count += 1
-                unverified_items.append({
-                    "item_type": "RELATIONSHIP",
-                    "identifier": f"{rel.get('relationship_type')} -> {rel.get('target_reference_hint')}",
-                    "page_number": p_no,
-                    "actual_page": res.actual_page_found,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
-            else:
-                unverified_count += 1
-                unverified_items.append({
-                    "item_type": "RELATIONSHIP",
-                    "identifier": f"{rel.get('relationship_type')} -> {rel.get('target_reference_hint')}",
-                    "page_number": p_no,
-                    "quote": quote,
-                    "status": res.status,
-                    "issues": res.issues
-                })
+                    "issues": issues,
+                }
+                if res.status == STATE_VERIFIED_EXACT:
+                    exact_count += 1
+                elif res.status == STATE_VERIFIED_NORMALIZED:
+                    normalized_count += 1
+                elif res.status == STATE_CANDIDATE_FUZZY:
+                    fuzzy_count += 1
+                    unverified_items.append(entry)
+                elif res.status == STATE_WRONG_PAGE:
+                    wrong_page_count += 1
+                    entry["actual_page"] = res.actual_page_found
+                    unverified_items.append(entry)
+                elif res.status == STATE_SOURCE_MISSING:
+                    missing_count += 1
+                    unverified_count += 1
+                    unverified_items.append(entry)
+                else:
+                    unverified_count += 1
+                    unverified_items.append(entry)
 
         verified_total = exact_count + normalized_count
         coverage = round(verified_total / max(total_claims, 1), 4)
 
         # STRICT PUBLICATION GATE:
-        # Any UNVERIFIED, WRONG_PAGE, or CANDIDATE_FUZZY on an obligation immediately blocks auto-publication
+        # Any UNVERIFIED, WRONG_PAGE, CANDIDATE_FUZZY or SOURCE_MISSING item blocks auto-publication,
+        # and so does an analysis with no grounded items at all.
         has_blocking_items = len(unverified_items) > 0
-        is_eligible = (coverage >= 0.95) and not has_blocking_items
+        is_eligible = total_claims > 0 and (coverage >= 0.95) and not has_blocking_items
 
         return ClaimValidationReport(
             total_claims=total_claims,

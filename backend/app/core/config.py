@@ -55,15 +55,25 @@ class Settings(BaseSettings):
     VISION_WORKER_ENABLED: bool = False
     MAX_PAGE_PROCESSING_TIMEOUT_SEC: int = 60
 
-    # AI Provider Configuration
-    AI_PROVIDER: str = "mock"  # mock, gemini, openai, anthropic
+    # Circular analysis model. Swapped by config only:
+    #   ANALYSIS_PROVIDER = mock | gemini | openai_compat   (old name AI_PROVIDER still read)
+    #   ANALYSIS_MODEL    = model id; empty means the provider's default below (old name GEMINI_MODEL still read)
+    # gemini uses GEMINI_API_KEY. openai_compat speaks plain chat-completions HTTP to
+    # OPENAI_COMPAT_BASE_URL (OpenRouter, SambaNova, a local server, ...) and needs ANALYSIS_MODEL.
+    ANALYSIS_PROVIDER: str = Field(default="mock", validation_alias=AliasChoices("ANALYSIS_PROVIDER", "AI_PROVIDER"))
+    ANALYSIS_MODEL: Optional[str] = Field(default=None, validation_alias=AliasChoices("ANALYSIS_MODEL", "GEMINI_MODEL"))
+    GEMINI_ANALYSIS_DEFAULT_MODEL: str = "gemini-3.5-flash"
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
-    ANTHROPIC_API_KEY: Optional[str] = None
-    DEFAULT_AI_MODEL: str = "gemini-3.8-flash"
+    OPENAI_COMPAT_BASE_URL: Optional[str] = None  # e.g. https://openrouter.ai/api/v1
+    OPENAI_COMPAT_API_KEY: Optional[str] = None  # may be empty for a local server
+    # How to ask for JSON: json_schema (strict schema), json_object, or none (prompt only).
+    OPENAI_COMPAT_RESPONSE_FORMAT: str = "json_object"
+    # Retries after a 429/503 or network error, waiting AI_RETRY_BASE_SECONDS, then x2, x4 ...
+    # (capped at AI_RETRY_MAX_SECONDS). After that the call fails with a clear error.
     AI_MAX_RETRIES: int = 3
-    AI_TIMEOUT_SECONDS: int = 60
+    AI_RETRY_BASE_SECONDS: float = 5.0
+    AI_RETRY_MAX_SECONDS: float = 120.0
+    AI_TIMEOUT_SECONDS: int = 120
 
     # Talking to bb.org.bd (DECISIONS.md 1 and 2)
     # The checker uses its own name, one request at a time, at least this many seconds apart.
