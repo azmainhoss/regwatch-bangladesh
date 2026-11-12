@@ -159,9 +159,48 @@ def split_sentences(text: str) -> List[str]:
     return [text[s:e] for s, e in split_sentence_spans(text)]
 
 
-def _line_offsets(page_text: str, line_boxes: Optional[Sequence[Dict[str, Any]]]) -> List[Tuple[int, int, int, Optional[List[int]]]]:
-    """Finds each box line's text in the page text, in order. Returns (line_index, start, end, box)."""
-    found: List[Tuple[int, int, int, Optional[List[int]]]] = []
+@dataclass
+class _LineSpan:
+    index: int  # position in the page's line_boxes list
+    start: int  # character offsets of the line's text in the page text
+    end: int
+    box: Optional[List[int]]
+    words: List[Tuple[int, int, List[int]]]  # (start, end, box) of each word, in page-text offsets
+
+
+def _clean_box(box: Any) -> Optional[List[int]]:
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        return [int(v) for v in box]
+    except (TypeError, ValueError):
+        return None
+
+
+def _word_offsets(line_text: str, line_start: int, words: Any) -> List[Tuple[int, int, List[int]]]:
+    """Finds each word of a line inside the line text, in order. Words that cannot be found are skipped."""
+    found: List[Tuple[int, int, List[int]]] = []
+    if not isinstance(words, list):
+        return found
+    cursor = 0
+    for word in words:
+        if not isinstance(word, dict):
+            continue
+        w_text = str(word.get("text") or "").strip()
+        box = _clean_box(word.get("box_2d"))
+        if not w_text or box is None:
+            continue
+        pos = line_text.find(w_text, cursor)
+        if pos == -1:
+            continue
+        cursor = pos + len(w_text)
+        found.append((line_start + pos, line_start + cursor, box))
+    return found
+
+
+def _line_offsets(page_text: str, line_boxes: Optional[Sequence[Dict[str, Any]]]) -> List[_LineSpan]:
+    """Finds each box line's text in the page text, in order."""
+    found: List[_LineSpan] = []
     if not line_boxes:
         return found
     cursor = 0
@@ -178,8 +217,32 @@ def _line_offsets(page_text: str, line_boxes: Optional[Sequence[Dict[str, Any]]]
                 continue
         else:
             cursor = pos + len(line_text)
-        found.append((idx, pos, pos + len(line_text), line.get("box_2d")))
+        found.append(_LineSpan(
+            index=idx,
+            start=pos,
+            end=pos + len(line_text),
+            box=_clean_box(line.get("box_2d")),
+            words=_word_offsets(line_text, pos, line.get("words")),
+        ))
     return found
+
+
+def _box_for_span(line: _LineSpan, start: int, end: int) -> Optional[List[int]]:
+    """The part of a line's box that the text span [start, end) covers.
+
+    Uses the line's word boxes when there are any (English text-layer pages), so a sentence
+    that starts or ends mid-line is marked on its own words only; otherwise the whole line box.
+    """
+    if line.words:
+        hit = [box for ws, we, box in line.words if ws < end and we > start]
+        if hit:
+            return [
+                min(b[0] for b in hit),
+                min(b[1] for b in hit),
+                max(b[2] for b in hit),
+                max(b[3] for b in hit),
+            ]
+    return list(line.box) if line.box else None
 
 
 class SentenceIndex:
@@ -202,11 +265,12 @@ class SentenceIndex:
             for n, (s, e) in enumerate(split_sentence_spans(text), start=1):
                 sid = f"p{p_no}.s{n}"
                 sentence = Sentence(id=sid, page_number=p_no, index=n, start=s, end=e, text=text[s:e])
-                for line_idx, ls, le, box in lines:
-                    if ls < e and le > s:
-                        sentence.line_indexes.append(line_idx)
+                for line in lines:
+                    if line.start < e and line.end > s:
+                        box = _box_for_span(line, s, e)
                         if box:
-                            sentence.boxes.append(list(box))
+                            sentence.line_indexes.append(line.index)
+                            sentence.boxes.append(box)
                 index.sentences[sid] = sentence
                 ids.append(sid)
             index.order[p_no] = ids
@@ -272,14 +336,20 @@ class SentenceIndex:
                 "text": page_text[run[0].start:run[-1].end],
                 "sentence_ids": [s.id for s in run],
             })
-        seen = set()
+        # One box per printed line. Two quoted sentences that share a line widen that line's box.
+        by_line: Dict[Tuple[int, int], Dict[str, Any]] = {}
         for sid in clean:
             s = self.sentences[sid]
             for line_idx, box in zip(s.line_indexes, s.boxes):
                 key = (s.page_number, line_idx)
-                if key not in seen:
-                    seen.add(key)
-                    boxes.append({"page_number": s.page_number, "line_index": line_idx, "box_2d": box})
+                held = by_line.get(key)
+                if held is None:
+                    held = {"page_number": s.page_number, "line_index": line_idx, "box_2d": list(box)}
+                    by_line[key] = held
+                    boxes.append(held)
+                else:
+                    old = held["box_2d"]
+                    held["box_2d"] = [min(old[0], box[0]), min(old[1], box[1]), max(old[2], box[2]), max(old[3], box[3])]
 
         quote = " … ".join(f["text"] for f in fragments)
         return QuoteSpan(

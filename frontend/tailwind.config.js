@@ -34,6 +34,7 @@ module.exports = {
         bad: { DEFAULT: token("bad"), soft: token("bad-soft") },
         info: { DEFAULT: token("info"), soft: token("info-soft") },
         muted: { DEFAULT: token("muted"), soft: token("muted-soft") },
+        marker: { DEFAULT: token("marker"), edge: token("marker-edge") },
       },
       fontFamily: {
         sans: ["var(--font-latin)", "var(--font-bangla)", "system-ui", "sans-serif"],

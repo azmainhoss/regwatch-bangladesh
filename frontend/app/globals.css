@@ -32,6 +32,10 @@
   --muted-soft: 234 238 236;
   --shadow: 20 40 32;
   --highlight: 255 236 168;
+  /* Marker drawn over quoted lines on the page image. The page itself stays white
+     paper in both themes, so the marker is the same yellow in both. */
+  --marker: 250 204 21;
+  --marker-edge: 202 138 4;
   color-scheme: light;
 }
 
@@ -60,6 +64,8 @@ html.dark {
   --muted-soft: 33 40 37;
   --shadow: 0 0 0;
   --highlight: 112 92 24;
+  --marker: 250 204 21;
+  --marker-edge: 234 179 8;
   color-scheme: dark;
 }
 

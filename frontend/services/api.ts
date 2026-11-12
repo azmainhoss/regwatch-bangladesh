@@ -110,6 +110,25 @@ export interface DocumentPage {
   /** SUCCESS_NATIVE, PENDING_VISION, NEEDS_HUMAN_REVIEW, ... */
   quality_status?: string;
   vision_error?: string | null;
+  /** One entry per printed line, boxes on a 0-1000 page scale ([ymin, xmin, ymax, xmax]). */
+  line_boxes?: LineBox[] | null;
+}
+
+/** A box on a 0-1000 page scale: [ymin, xmin, ymax, xmax]. */
+export type Box2D = [number, number, number, number];
+
+export interface LineBox {
+  text: string;
+  box_2d: Box2D;
+  /** English text-layer pages also list each word with its own box. */
+  words?: Array<{ text: string; box_2d: Box2D }>;
+}
+
+/** Where a quote sits on the original page: one box per printed line it covers. */
+export interface QuoteBox {
+  page_number: number;
+  line_index: number;
+  box_2d: Box2D;
 }
 
 export interface DocumentItem {
@@ -442,6 +461,22 @@ export async function reextractDocument(documentId: string): Promise<ReextractRe
   return res.json();
 }
 
+/**
+ * One page of the original PDF as an image (GET .../pages/{n}/image). Fetched with the
+ * sign-in token, because private circulars need it, and returned as an object URL.
+ */
+export async function fetchPageImage(
+  documentId: string,
+  versionId: string,
+  pageNo: number,
+  dpi = 144,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages/${pageNo}/image?dpi=${dpi}`, { signal });
+  if (!res.ok) await throwApiError(res, "Could not load the page image");
+  return URL.createObjectURL(await res.blob());
+}
+
 export async function fetchDocumentPages(documentId: string, versionId: string): Promise<DocumentPage[]> {
   const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages`, { cache: "no-store" });
   if (!res.ok) await throwApiError(res, "Failed to fetch document pages");
@@ -585,6 +620,8 @@ export interface ProvisionItem {
   heading?: string;
   verbatim_text: string;
   order_index: number;
+  quote_span_ids?: string[] | null;
+  quote_boxes?: QuoteBox[] | null;
 }
 
 export interface ObligationItem {
@@ -595,6 +632,8 @@ export interface ObligationItem {
   title: string;
   requirement_description: string;
   supporting_text: string;
+  quote_span_ids?: string[] | null;
+  quote_boxes?: QuoteBox[] | null;
   applicability_summary: string;
   explicit_deadline?: string;
   frequency: string;
@@ -608,6 +647,8 @@ export interface RelationshipItem {
   target_reference_hint?: string;
   relationship_type: string;
   supporting_quote: string;
+  quote_span_ids?: string[] | null;
+  quote_boxes?: QuoteBox[] | null;
   confidence: number;
   verification_status: string;
 }

@@ -14,7 +14,7 @@ source site are not used.
 """
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 TEXT_LAYER = "TEXT_LAYER"
 VISION = "VISION"
@@ -116,17 +116,39 @@ def _norm_box(bbox, width: float, height: float) -> List[int]:
     return [scale(y0, height), scale(x0, width), scale(y1, height), scale(x1, width)]
 
 
-def text_layer_lines(page_dict: Dict[str, Any], width: float, height: float) -> List[Dict[str, Any]]:
-    """One entry per text line: its text and its box (0-1000, [ymin, xmin, ymax, xmax])."""
+def text_layer_lines(
+    page_dict: Dict[str, Any],
+    width: float,
+    height: float,
+    words: Optional[Sequence[Sequence[Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """One entry per text line: its text and its box (0-1000, [ymin, xmin, ymax, xmax]).
+
+    When PyMuPDF's `get_text("words")` output is given, each line also lists its words with
+    their own boxes ({"text", "box_2d"}), so a quote that starts or ends mid-line can be
+    highlighted on exactly the words it covers.
+    """
+    by_line: Dict[Tuple[int, int], List[Dict[str, Any]]] = {}
+    for w in words or []:
+        if len(w) < 7 or not str(w[4]).strip():
+            continue
+        by_line.setdefault((int(w[5]), int(w[6])), []).append(
+            {"text": str(w[4]), "box_2d": _norm_box(w[:4], width, height)}
+        )
     lines: List[Dict[str, Any]] = []
-    for block in page_dict.get("blocks", []):
+    for b_idx, block in enumerate(page_dict.get("blocks", [])):
         if block.get("type", 0) != 0:
             continue
-        for line in block.get("lines", []):
+        block_no = block.get("number", b_idx)
+        for l_idx, line in enumerate(block.get("lines", [])):
             text = "".join(span.get("text", "") for span in line.get("spans", []))
             if not text.strip():
                 continue
-            lines.append({"text": text.strip(), "box_2d": _norm_box(line["bbox"], width, height)})
+            entry: Dict[str, Any] = {"text": text.strip(), "box_2d": _norm_box(line["bbox"], width, height)}
+            line_words = by_line.get((block_no, l_idx))
+            if line_words:
+                entry["words"] = line_words
+            lines.append(entry)
     return lines
 
 
@@ -169,5 +191,26 @@ def route_page(page) -> PageRoute:
         if bangla / len(visible) >= BANGLA_SHARE:
             return PageRoute(VISION, REASON_BANGLA_UNICODE, text, fonts, language="bn")
 
-    lines = text_layer_lines(page_dict, rect.width, rect.height)
+    lines = text_layer_lines(page_dict, rect.width, rect.height, page.get_text("words"))
     return PageRoute(TEXT_LAYER, REASON_CLEAN_TEXT, text, fonts, lines, language="en")
+
+
+def text_layer_lines_by_page(pdf_bytes: bytes) -> Dict[int, List[Dict[str, Any]]]:
+    """Line and word boxes for every page of a PDF that is read from its text layer, by page number.
+
+    Pages that go to page-image reading are left out: their boxes come from that reading.
+    """
+    import pymupdf
+
+    out: Dict[int, List[Dict[str, Any]]] = {}
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
+        for i in range(len(doc)):
+            route = route_page(doc[i])
+            if route.route == TEXT_LAYER and route.line_boxes:
+                out[i + 1] = route.line_boxes
+    return out
+
+
+def has_word_boxes(line_boxes: Any) -> bool:
+    """True when stored line boxes already carry per-word boxes."""
+    return isinstance(line_boxes, list) and any(isinstance(l, dict) and l.get("words") for l in line_boxes)

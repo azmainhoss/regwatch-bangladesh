@@ -10,6 +10,7 @@ import {
   DocumentItem,
   DocumentPage,
   ObligationItem,
+  QuoteBox,
   RelationshipItem,
   documentPdfUrl,
   openDocumentPdf,
@@ -18,7 +19,7 @@ import {
   triggerDocumentAnalysis,
 } from "@/services/api";
 import StatusBadge, { PrivateTag, Tag } from "./StatusBadge";
-import PagePanel from "./PagePanel";
+import PagePanel, { type PageHighlight } from "./PagePanel";
 import { EASE_OUT, Notice, SkeletonLine, hasBangla, titleWithoutRef } from "./ui";
 
 export interface QaResponse {
@@ -38,8 +39,8 @@ interface Props {
   setPageNumber: (n: number) => void;
   pagePanelOpen: boolean;
   setPagePanelOpen: (open: boolean) => void;
-  highlight: string | null;
-  setHighlight: (q: string | null) => void;
+  highlight: PageHighlight | null;
+  setHighlight: (h: PageHighlight | null) => void;
   qaQuery: string;
   setQaQuery: (q: string) => void;
   qaLoading: boolean;
@@ -148,9 +149,9 @@ export default function CircularDetail(props: Props) {
   const isAdmin = !!currentUser?.is_superuser;
   const pageCount = doc.versions?.[0]?.page_count ?? pages.length;
 
-  const openPage = (n: number, quote?: string | null) => {
+  const openPage = (n: number, quote?: string | null, boxes?: QuoteBox[] | null) => {
     setPageNumber(n);
-    setHighlight(quote ?? null);
+    setHighlight(quote ? { text: quote, boxes: boxes ?? null, key: `${Date.now()}` } : null);
     setPagePanelOpen(true);
   };
 
@@ -337,7 +338,7 @@ export default function CircularDetail(props: Props) {
                     </blockquote>
                   )}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-3">
-                    <PageLink page={citedPage} onClick={() => citedPage && openPage(citedPage, obl.supporting_text)} />
+                    <PageLink page={citedPage} onClick={() => citedPage && openPage(citedPage, obl.supporting_text, obl.quote_boxes)} />
                     <span>Applies to: {obl.applicability_summary || "Not stated"}</span>
                     {obl.explicit_deadline && <span className="font-semibold text-warn">Deadline: {obl.explicit_deadline}</span>}
                   </div>
@@ -400,15 +401,21 @@ export default function CircularDetail(props: Props) {
       {relationships.length > 0 && (
         <Section title="Related circulars" count={relationships.length}>
           <ul className="divide-y divide-line">
-            {relationships.map((rel, idx) => (
-              <li key={rel.id ?? idx} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="refno">{rel.target_reference_hint || "Cited circular"}</span>
-                  <Tag tone="info">{readable(rel.relationship_type)}</Tag>
-                </div>
-                {rel.supporting_quote && <blockquote className="quote max-w-prose">&ldquo;{rel.supporting_quote}&rdquo;</blockquote>}
-              </li>
-            ))}
+            {relationships.map((rel, idx) => {
+              const relPage = rel.quote_boxes?.[0]?.page_number;
+              return (
+                <li key={rel.id ?? idx} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="refno">{rel.target_reference_hint || "Cited circular"}</span>
+                    <Tag tone="info">{readable(rel.relationship_type)}</Tag>
+                  </div>
+                  {rel.supporting_quote && <blockquote className="quote max-w-prose">&ldquo;{rel.supporting_quote}&rdquo;</blockquote>}
+                  {relPage && pages.length > 0 && (
+                    <PageLink page={relPage} onClick={() => openPage(relPage, rel.supporting_quote, rel.quote_boxes)} />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </Section>
       )}
@@ -559,6 +566,8 @@ export default function CircularDetail(props: Props) {
           >
             <div className="h-full shadow-pop xl:shadow-none">
               <PagePanel
+                documentId={doc.id}
+                versionId={doc.current_version_id || doc.versions?.[0]?.id}
                 pages={pages}
                 pageNumber={pageNumber}
                 onPageChange={(n) => {

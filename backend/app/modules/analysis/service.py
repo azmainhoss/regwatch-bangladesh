@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -7,17 +8,43 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.logging import logger
+from backend.app.core.storage import storage_service
 from backend.app.modules.analysis.leases import AnalysisLeaseManager
 from backend.app.modules.analysis.models import AnalysisClaim, ClaimCitation, DocumentAnalysis
 from backend.app.modules.analysis.pipeline import RegulatoryIntelligencePipeline, PipelineExecutionResult
 from backend.app.modules.analysis.providers.factory import get_ai_provider
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
+from backend.app.modules.extraction.page_router import has_word_boxes, text_layer_lines_by_page
 from backend.app.modules.obligations.models import Obligation
 from backend.app.modules.provisions.models import Provision
 from backend.app.modules.relationships.models import DocumentRelationship
 
 
 class AnalysisService:
+    @staticmethod
+    async def _fill_text_layer_word_boxes(version: DocumentVersion) -> int:
+        """Adds line and word boxes from the stored PDF to text-layer pages that lack word boxes.
+
+        Pages read from their image keep their own boxes. Returns how many pages were filled.
+        Any problem (missing file, unreadable PDF) leaves the pages as they were.
+        """
+        missing = [p for p in version.pages if (p.raw_text or p.cleaned_text) and not has_word_boxes(p.line_boxes)]
+        if not missing or not version.storage_path:
+            return 0
+        try:
+            pdf_bytes = storage_service.get_file_bytes(version.storage_path)
+            by_page = await asyncio.to_thread(text_layer_lines_by_page, pdf_bytes)
+        except Exception as e:
+            logger.info(f"Word boxes not added for version {version.id}: {e}")
+            return 0
+        filled = 0
+        for page in missing:
+            lines = by_page.get(page.page_number)
+            if lines:
+                page.line_boxes = lines
+                filled += 1
+        return filled
+
     @staticmethod
     async def analyze_document_version(
         db: AsyncSession,
@@ -76,6 +103,10 @@ class AnalysisService:
                 await db.rollback()
                 logger.error(f"Could not record failed analysis run for document {doc_id}: {lease_err}")
             logger.error(f"Analysis failed for document {doc_id}; previous results kept. Reason: {reason}")
+
+        # English text-layer pages read before word boxes were stored get them now, so their
+        # quotes can be marked on the page image word for word.
+        await AnalysisService._fill_text_layer_word_boxes(version)
 
         # Prepare page dictionary for pipeline
         pages_payload = [

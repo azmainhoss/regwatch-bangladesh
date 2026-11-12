@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     STORAGE_LOCAL_ROOT: str = "./storage"
     ORIGINALS_STORAGE_NAMESPACE: str = "originals"
     EVIDENCE_STORAGE_NAMESPACE: str = "evidence"
+    # Rendered page images for the source-page viewer. A cache only: safe to delete at any time.
+    # Empty means <STORAGE_LOCAL_ROOT>/page_images.
+    PAGE_IMAGE_CACHE_DIR: Optional[str] = None
 
     # S3 Configuration
     S3_ENDPOINT_URL: Optional[str] = None

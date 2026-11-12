@@ -42,6 +42,7 @@ storage/originals/*
 !storage/originals/.gitkeep
 storage/evidence/*
 !storage/evidence/.gitkeep
+storage/page_images/
 data/*.db
 data/*.sqlite
 *.sqlite3

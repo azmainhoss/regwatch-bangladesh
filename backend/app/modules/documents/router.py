@@ -539,3 +539,50 @@ async def stream_document_pdf(
             "Cache-Control": "public, max-age=86400" if doc.owner_user_id is None else "private, no-store"
         }
     )
+
+
+@router.get("/{document_id}/versions/{version_id}/pages/{page_no}/image")
+async def get_page_image(
+    document_id: UUID,
+    version_id: UUID,
+    page_no: int,
+    dpi: Optional[int] = Query(None, ge=48, le=300, description="Resolution; snapped to 96, 144 or 192."),
+    format: str = Query("webp", pattern="^(webp|png)$"),
+    current_user: Optional[User] = Depends(get_document_reader),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    One page of the original PDF as an image, for showing quotes on the page.
+    Same access rules as the other document endpoints: shared circulars for everyone,
+    private uploads only for their owner, 404 otherwise. Images are cached on disk by
+    version, page and resolution.
+    """
+    from backend.app.modules.documents import page_images
+
+    doc = await get_visible_document(db, document_id, current_user)
+    version = await get_visible_version(db, document_id, version_id, current_user)
+    if page_no < 1 or (version.page_count and page_no > version.page_count):
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    snapped = page_images.snap_dpi(dpi)
+
+    def load_pdf() -> bytes:
+        return storage_service.get_file_bytes(version.storage_path)
+
+    try:
+        data, _cached = await asyncio.to_thread(
+            page_images.get_page_image, str(version.id), page_no, snapped, format, load_pdf
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Original PDF file is missing from storage")
+    except page_images.PageNotFound:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    return Response(
+        content=data,
+        media_type=page_images.FORMATS[format],
+        headers={
+            "Cache-Control": "public, max-age=86400" if doc.owner_user_id is None else "private, no-store",
+            "X-Page-Dpi": str(snapped),
+        },
+    )

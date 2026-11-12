@@ -26,6 +26,7 @@ import {
 import AccountModal from "@/components/AccountModal";
 import MyCircularUpload from "@/components/MyCircularUpload";
 import CircularDetail, { QaResponse } from "@/components/CircularDetail";
+import type { PageHighlight } from "@/components/PagePanel";
 import StatusBadge, { PrivateTag } from "@/components/StatusBadge";
 import { SEARCH_INPUT_ID } from "@/components/AppHeader";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
@@ -61,7 +62,7 @@ export default function CircularsPage() {
   const [docPages, setDocPages] = useState<DocumentPage[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
   const [pagePanelOpen, setPagePanelOpen] = useState(false);
-  const [highlight, setHighlight] = useState<string | null>(null);
+  const [highlight, setHighlight] = useState<PageHighlight | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
@@ -99,7 +100,8 @@ export default function CircularsPage() {
     setDetailLoading(true);
 
     if (doc.versions && doc.versions.length > 0) {
-      fetchDocumentPages(doc.id, doc.versions[0].id)
+      // The current version is the one the analysis and its quotes point at.
+      fetchDocumentPages(doc.id, doc.current_version_id || doc.versions[0].id)
         .then((pages) => token === selectionToken.current && setDocPages(pages))
         .catch(() => token === selectionToken.current && setDocPages([]));
     } else {
