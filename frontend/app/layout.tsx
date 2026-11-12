@@ -1,59 +1,63 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { JetBrains_Mono, Noto_Sans_Bengali, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import AppHeader from "../components/AppHeader";
+import Providers from "../components/Providers";
+
+const latin = Source_Sans_3({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-latin",
+  display: "swap",
+});
+
+const bangla = Noto_Sans_Bengali({
+  subsets: ["bengali"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-bangla",
+  display: "swap",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "RegWatch Bangladesh | Regulatory Intelligence & Compliance Platform",
-  description: "Enterprise Bangladesh-first Regulatory Intelligence Platform for Banks, NBFIs, and Financial Institutions. Visual Direction 04 Deep Teal & Turquoise.",
+  title: "RegWatch Bangladesh",
+  description: "Bangladesh Bank circulars with page-cited analysis for bank compliance teams.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f7f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1311" },
+  ],
+};
+
+// Runs before paint so a saved dark choice never flashes light first.
+const themeScript = `try{if(localStorage.getItem('theme')==='dark'){document.documentElement.classList.add('dark');document.documentElement.style.colorScheme='dark'}}catch(e){}`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className={`${latin.variable} ${bangla.variable} ${mono.variable}`}>
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              try {
-                var stored = localStorage.getItem('theme');
-                if (stored === 'light') {
-                  document.documentElement.classList.remove('dark');
-                  document.documentElement.classList.add('light');
-                } else {
-                  document.documentElement.classList.remove('light');
-                  document.documentElement.classList.add('dark');
-                }
-              } catch (e) {}
-            `,
-          }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 text-slate-100 dark:text-slate-100 light:text-tealNavy-950 min-h-screen flex flex-col antialiased transition-colors">
-        {/* Visual Direction 04 App Terminal Header */}
-        <AppHeader />
-
-        {/* Main Content Area */}
-        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
-        </main>
-
-        {/* Financial Terminal Footer */}
-        <footer className="border-t border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white text-slate-400 dark:text-slate-400 light:text-slate-600 text-xs py-6 transition-colors">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div>
-              2026 RegWatch Bangladesh. Grounded regulatory intelligence with strict page-level citation invariants.
+      <body className="flex min-h-[100dvh] flex-col">
+        <Providers>
+          <AppHeader />
+          <main className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+          <footer className="border-t border-line">
+            <div className="mx-auto flex max-w-[1480px] flex-col gap-1 px-4 py-5 text-[13px] text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+              <span>RegWatch Bangladesh. Every finding links back to the page it came from.</span>
+              <span>Source: Bangladesh Bank circulars</span>
             </div>
-            <div className="flex items-center space-x-4 font-mono text-[11px] text-slate-400 dark:text-slate-400 light:text-slate-500">
-              <span>Coverage: Bangladesh Bank (BRPD, DOS, SMESPD, FEPD, PSD)</span>
-              <span>-</span>
-              <span className="text-turquoise dark:text-turquoise light:text-teal-700">SHA-256 Verified Immutability</span>
-            </div>
-          </div>
-        </footer>
+          </footer>
+        </Providers>
       </body>
     </html>
   );

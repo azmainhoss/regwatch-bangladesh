@@ -1,57 +1,60 @@
 /** @type {import('tailwindcss').Config} */
+
+// Every colour reads from a CSS variable holding RGB channels, so one class
+// (e.g. `bg-surface`) serves both themes. Values live in app/globals.css.
+const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
+
 module.exports = {
-  darkMode: 'class',
+  darkMode: "class",
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./features/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
       colors: {
-        // Visual Direction 04: Deep Teal + Turquoise
-        tealNavy: {
-          950: "#101B24", // Deep navy-teal background
-          900: "#142A32", // Dark teal cards
-          850: "#19313A", // Elevated surface
-          800: "#203B44", // Secondary surface
-          700: "#29464E", // Border
-          600: "#365963",
-          500: "#497480",
+        canvas: token("canvas"),
+        surface: token("surface"),
+        sunken: token("sunken"),
+        line: token("line"),
+        "line-strong": token("line-strong"),
+        ink: {
+          DEFAULT: token("ink"),
+          2: token("ink-2"),
+          3: token("ink-3"),
         },
-        turquoise: {
-          DEFAULT: "#2DD4BF", // Primary accent
-          bright: "#5EEAD4",  // Bright turquoise highlight
-          soft: "#99F6E4",    // Soft teal
-          dark: "#134E4A",    // Deep teal accent
-          50: "#F0FDFA",
-          100: "#CCFBF1",
-          200: "#99F6E4",
-          300: "#5EEAD4",
-          400: "#2DD4BF",
-          500: "#14B8A6",
-          600: "#0D9488",
-          700: "#0F766E",
-          800: "#115E59",
-          900: "#134E4A",
-          950: "#042F2E",
+        accent: {
+          DEFAULT: token("accent"),
+          hover: token("accent-hover"),
+          soft: token("accent-soft"),
+          ink: token("accent-ink"),
         },
-        semantic: {
-          success: "#34D399",
-          warning: "#FBBF24",
-          danger: "#F87171",
-          info: "#60A5FA",
-        }
+        ok: { DEFAULT: token("ok"), soft: token("ok-soft") },
+        warn: { DEFAULT: token("warn"), soft: token("warn-soft") },
+        bad: { DEFAULT: token("bad"), soft: token("bad-soft") },
+        info: { DEFAULT: token("info"), soft: token("info-soft") },
+        muted: { DEFAULT: token("muted"), soft: token("muted-soft") },
       },
       fontFamily: {
-        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
-        mono: ["SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", "monospace"],
-      }
+        sans: ["var(--font-latin)", "var(--font-bangla)", "system-ui", "sans-serif"],
+        bangla: ["var(--font-bangla)", "var(--font-latin)", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "Consolas", "monospace"],
+      },
+      fontSize: {
+        "2xs": ["0.6875rem", { lineHeight: "1rem" }],
+      },
+      borderRadius: {
+        control: "6px",
+        panel: "10px",
+      },
+      boxShadow: {
+        panel: "0 1px 2px rgb(var(--shadow) / 0.06), 0 4px 16px -8px rgb(var(--shadow) / 0.12)",
+        pop: "0 2px 6px rgb(var(--shadow) / 0.08), 0 24px 48px -16px rgb(var(--shadow) / 0.28)",
+      },
+      maxWidth: {
+        prose: "68ch",
+      },
     },
   },
-  plugins: [
-    function({ addVariant }) {
-      addVariant('light', '&:where(.light, .light *)');
-    }
-  ],
-}
+  plugins: [],
+};

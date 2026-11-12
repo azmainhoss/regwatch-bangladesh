@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Lock, UploadCloud } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown, Lock, UploadCloud } from "lucide-react";
 import { Institution, uploadDocument } from "@/services/api";
+import { EASE_OUT, Notice } from "./ui";
 
 interface Props {
   institutions: Institution[];
@@ -19,6 +21,7 @@ export default function MyCircularUpload({ institutions, onUploaded }: Props) {
   const [pubDate, setPubDate] = useState(new Date().toISOString().split("T")[0]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [fileKey, setFileKey] = useState(0);
 
   const chosenInstitution = institutionId || institutions[0]?.id || "";
 
@@ -41,6 +44,7 @@ export default function MyCircularUpload({ institutions, onUploaded }: Props) {
       const result = await uploadDocument(formData);
       setMessage({ type: "success", text: `Added "${result.document.title}" to your private circulars.` });
       setFile(null);
+      setFileKey((k) => k + 1);
       setTitle("");
       setRefNumber("");
       onUploaded();
@@ -51,65 +55,90 @@ export default function MyCircularUpload({ institutions, onUploaded }: Props) {
     }
   };
 
-  const inputClass =
-    "w-full bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-lg px-3 py-1.5 text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise";
-
   return (
-    <div className="border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 bg-tealNavy-900/80 dark:bg-tealNavy-900/80 light:bg-white rounded-xl p-4 text-xs">
+    <div className="rounded-panel border border-line bg-surface">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between font-mono font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left"
       >
-        <span className="flex items-center gap-2">
-          <Lock className="w-3.5 h-3.5 text-turquoise" />
-          My circulars, only you can see these
+        <span className="flex items-center gap-2 text-[14px] font-semibold text-ink">
+          <Lock className="h-4 w-4 text-ink-3" strokeWidth={1.75} />
+          Add a private circular
         </span>
-        <span className="text-turquoise">{open ? "Close" : "Upload a PDF"}</span>
+        <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }} className="text-ink-3">
+          <ChevronDown className="h-4 w-4" />
+        </motion.span>
       </button>
 
-      {open && (
-        <form onSubmit={handleSubmit} className="space-y-2.5 mt-3">
-          <p className="text-slate-400">
-            Files you add here are private. Nobody else, including administrators, can see them.
-          </p>
-          <input
-            type="file"
-            accept=".pdf"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-turquoise file:text-tealNavy-950 cursor-pointer"
-          />
-          <select value={chosenInstitution} onChange={(e) => setInstitutionId(e.target.value)} className={inputClass}>
-            {institutions.map((inst) => (
-              <option key={inst.id} value={inst.id}>
-                {inst.name} ({inst.code})
-              </option>
-            ))}
-          </select>
-          <input type="text" placeholder="Title *" value={title} onChange={(e) => setTitle(e.target.value)} className={inputClass} />
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="text"
-              placeholder="Reference number"
-              value={refNumber}
-              onChange={(e) => setRefNumber(e.target.value)}
-              className={`${inputClass} font-mono`}
-            />
-            <input type="date" value={pubDate} onChange={(e) => setPubDate(e.target.value)} className={`${inputClass} font-mono`} />
-          </div>
-          {message && (
-            <p className={message.type === "success" ? "text-emerald-400" : "text-rose-300"}>{message.text}</p>
-          )}
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-2 bg-turquoise hover:bg-turquoise-bright disabled:opacity-50 text-tealNavy-950 font-bold rounded-lg flex items-center justify-center gap-2 font-mono"
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: EASE_OUT }}
+            className="overflow-hidden"
           >
-            <UploadCloud className="w-3.5 h-3.5" />
-            <span>{busy ? "Uploading..." : "Upload privately"}</span>
-          </button>
-        </form>
-      )}
+            <form onSubmit={handleSubmit} className="space-y-3 border-t border-line px-3.5 pb-3.5 pt-3">
+              <p className="text-[13px] leading-relaxed text-ink-3">
+                Only you can see files you add here. Administrators cannot see them either.
+              </p>
+              <div>
+                <label htmlFor="my-file" className="field-label">
+                  PDF file
+                </label>
+                <input
+                  key={fileKey}
+                  id="my-file"
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="w-full cursor-pointer text-[13px] text-ink-2 file:mr-3 file:cursor-pointer file:rounded-control file:border file:border-line-strong file:bg-sunken file:px-3 file:py-1.5 file:text-[13px] file:font-semibold file:text-ink hover:file:bg-line"
+                />
+              </div>
+              <div>
+                <label htmlFor="my-inst" className="field-label">
+                  Regulator
+                </label>
+                <select id="my-inst" value={chosenInstitution} onChange={(e) => setInstitutionId(e.target.value)} className="field">
+                  {institutions.map((inst) => (
+                    <option key={inst.id} value={inst.id}>
+                      {inst.name} ({inst.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="my-title" className="field-label">
+                  Title
+                </label>
+                <input id="my-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="field" required />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="my-ref" className="field-label">
+                    Reference number
+                  </label>
+                  <input id="my-ref" type="text" value={refNumber} onChange={(e) => setRefNumber(e.target.value)} className="field font-mono text-[13px]" />
+                </div>
+                <div>
+                  <label htmlFor="my-date" className="field-label">
+                    Date issued
+                  </label>
+                  <input id="my-date" type="date" value={pubDate} onChange={(e) => setPubDate(e.target.value)} className="field tabular-nums" />
+                </div>
+              </div>
+              {message && <Notice kind={message.type === "success" ? "success" : "error"}>{message.text}</Notice>}
+              <button type="submit" disabled={busy} className="btn-primary w-full py-2">
+                <UploadCloud className="h-4 w-4" strokeWidth={1.75} />
+                {busy ? "Uploading..." : "Upload privately"}
+              </button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

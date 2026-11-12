@@ -1,17 +1,31 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ShieldCheck, User, Search, Settings } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Search, UserRound } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
 import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "../services/api";
 
+export const SEARCH_INPUT_ID = "circular-search";
+
+function Mark() {
+  // The wordmark's square: a folded page corner, drawn with two rectangles.
+  return (
+    <span aria-hidden className="relative grid h-7 w-7 place-items-center rounded-[5px] bg-accent text-accent-ink">
+      <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-bl-[3px] bg-canvas/90" />
+      <span className="mt-1 text-[13px] font-bold leading-none">R</span>
+    </span>
+  );
+}
+
 export default function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
     // Show the cached session at once, then confirm it with the backend (GET /auth/me).
@@ -24,114 +38,114 @@ export default function AppHeader() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
-  const handleSearchClick = (e: React.MouseEvent) => {
-    if (pathname === "/") {
-      e.preventDefault();
-      const searchInput = document.querySelector<HTMLInputElement>("input[placeholder*='Search']");
-      if (searchInput) {
-        searchInput.focus();
-        searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
+  const focusSearch = () => {
+    const input = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
+    if (pathname === "/" && input) {
+      input.focus();
+      input.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      router.push("/");
     }
   };
 
+  const nav = [
+    { href: "/", label: "Circulars", show: true },
+    { href: "/admin", label: "Admin", show: !!currentUser?.is_superuser },
+  ].filter((n) => n.show);
+
+  const initials = currentUser?.full_name
+    ?.split(/\s+/)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
   return (
     <>
-      <header className="border-b border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 bg-tealNavy-900/95 dark:bg-tealNavy-900/95 light:bg-white/95 backdrop-blur sticky top-0 z-50 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Brand identity */}
-          <div className="flex items-center space-x-6">
-            <Link href="/" className="flex items-center space-x-3 group">
-              <div className="w-9 h-9 rounded-lg bg-tealNavy-800 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 flex items-center justify-center text-turquoise group-hover:border-turquoise group-hover:shadow-[0_0_12px_rgba(45,212,191,0.3)] transition">
-                <ShieldCheck className="w-5 h-5 text-turquoise" />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 font-semibold text-lg tracking-tight text-white dark:text-white light:text-tealNavy-950">
-                  <span>RegWatch</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-tealNavy-800 dark:bg-tealNavy-800 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-700 font-mono border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200 font-bold">
-                    BD
-                  </span>
-                </div>
-                <span className="text-[10px] text-slate-400 dark:text-slate-400 light:text-slate-500 block tracking-wider uppercase font-medium">
-                  Bangladesh Regulatory Intelligence
-                </span>
-              </div>
-            </Link>
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
+        <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="RegWatch home">
+            <Mark />
+            <span className="leading-tight">
+              <span className="block text-[15px] font-bold tracking-tight text-ink">RegWatch</span>
+              <span className="hidden text-2xs font-medium text-ink-3 sm:block">Bangladesh Bank circulars</span>
+            </span>
+          </Link>
 
-            {/* Primary Navigation: Circulars, Search, Account */}
-            <nav className="hidden md:flex items-center space-x-1 pl-4 border-l border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 text-sm font-medium">
-              <Link
-                href="/"
-                className={`px-3.5 py-1.5 rounded-lg transition ${pathname === "/"
-                    ? "bg-tealNavy-800 dark:bg-tealNavy-800 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-700 font-semibold border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200"
-                    : "text-slate-300 dark:text-slate-300 light:text-slate-600 hover:text-white dark:hover:text-white light:hover:text-tealNavy-950 hover:bg-tealNavy-850 dark:hover:bg-tealNavy-850 light:hover:bg-slate-100"
-                  }`}
-              >
-                Circulars
-              </Link>
-              <button
-                onClick={handleSearchClick}
-                className="px-3.5 py-1.5 rounded-lg text-slate-300 dark:text-slate-300 light:text-slate-600 hover:text-white dark:hover:text-white light:hover:text-tealNavy-950 hover:bg-tealNavy-850 dark:hover:bg-tealNavy-850 light:hover:bg-slate-100 transition flex items-center gap-1.5"
-              >
-                <Search className="w-3.5 h-3.5 text-slate-400" />
-                <span>Search</span>
-              </button>
-              <button
-                onClick={() => setIsAccountModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-lg text-slate-300 dark:text-slate-300 light:text-slate-600 hover:text-white dark:hover:text-white light:hover:text-tealNavy-950 hover:bg-tealNavy-850 dark:hover:bg-tealNavy-850 light:hover:bg-slate-100 transition flex items-center gap-1.5"
-              >
-                <User className="w-3.5 h-3.5 text-turquoise" />
-                <span>Account</span>
-              </button>
-              {currentUser?.is_superuser && (
+          <nav className="flex items-center gap-1 text-[14px] font-semibold" aria-label="Main">
+            {nav.map((item) => {
+              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              return (
                 <Link
-                  href="/admin"
-                  className={`px-3 py-1.5 rounded-lg transition text-xs flex items-center gap-1 ${pathname === "/admin"
-                      ? "bg-purple-950/80 text-purple-300 font-semibold border border-purple-800"
-                      : "text-slate-400 hover:text-white hover:bg-tealNavy-850"
-                    }`}
-                  title="Administrative Management Console"
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative rounded-control px-2.5 py-1.5 transition-colors ${active ? "text-ink" : "text-ink-3 hover:text-ink"}`}
                 >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Admin</span>
+                  {item.label}
+                  {active && (
+                    <motion.span
+                      layoutId="nav-underline"
+                      className="absolute inset-x-2.5 -bottom-[11px] h-[2px] rounded-full bg-accent"
+                      transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                    />
+                  )}
                 </Link>
-              )}
-            </nav>
-          </div>
+              );
+            })}
+          </nav>
 
-          {/* User & Theme Controls */}
-          <div className="flex items-center space-x-3">
-            {/* User Session Pill */}
+          <div className="ml-auto flex items-center gap-2">
+            {pathname !== "/" && (
+            <>
             <button
-              onClick={() => setIsAccountModalOpen(true)}
-              className="flex items-center space-x-2 text-xs bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-slate-100 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-lg px-3 py-1.5 text-slate-200 dark:text-slate-200 light:text-tealNavy-950 hover:border-turquoise transition"
-              title="Click to view account details or sign in"
+              type="button"
+              onClick={focusSearch}
+              className="hidden h-9 items-center gap-2 rounded-control border border-line bg-surface px-3 text-[13px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink-2 md:flex md:w-56"
+            >
+              <Search className="h-4 w-4" strokeWidth={1.75} />
+              <span>Search circulars</span>
+            </button>
+            <button
+              type="button"
+              onClick={focusSearch}
+              aria-label="Search circulars"
+              className="grid h-9 w-9 place-items-center rounded-control border border-line text-ink-2 hover:bg-sunken md:hidden"
+            >
+              <Search className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setAccountOpen(true)}
+              className="flex h-9 items-center gap-2 rounded-control border border-line px-1.5 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
+              title={currentUser ? `Signed in as ${currentUser.email}` : "Sign in"}
             >
               {currentUser ? (
                 <>
-                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-                  <span className="font-medium truncate max-w-[140px] sm:max-w-[200px]">
-                    {currentUser.full_name}
+                  <span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-2xs font-bold text-accent">
+                    {initials || "U"}
                   </span>
+                  <span className="hidden max-w-[160px] truncate sm:inline">{currentUser.full_name}</span>
                 </>
               ) : (
                 <>
-                  <User className="w-3.5 h-3.5 text-turquoise" />
-                  <span className="font-medium">Sign In</span>
+                  <UserRound className="ml-1 h-4 w-4" strokeWidth={1.75} />
+                  <span className="pr-1.5 sm:pr-0">Sign in</span>
                 </>
               )}
             </button>
 
-            {/* Theme Toggle */}
             <ThemeToggle />
           </div>
         </div>
       </header>
 
-      {/* Account Modal */}
       <AccountModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
+        isOpen={accountOpen}
+        onClose={() => setAccountOpen(false)}
         currentUser={currentUser}
         onUserChange={setCurrentUser}
       />

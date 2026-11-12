@@ -2,76 +2,191 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Colour tokens as RGB channels. Light is the default; html.dark swaps them.
+  Ground is a cool registry white with a faint green cast; the single accent is
+  a bottle green taken from the national palette, kept deep so it reads as ink.
+*/
 :root {
-  --background: #101B24;
-  --foreground: #F1F5F9;
-  --surface-elevated: #19313A;
-  --surface-card: #142A32;
-  --border-color: #29464E;
-  --accent-turquoise: #2DD4BF;
+  --canvas: 245 247 245;
+  --surface: 255 255 255;
+  --sunken: 239 242 240;
+  --line: 222 227 224;
+  --line-strong: 196 204 200;
+  --ink: 22 30 27;
+  --ink-2: 72 84 79;
+  --ink-3: 104 116 111;
+  --accent: 14 105 77;
+  --accent-hover: 10 84 61;
+  --accent-soft: 229 241 235;
+  --accent-ink: 255 255 255;
+  --ok: 21 115 69;
+  --ok-soft: 229 244 235;
+  --warn: 146 92 0;
+  --warn-soft: 251 242 220;
+  --bad: 176 38 38;
+  --bad-soft: 252 233 231;
+  --info: 36 86 166;
+  --info-soft: 232 239 251;
+  --muted: 96 106 102;
+  --muted-soft: 234 238 236;
+  --shadow: 20 40 32;
+  --highlight: 255 236 168;
+  color-scheme: light;
 }
 
-html.light {
-  --background: #F8FAFC;
-  --foreground: #101B24;
-  --surface-elevated: #F1F5F9;
-  --surface-card: #FFFFFF;
-  --border-color: #E2E8F0;
-  --accent-turquoise: #0D9488;
+html.dark {
+  --canvas: 14 19 17;
+  --surface: 21 27 25;
+  --sunken: 27 34 31;
+  --line: 40 49 45;
+  --line-strong: 58 69 64;
+  --ink: 225 231 228;
+  --ink-2: 170 181 176;
+  --ink-3: 134 146 141;
+  --accent: 104 194 155;
+  --accent-hover: 134 211 177;
+  --accent-soft: 25 47 38;
+  --accent-ink: 9 26 19;
+  --ok: 110 196 142;
+  --ok-soft: 23 44 32;
+  --warn: 228 176 88;
+  --warn-soft: 50 39 17;
+  --bad: 238 128 120;
+  --bad-soft: 56 26 25;
+  --info: 132 172 236;
+  --info-soft: 24 35 57;
+  --muted: 150 160 156;
+  --muted-soft: 33 40 37;
+  --shadow: 0 0 0;
+  --highlight: 112 92 24;
+  color-scheme: dark;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Kalpurush", "SolaimanLipi", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.2s ease, color 0.2s ease;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-feature-settings: "kern", "liga";
+  }
+
+  ::selection {
+    background: rgb(var(--accent) / 0.22);
+    color: rgb(var(--ink));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+
+  input,
+  select,
+  textarea {
+    caret-color: rgb(var(--accent));
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(var(--ink-3));
+    opacity: 1;
+  }
+
+  /* Bangla script sits taller than Latin; give it room and the Bangla face first. */
+  :lang(bn) {
+    font-family: var(--font-bangla), var(--font-latin), sans-serif;
+    line-height: 1.85;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--line-strong)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--line-strong));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--ink-3));
+    background-clip: content-box;
+  }
 }
 
-/* Custom scrollbars with Deep Teal & Turquoise styling */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+@layer components {
+  .panel {
+    @apply bg-surface border border-line rounded-panel;
+  }
+
+  .field {
+    @apply w-full rounded-control border border-line-strong bg-surface px-3 py-2 text-sm text-ink
+      transition-colors duration-150 hover:border-ink-3 focus:border-accent focus:outline-none
+      focus:ring-2 focus:ring-accent/20 disabled:opacity-60;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-[13px] font-semibold text-ink-2;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-control px-3 py-1.5
+      text-[13px] font-semibold transition-colors duration-150 active:translate-y-px
+      disabled:cursor-not-allowed disabled:opacity-55 disabled:active:translate-y-0;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-accent-ink hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply btn border border-line-strong bg-surface text-ink hover:border-ink-3 hover:bg-sunken;
+  }
+  .btn-ghost {
+    @apply btn text-ink-2 hover:bg-sunken hover:text-ink;
+  }
+  .btn-danger {
+    @apply btn border border-bad/40 bg-surface text-bad hover:bg-bad-soft;
+  }
+
+  .section-title {
+    @apply text-[15px] font-semibold text-ink;
+  }
+
+  .meta {
+    @apply text-[13px] text-ink-3 tabular-nums;
+  }
+
+  .refno {
+    @apply text-[13px] font-semibold tabular-nums text-accent;
+  }
+
+  .quote {
+    @apply rounded-control border-l border-line-strong bg-sunken/70 px-3.5 py-2.5 text-[14px] leading-relaxed text-ink-2;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #101B24;
-}
-
-html.light ::-webkit-scrollbar-track {
-  background: #F1F5F9;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #203B44;
-  border-radius: 3px;
-}
-
-html.light ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #2DD4BF;
-}
-
-html.light ::-webkit-scrollbar-thumb:hover {
-  background: #0D9488;
-}
-
-/* Restrained Turquoise Glow Effect */
-.glow-turquoise-sm {
-  box-shadow: 0 0 15px -3px rgba(45, 212, 191, 0.15);
-}
-
-.glow-turquoise-md {
-  box-shadow: 0 0 25px -4px rgba(45, 212, 191, 0.25);
-}
-
-/* Bengali Typography readability */
-.bengali-text {
-  font-family: "Kalpurush", "SolaimanLipi", "Bangla", -apple-system, sans-serif;
-  line-height: 1.6;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

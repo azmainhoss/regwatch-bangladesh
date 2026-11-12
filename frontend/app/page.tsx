@@ -1,769 +1,81 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import {
-  Building2,
-  FileText,
-  Search,
-  ExternalLink,
-  BookOpen,
-  Calendar,
-  Clock,
-  ShieldCheck,
-  CheckCircle2,
-  AlertCircle,
-  FileSpreadsheet,
-  ChevronRight,
-  Send,
-  Download,
-  Filter,
-  Lock,
-  Sparkles,
-  RefreshCw,
-  ShieldAlert,
-  ArrowRight,
-  UserCheck,
-} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { FileSearch, Search, X } from "lucide-react";
 import {
   AUTH_CHANGED_EVENT,
   AuthUser,
-  DashboardStats,
   DocumentAnalysisData,
   DocumentItem,
   DocumentPage,
   Institution,
   ObligationItem,
-  ProvisionItem,
   RelationshipItem,
-  documentPdfUrl,
   fetchCurrentUser,
   fetchDocument,
   fetchDocumentAnalysis,
   fetchDocumentObligations,
   fetchDocumentPages,
-  fetchDocumentProvisions,
   fetchDocumentRelationships,
-  fetchDocumentStats,
   fetchDocuments,
   fetchInstitutions,
   getStoredUser,
-  openDocumentPdf,
   queryResearchAssistant,
-  reextractDocument,
-  triggerDocumentAnalysis,
-  reviewDocumentAnalysis,
 } from "@/services/api";
 import AccountModal from "@/components/AccountModal";
 import MyCircularUpload from "@/components/MyCircularUpload";
+import CircularDetail, { QaResponse } from "@/components/CircularDetail";
+import StatusBadge, { PrivateTag } from "@/components/StatusBadge";
+import { SEARCH_INPUT_ID } from "@/components/AppHeader";
+import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
-function PrivateBadge() {
-  return (
-    <span
-      title="Private: only you can see this circular"
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-200 border border-slate-600"
-    >
-      <Lock className="w-2.5 h-2.5" />
-      Private
-    </span>
-  );
+const DEPARTMENTS = [
+  { code: "ALL", label: "All" },
+  { code: "BRPD", label: "BRPD" },
+  { code: "DOS", label: "DOS" },
+  { code: "FEPD", label: "FEPD" },
+  { code: "PSD", label: "PSD" },
+  { code: "SMESPD", label: "SMESPD" },
+];
+
+function shortDate(value?: string) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function renderPublicationBadge(status: string) {
-  switch (status) {
-    case "PUBLISHED_HUMAN_REVIEWED":
-      return (
-        <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-emerald-950/80 dark:bg-emerald-950/80 light:bg-emerald-50 text-emerald-300 dark:text-emerald-300 light:text-emerald-700 border border-emerald-700/80 font-mono">
-          Verified by Compliance Officer
-        </span>
-      );
-    case "PUBLISHED_MACHINE_PROCESSED":
-      return (
-        <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-700 border border-turquoise/40 font-mono">
-          Automated Analysis — Awaiting Compliance Sign-Off
-        </span>
-      );
-    case "AWAITING_REVIEW":
-      return (
-        <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-amber-950/80 dark:bg-amber-950/80 light:bg-amber-50 text-amber-300 dark:text-amber-300 light:text-amber-700 border border-amber-600/70 font-mono">
-          Pending Review
-        </span>
-      );
-    default:
-      return (
-        <span className="text-[10px] px-2 py-0.5 rounded font-medium bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-slate-200 text-slate-300 dark:text-slate-300 light:text-slate-700 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 font-mono">
-          {status ? status.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "Unknown status"}
-        </span>
-      );
-  }
-}
-
-interface DetailProps {
-  selectedDoc: DocumentItem;
-  analysis: DocumentAnalysisData | null;
-  obligations: ObligationItem[];
-  provisions: ProvisionItem[];
-  relationships: RelationshipItem[];
-  docPages: DocumentPage[];
-  selectedPageNo: number;
-  setSelectedPageNo: (p: number) => void;
-  showPagesViewer: boolean;
-  setShowPagesViewer: (s: boolean | ((prev: boolean) => boolean)) => void;
-  qaQuery: string;
-  setQaQuery: (q: string) => void;
-  qaLoading: boolean;
-  qaResponse: any;
-  qaError: string | null;
-  handleRunQa: (e: React.FormEvent) => void;
-  currentUser: AuthUser | null;
-  onOpenAuthModal: () => void;
-  onRefreshDoc: () => void;
-}
-
-function CircularDetailView({
-  selectedDoc,
-  analysis,
-  obligations,
-  provisions,
-  relationships,
-  docPages,
-  selectedPageNo,
-  setSelectedPageNo,
-  showPagesViewer,
-  setShowPagesViewer,
-  qaQuery,
-  setQaQuery,
-  qaLoading,
-  qaResponse,
-  qaError,
-  handleRunQa,
-  currentUser,
-  onOpenAuthModal,
-  onRefreshDoc,
-}: DetailProps) {
-  const [adminAnalyzing, setAdminAnalyzing] = useState(false);
-  const [adminPublishing, setAdminPublishing] = useState(false);
-  const [adminReextracting, setAdminReextracting] = useState(false);
-  const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const handleAdminTriggerAnalysis = async () => {
-    try {
-      setAdminAnalyzing(true);
-      setAdminMessage(null);
-      await triggerDocumentAnalysis(selectedDoc.id, "gemini");
-      setAdminMessage({ type: "success", text: "Analysis finished. The document now needs a human sign-off." });
-      onRefreshDoc();
-    } catch (e: any) {
-      setAdminMessage({ type: "error", text: "Analysis failed: " + (e.message || String(e)) });
-    } finally {
-      setAdminAnalyzing(false);
-    }
-  };
-
-  const handleAdminSignOff = async () => {
-    try {
-      setAdminPublishing(true);
-      setAdminMessage(null);
-      const res = await reviewDocumentAnalysis(selectedDoc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
-      setAdminMessage({ type: "success", text: res?.message || `Status updated to ${res?.publication_status}.` });
-      onRefreshDoc();
-    } catch (e: any) {
-      setAdminMessage({ type: "error", text: "Sign-off failed: " + (e.message || String(e)) });
-    } finally {
-      setAdminPublishing(false);
-    }
-  };
-
-  const handleAdminReextract = async () => {
-    try {
-      setAdminReextracting(true);
-      setAdminMessage(null);
-      const res = await reextractDocument(selectedDoc.id);
-      const kept = res.human_corrections_preserved ?? 0;
-      setAdminMessage({
-        type: "success",
-        text: `${res.message} ${kept > 0 ? `${kept} human-corrected page(s) kept their corrected text.` : "No human corrections to keep."}`,
-      });
-      onRefreshDoc();
-    } catch (e: any) {
-      setAdminMessage({ type: "error", text: "Re-extraction failed: " + (e.message || String(e)) });
-    } finally {
-      setAdminReextracting(false);
-    }
-  };
-
-  return (
-    <div className="border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 bg-tealNavy-900/90 dark:bg-tealNavy-900/90 light:bg-white rounded-2xl p-6 space-y-6 shadow-xl transition-colors">
-      {/* Admin Action Bar (Only visible if superuser) */}
-      {currentUser?.is_superuser && (
-        <div className="p-3 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-amber-50 border border-tealNavy-800 dark:border-tealNavy-800 light:border-amber-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800 font-mono font-bold text-[10px]">
-              ADMIN CONTROLS
-            </span>
-            <span className="text-slate-300 dark:text-slate-300 light:text-amber-900 font-mono text-[11px]">
-              Status: {selectedDoc.publication_status}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleAdminTriggerAnalysis}
-              disabled={adminAnalyzing}
-              className="px-2.5 py-1 rounded bg-turquoise text-tealNavy-950 font-bold font-mono text-[11px] hover:bg-turquoise-bright transition disabled:opacity-50 flex items-center gap-1"
-            >
-              <RefreshCw className={`w-3 h-3 ${adminAnalyzing ? "animate-spin" : ""}`} />
-              <span>{adminAnalyzing ? "Analyzing..." : "Run AI Analysis"}</span>
-            </button>
-            <button
-              onClick={handleAdminSignOff}
-              disabled={adminPublishing}
-              className="px-2.5 py-1 rounded border border-emerald-700 bg-emerald-950 text-emerald-300 font-mono text-[11px] hover:bg-emerald-900 transition disabled:opacity-50"
-            >
-              {adminPublishing ? "Signing Off..." : "Approve & Sign Off"}
-            </button>
-            <button
-              onClick={handleAdminReextract}
-              disabled={adminReextracting}
-              className="px-2.5 py-1 rounded border border-tealNavy-700 bg-tealNavy-850 text-slate-300 font-mono text-[11px] hover:text-white transition disabled:opacity-50"
-            >
-              {adminReextracting ? "Re-extracting..." : "Re-extract Pages"}
-            </button>
-            <Link
-              href="/admin"
-              className="px-2.5 py-1 rounded border border-tealNavy-700 bg-tealNavy-850 text-slate-300 font-mono text-[11px] hover:text-white"
-            >
-              Console
-            </Link>
-          </div>
-          {adminMessage && (
-            <div
-              className={`w-full font-mono text-[10px] pt-1 border-t border-tealNavy-900 ${
-                adminMessage.type === "error" ? "text-rose-300" : "text-turquoise"
-              }`}
-            >
-              {adminMessage.text}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 1. Official Title, Reference & Original PDF Header (Always Visible) */}
-      <div className="space-y-2 border-b border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 pb-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <span className="text-xs font-mono font-bold text-turquoise dark:text-turquoise light:text-teal-700 px-2 py-0.5 rounded bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-teal-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200">
-            {selectedDoc.reference_number || "OFFICIAL CIRCULAR"}
-          </span>
-          <div className="flex items-center space-x-2">
-            {selectedDoc.is_private && <PrivateBadge />}
-            {selectedDoc.is_private && !selectedDoc.source_url ? (
-              <button
-                type="button"
-                onClick={() => openDocumentPdf(selectedDoc.id).catch((err) => alert(err.message))}
-                className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Open PDF</span>
-              </button>
-            ) : (
-              <a
-                href={selectedDoc.source_url || documentPdfUrl(selectedDoc.id)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-semibold bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 shadow-sm font-mono"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Official Circular</span>
-              </a>
-            )}
-          </div>
-        </div>
-
-        <h2 className="text-xl font-bold text-white dark:text-white light:text-tealNavy-950 mt-2 leading-snug">
-          {selectedDoc.title}
-        </h2>
-
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 font-mono pt-1">
-          <span>Published: {selectedDoc.publication_date}</span>
-          {selectedDoc.effective_date && <span>Effective: {selectedDoc.effective_date}</span>}
-          <span>Authority: Bangladesh Bank</span>
-          <span>•</span>
-          {renderPublicationBadge(selectedDoc.publication_status)}
-        </div>
-      </div>
-
-      {/* Analytics Body: Gated for Unauthenticated Visitors */}
-      {currentUser ? (
-        <div className="space-y-6">
-          {/* 2. Short Executive Summary */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              1. Executive Summary
-            </h3>
-            <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-              {analysis?.executive_summary ? (
-                <p className="text-sm text-slate-200 dark:text-slate-200 light:text-tealNavy-950 leading-relaxed">
-                  {analysis.executive_summary}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-slate-300 dark:text-slate-300 light:text-tealNavy-950 leading-relaxed">
-                    {selectedDoc.title_bn || selectedDoc.title}
-                  </p>
-                  <div className="pt-2 border-t border-tealNavy-900 dark:border-tealNavy-900 light:border-slate-200 flex items-center justify-between text-xs">
-                    <span className="text-amber-400 font-mono">
-                      AI intelligence extraction pending for this circular.
-                    </span>
-                    {currentUser?.is_superuser && (
-                      <button
-                        onClick={handleAdminTriggerAnalysis}
-                        disabled={adminAnalyzing}
-                        className="text-turquoise hover:underline font-mono font-bold"
-                      >
-                        {adminAnalyzing ? "Extracting..." : "Run AI Analysis"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {analysis?.purpose && (
-                <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-2 pt-2 border-t border-tealNavy-900 dark:border-tealNavy-900 light:border-slate-200 leading-relaxed">
-                  <strong className="text-slate-300 dark:text-slate-300 light:text-slate-700">Regulatory Purpose:</strong> {analysis.purpose}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* 3. What Has Changed */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              2. What Has Changed
-            </h3>
-            <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-              {(() => {
-                let changes: any[] = [];
-                if (Array.isArray(analysis?.key_changes)) {
-                  changes = analysis.key_changes;
-                } else if (typeof analysis?.key_changes === "string") {
-                  try {
-                    const parsed = JSON.parse(analysis.key_changes);
-                    changes = Array.isArray(parsed) ? parsed : [analysis.key_changes];
-                  } catch {
-                    changes = [analysis.key_changes];
-                  }
-                }
-                if (changes && changes.length > 0) {
-                  return (
-                    <ul className="space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
-                      {changes.map((change, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-turquoise shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">
-                            {typeof change === "string" ? change : JSON.stringify(change)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  );
-                }
-                if (analysis) {
-                  return (
-                    <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
-                      No standalone amendments to prior circulars listed; direct operational requirements are itemized below.
-                    </p>
-                  );
-                }
-                return (
-                  <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
-                    Awaiting AI intelligence extraction to index regulatory amendments.
-                  </p>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* Related Circulars & Prior Directives */}
-          {relationships && relationships.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-                  3. Antecedent &amp; Related Circulars ({relationships.length})
-                </h3>
-                <span className="text-[11px] text-slate-400 font-mono">Regulatory Lineage</span>
-              </div>
-              <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-3">
-                {relationships.map((rel, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-tealNavy-900/80 dark:bg-tealNavy-900/80 light:bg-white rounded-lg border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-xs font-bold text-slate-100 dark:text-slate-100 light:text-tealNavy-950 font-mono">
-                        {rel.target_reference_hint || "Cited Circular Reference"}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-800 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200 font-semibold">
-                        {rel.relationship_type}
-                      </span>
-                    </div>
-                    {rel.supporting_quote && (
-                      <div className="text-[11px] font-mono text-slate-400 dark:text-slate-400 light:text-slate-600 italic">
-                        &ldquo;{rel.supporting_quote}&rdquo;
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 4. Key Requirements & Action Items */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-                {relationships && relationships.length > 0 ? "4. Key Requirements" : "3. Key Requirements"} ({obligations.length})
-              </h3>
-              <span className="text-[11px] text-slate-400 font-mono">Actionable Obligations</span>
-            </div>
-            <div className="space-y-3">
-              {obligations.length === 0 ? (
-                <div className="p-4 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 space-y-2 text-xs text-slate-400">
-                  <p>No actionable obligations indexed yet for this circular.</p>
-                  {!analysis && currentUser?.is_superuser && (
-                    <button
-                      onClick={handleAdminTriggerAnalysis}
-                      disabled={adminAnalyzing}
-                      className="text-turquoise hover:underline font-mono"
-                    >
-                      {adminAnalyzing ? "Extracting obligations..." : "Click to run AI obligation extraction"}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                obligations.map((obl) => {
-                  const citedPage = docPages.find((p) => p.id === obl.page_id)?.page_number;
-                  return (
-                    <div
-                      key={obl.id}
-                      className="p-3.5 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-sm text-slate-100 dark:text-slate-100 light:text-tealNavy-950">
-                          {obl.title}
-                        </span>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-100 text-turquoise dark:text-turquoise light:text-teal-800 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200 font-bold">
-                          {obl.obligation_type}
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-slate-300 dark:text-slate-300 light:text-slate-700 leading-relaxed">
-                        {obl.requirement_description}
-                      </p>
-
-                      <div className="bg-tealNavy-900/90 dark:bg-tealNavy-900/90 light:bg-white p-2.5 rounded-lg border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 text-[11px] font-mono text-slate-400 dark:text-slate-400 light:text-slate-600 italic">
-                        &ldquo;{obl.supporting_text}&rdquo;
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1 flex-wrap gap-2">
-                        <span>Target: {obl.applicability_summary || "Not stated"}</span>
-                        <div className="flex items-center gap-3">
-                          {obl.explicit_deadline && (
-                            <span className="text-turquoise font-semibold">
-                              Deadline: {obl.explicit_deadline}
-                            </span>
-                          )}
-                          <span>{citedPage ? `Page ${citedPage}` : "Page not linked"}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* 5. Affected Departments & Institutions */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              {relationships && relationships.length > 0 ? "5. Affected Institutions & Scope" : "4. Affected Institutions & Scope"}
-            </h3>
-            <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
-              <div className="flex items-start gap-2">
-                <span className="text-turquoise font-bold">•</span>
-                <span>
-                  {(() => {
-                    const covered = analysis?.structured_payload?.applicability?.covered_entities;
-                    if (Array.isArray(covered) && covered.length > 0) {
-                      const entityLabels: Record<string, string> = {
-                        SCHEDULED_COMMERCIAL_BANK: "All Scheduled Commercial Banks in Bangladesh",
-                        ISLAMIC_BANK: "Islamic Shariah-based Scheduled Banks",
-                        NBFI: "Non-Bank Financial Institutions (NBFIs)",
-                        PAYMENT_SERVICE_PROVIDER: "Payment Service Providers (PSPs)",
-                      };
-                      return covered.map((e: string) => entityLabels[e] || e).join(" • ");
-                    }
-                    if (obligations.length > 0) {
-                      const targets = Array.from(new Set(obligations.map((o) => o.applicability_summary).filter(Boolean)));
-                      if (targets.length > 0) return targets.join(", ");
-                    }
-                    return "Not identified yet. Read the circular text for who it applies to.";
-                  })()}
-                </span>
-              </div>
-              {analysis?.structured_payload?.applicability?.conditional_rules && (
-                <div className="flex items-start gap-2">
-                  <span className="text-turquoise font-bold">•</span>
-                  <span>Scope: {analysis.structured_payload.applicability.conditional_rules}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 6. Deadlines & Effective Dates */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              {relationships && relationships.length > 0 ? "6. Deadlines & Effective Dates" : "5. Deadlines & Effective Dates"}
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Publication Date</span>
-                <span className="text-sm font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-mono">
-                  {selectedDoc.publication_date}
-                </span>
-              </div>
-              <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Enforcement / Effective Date</span>
-                <span className="text-sm font-semibold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 font-mono">
-                  {analysis?.structured_payload?.deadlines?.effective_date || selectedDoc.effective_date || "Not stated"}
-                </span>
-              </div>
-              <div className="p-3 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-mono">Validity / Expiration</span>
-                <span className="text-sm font-semibold text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-                  {analysis?.structured_payload?.deadlines?.compliance_deadline ||
-                    obligations.find((o) => o.explicit_deadline)?.explicit_deadline ||
-                    "Not stated"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 7. Applicability & Exceptions */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              {relationships && relationships.length > 0 ? "7. Applicability & Exceptions" : "6. Applicability & Exceptions"}
-            </h3>
-            <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700 leading-relaxed">
-              {(() => {
-                const exemptions = analysis?.structured_payload?.applicability?.exemptions;
-                const cond = analysis?.structured_payload?.applicability?.conditional_rules;
-                if (Array.isArray(exemptions) && exemptions.length > 0) {
-                  return (
-                    <div className="space-y-1">
-                      <span className="font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800">
-                        Explicit Exemptions &amp; Concessions:
-                      </span>
-                      <ul className="list-disc pl-5 space-y-1 mt-1">
-                        {exemptions.map((ex, i) => (
-                          <li key={i}>{typeof ex === "string" ? ex : JSON.stringify(ex)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                }
-                if (cond) {
-                  return <span>{cond}</span>;
-                }
-                return (
-                  <span>No exemptions or special conditions identified yet.</span>
-                );
-              })()}
-            </div>
-          </div>
-
-          {/* 8. Exact Supporting Source Pages */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-                7. Exact Supporting Source Pages ({docPages.length})
-              </h3>
-              <button
-                onClick={() => setShowPagesViewer((prev) => !prev)}
-                className="text-xs font-mono text-turquoise hover:underline"
-              >
-                {showPagesViewer ? "Hide Page Viewer" : "View Extracted Pages"}
-              </button>
-            </div>
-
-            {showPagesViewer && (
-              <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-3">
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {docPages.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedPageNo(p.page_number)}
-                      className={`px-3 py-1 rounded text-xs font-mono transition ${
-                        selectedPageNo === p.page_number
-                          ? "bg-turquoise text-tealNavy-950 font-bold"
-                          : "bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white text-slate-300 dark:text-slate-300 light:text-slate-700 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300"
-                      }`}
-                    >
-                      Page {p.page_number}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="max-h-60 overflow-y-auto p-3 bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white rounded-lg border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 text-xs text-slate-300 dark:text-slate-300 light:text-slate-800 font-mono whitespace-pre-wrap leading-relaxed">
-                  {docPages.find((p) => p.page_number === selectedPageNo)?.raw_text || "Page text not available."}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 9. Grounded Regulatory Inquiries (Q&A) */}
-          <div className="space-y-3 pt-3 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-turquoise dark:text-turquoise light:text-teal-700 font-mono">
-              8. Grounded Regulatory Inquiries
-            </h3>
-            <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600">
-              Ask compliance questions strictly grounded in this circular. Answers provide verbatim citations and page numbers.
-            </p>
-
-            <form onSubmit={handleRunQa} className="flex gap-2">
-              <input
-                type="text"
-                value={qaQuery}
-                onChange={(e) => setQaQuery(e.target.value)}
-                placeholder="e.g. What are the key requirements or deadlines in this circular?"
-                className="flex-1 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-white border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-200 dark:text-slate-200 light:text-tealNavy-950 focus:outline-none focus:border-turquoise font-sans"
-              />
-              <button
-                type="submit"
-                disabled={qaLoading}
-                className="px-4 py-2 bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 text-xs font-bold rounded-xl transition shadow-sm disabled:opacity-50 flex items-center gap-1.5 font-mono"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{qaLoading ? "Searching..." : "Ask"}</span>
-              </button>
-            </form>
-
-            {qaError && (
-              <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-300 font-mono">
-                {qaError}
-              </div>
-            )}
-
-            {qaResponse && (
-              <div className="p-4 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 rounded-xl border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 space-y-3 text-xs">
-                <span className="font-bold text-slate-200 dark:text-slate-200 light:text-tealNavy-950 block">
-                  Grounded Compliance Answer:
-                </span>
-                <p className="text-slate-200 dark:text-slate-200 light:text-slate-800 leading-relaxed whitespace-pre-line">
-                  {qaResponse.answer}
-                </p>
-
-                {Array.isArray(qaResponse.citations) && qaResponse.citations.length > 0 && (
-                  <div className="pt-2 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 space-y-2">
-                    <span className="text-[11px] font-mono text-turquoise dark:text-turquoise light:text-teal-700 block font-bold">
-                      Supporting Page Citations:
-                    </span>
-                    {qaResponse.citations.slice(0, 3).map((cit: any, i: number) => (
-                      <div
-                        key={i}
-                        className="p-2 bg-tealNavy-900/60 dark:bg-tealNavy-900/60 light:bg-white rounded border border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200 text-[11px] font-mono text-slate-400 dark:text-slate-400 light:text-slate-600"
-                      >
-                        <strong className="text-slate-300 dark:text-slate-300 light:text-tealNavy-950">
-                          Page {cit.page_number || cit.page || 1}:
-                        </strong>{" "}
-                        &ldquo;{cit.verbatim_excerpt || cit.quoted_text || cit.quote || ""}&rdquo;
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* Gated View for Unauthenticated Visitors */
-        <div className="relative rounded-2xl overflow-hidden border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 mt-6 shadow-md">
-          {/* Blurred Background Previews */}
-          <div className="filter blur-[5px] select-none pointer-events-none opacity-30 p-6 space-y-5 bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-100">
-            <div className="space-y-2">
-              <div className="h-4 w-36 bg-tealNavy-700 rounded font-mono"></div>
-              <div className="p-4 bg-tealNavy-900 rounded-xl space-y-2">
-                <div className="h-3 w-full bg-tealNavy-800 rounded"></div>
-                <div className="h-3 w-4/5 bg-tealNavy-800 rounded"></div>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="h-4 w-44 bg-tealNavy-700 rounded font-mono"></div>
-              <div className="p-4 bg-tealNavy-900 rounded-xl space-y-2">
-                <div className="h-3 w-full bg-tealNavy-800 rounded"></div>
-                <div className="h-3 w-3/4 bg-tealNavy-800 rounded"></div>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="h-4 w-52 bg-tealNavy-700 rounded font-mono"></div>
-              <div className="p-4 bg-tealNavy-900 rounded-xl space-y-2">
-                <div className="h-3 w-full bg-tealNavy-800 rounded"></div>
-                <div className="h-3 w-2/3 bg-tealNavy-800 rounded"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Gated Access Card Overlay */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-tealNavy-950/85 dark:bg-tealNavy-950/85 light:bg-white/90 backdrop-blur-md">
-            <div className="w-12 h-12 rounded-2xl bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-100 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-300 flex items-center justify-center text-turquoise dark:text-turquoise light:text-teal-700 mb-3 shadow-lg">
-              <Lock className="w-6 h-6 text-turquoise dark:text-turquoise light:text-teal-700" />
-            </div>
-            <h3 className="text-lg font-bold text-white dark:text-white light:text-tealNavy-950">
-              Institutional Regulatory Intelligence Locked
-            </h3>
-            <p className="text-xs text-slate-300 dark:text-slate-300 light:text-slate-600 max-w-md mt-1.5 leading-relaxed">
-              Clause-by-clause legal obligations, operational impact assessments, and cross-lingual AI regulatory inquiries are reserved for authenticated banking professionals.
-            </p>
-            <div className="flex items-center justify-center mt-5">
-              <button
-                onClick={onOpenAuthModal}
-                className="px-6 py-2.5 rounded-xl bg-turquoise hover:bg-turquoise-bright text-tealNavy-950 font-bold text-xs font-mono transition shadow-lg flex items-center gap-2"
-              >
-                <span>Get Access — Sign In</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function ProfessionalCircularsPage() {
+export default function CircularsPage() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [selectedDept, setSelectedDept] = useState<string>("ALL");
+  const [dept, setDept] = useState("ALL");
+
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [docPages, setDocPages] = useState<DocumentPage[]>([]);
-  const [selectedPageNo, setSelectedPageNo] = useState<number>(1);
-  const [showPagesViewer, setShowPagesViewer] = useState(false);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pagePanelOpen, setPagePanelOpen] = useState(false);
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Selected Circular Intelligence Artifacts
   const [analysis, setAnalysis] = useState<DocumentAnalysisData | null>(null);
   const [obligations, setObligations] = useState<ObligationItem[]>([]);
-  const [provisions, setProvisions] = useState<ProvisionItem[]>([]);
   const [relationships, setRelationships] = useState<RelationshipItem[]>([]);
 
-  // Grounded Regulatory Q&A State
   const [qaQuery, setQaQuery] = useState("");
   const [qaLoading, setQaLoading] = useState(false);
-  const [qaResponse, setQaResponse] = useState<any>(null);
+  const [qaResponse, setQaResponse] = useState<QaResponse | null>(null);
   const [qaError, setQaError] = useState<string | null>(null);
+
+  // Ignores answers for a circular the user has already moved away from.
+  const selectionToken = useRef(0);
 
   useEffect(() => {
     // Show the cached user immediately, then confirm the role with GET /auth/me.
@@ -776,25 +88,52 @@ export default function ProfessionalCircularsPage() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
+  const handleSelectDoc = async (doc: DocumentItem) => {
+    const token = ++selectionToken.current;
+    setSelectedDoc(doc);
+    setPageNumber(1);
+    setHighlight(null);
+    setQaResponse(null);
+    setQaError(null);
+    setDetailError(null);
+    setDetailLoading(true);
+
+    if (doc.versions && doc.versions.length > 0) {
+      fetchDocumentPages(doc.id, doc.versions[0].id)
+        .then((pages) => token === selectionToken.current && setDocPages(pages))
+        .catch(() => token === selectionToken.current && setDocPages([]));
+    } else {
+      setDocPages([]);
+    }
+
+    try {
+      const [aiData, obls, rels] = await Promise.all([
+        fetchDocumentAnalysis(doc.id).catch(() => null),
+        fetchDocumentObligations(doc.id).catch(() => []),
+        fetchDocumentRelationships(doc.id).catch(() => []),
+      ]);
+      if (token !== selectionToken.current) return;
+      setAnalysis(aiData);
+      setObligations(obls);
+      setRelationships(rels);
+    } catch (err: any) {
+      if (token === selectionToken.current) setDetailError(err.message || "Could not load this circular's analysis.");
+    } finally {
+      if (token === selectionToken.current) setDetailLoading(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
       setLoadError(null);
-      const [docs, insts, dashboardStats] = await Promise.all([
-        fetchDocuments({ search, corpus_type: "GENUINE" }),
-        fetchInstitutions(),
-        fetchDocumentStats(),
-      ]);
-
+      const [docs, insts] = await Promise.all([fetchDocuments({ search, corpus_type: "GENUINE" }), fetchInstitutions()]);
       setDocuments(docs);
       setInstitutions(insts);
-      setStats(dashboardStats);
-
-      if (!selectedDoc && docs.length > 0) {
+      if (!selectedDoc && docs.length > 0 && typeof window !== "undefined" && window.innerWidth >= 1024) {
         handleSelectDoc(docs[0]);
       }
     } catch (err: any) {
-      console.error("Data loading error:", err);
       setLoadError(err.message || "Failed to load circulars from the backend.");
     } finally {
       setLoading(false);
@@ -812,44 +151,14 @@ export default function ProfessionalCircularsPage() {
     }
   };
 
-  // Reload when the signed-in user changes so their private circulars appear or disappear.
+  // Reload when the search or the signed-in user changes, so private circulars appear or disappear.
   useEffect(() => {
-    loadData();
+    const t = window.setTimeout(loadData, search ? 250 : 0);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, currentUser?.id]);
 
-  const handleSelectDoc = async (doc: DocumentItem) => {
-    setSelectedDoc(doc);
-    setSelectedPageNo(1);
-    setQaResponse(null);
-    setQaError(null);
-
-    // Fetch pages
-    if (doc.versions && doc.versions.length > 0) {
-      fetchDocumentPages(doc.id, doc.versions[0].id)
-        .then((pages) => setDocPages(pages))
-        .catch(() => setDocPages([]));
-    } else {
-      setDocPages([]);
-    }
-
-    // Load intelligence artifacts
-    try {
-      const [aiData, obls, provs, rels] = await Promise.all([
-        fetchDocumentAnalysis(doc.id).catch(() => null),
-        fetchDocumentObligations(doc.id).catch(() => []),
-        fetchDocumentProvisions(doc.id).catch(() => []),
-        fetchDocumentRelationships(doc.id).catch(() => []),
-      ]);
-      setAnalysis(aiData);
-      setObligations(obls);
-      setProvisions(provs);
-      setRelationships(rels);
-    } catch (err) {
-      console.error("Error fetching circular details:", err);
-    }
-  };
-
-  const handleRunQa = async (e: React.FormEvent) => {
+  const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qaQuery.trim() || !selectedDoc) return;
     try {
@@ -864,20 +173,51 @@ export default function ProfessionalCircularsPage() {
     }
   };
 
-  // Filter circulars by issuing department code
-  const filteredDocuments = documents.filter((doc) => {
-    if (selectedDept === "ALL") return true;
+  const filtered = documents.filter((doc) => {
+    if (dept === "ALL") return true;
     const ref = (doc.reference_number || "").toUpperCase();
     const title = (doc.title || "").toUpperCase();
-    return ref.includes(selectedDept) || title.includes(selectedDept);
+    return ref.includes(dept) || title.includes(dept);
   });
 
+  const renderDetail = (doc: DocumentItem) => (
+    <>
+      {detailError && (
+        <Notice kind="error" className="mb-3">
+          {detailError}
+        </Notice>
+      )}
+      <CircularDetail
+        doc={doc}
+        analysis={analysis}
+        obligations={obligations}
+        relationships={relationships}
+        pages={docPages}
+        detailLoading={detailLoading}
+        pageNumber={pageNumber}
+        setPageNumber={setPageNumber}
+        pagePanelOpen={pagePanelOpen}
+        setPagePanelOpen={setPagePanelOpen}
+        highlight={highlight}
+        setHighlight={setHighlight}
+        qaQuery={qaQuery}
+        setQaQuery={setQaQuery}
+        qaLoading={qaLoading}
+        qaResponse={qaResponse}
+        qaError={qaError}
+        onAsk={handleAsk}
+        currentUser={currentUser}
+        onSignIn={() => setAccountOpen(true)}
+        onRefresh={() => refreshDocument(doc)}
+      />
+    </>
+  );
+
   return (
-    <div className="space-y-6">
-      {/* Account Modal */}
+    <div className="space-y-5">
       <AccountModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
+        isOpen={accountOpen}
+        onClose={() => setAccountOpen(false)}
         currentUser={currentUser}
         onUserChange={(u) => {
           setCurrentUser(u);
@@ -885,200 +225,187 @@ export default function ProfessionalCircularsPage() {
         }}
       />
 
-      {/* Executive Header Banner */}
-      <div className="border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 bg-tealNavy-900/90 dark:bg-tealNavy-900/90 light:bg-white rounded-2xl p-6 backdrop-blur shadow-lg transition-colors">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-50 text-turquoise dark:text-turquoise light:text-teal-700 border border-tealNavy-700 dark:border-tealNavy-700 light:border-teal-200 font-mono">
-                Bangladesh Bank
-              </span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-400 light:text-slate-500 font-medium font-mono">
-                Official Regulatory Circulars &amp; Guidelines
-              </span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white dark:text-white light:text-tealNavy-950 mt-1.5">
-              Official Regulatory Repository
-            </h1>
-            <p className="text-sm text-slate-300 dark:text-slate-300 light:text-slate-600 mt-1 max-w-2xl leading-relaxed">
-              Autonomous continuous collection, layout-aware extraction, and verified regulatory obligations across all scheduled banks in Bangladesh.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-mono text-slate-400 dark:text-slate-400 light:text-slate-600">
-            <div className="p-3 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 text-center">
-              <span className="text-lg font-bold text-turquoise block">{documents.length}</span>
-              <span className="text-[10px] text-slate-400 uppercase">Official Circulars</span>
-            </div>
-            <div className="p-3 rounded-xl bg-tealNavy-950 dark:bg-tealNavy-950 light:bg-slate-50 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 text-center">
-              <span className="text-lg font-bold text-emerald-400 block">SHA-256</span>
-              <span className="text-[10px] text-slate-400 uppercase">Integrity Protected</span>
-            </div>
-          </div>
+      {/* Page heading and tools */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-[26px] font-semibold tracking-[-0.015em] text-ink">Circulars</h1>
+          <p className="mt-0.5 text-[14.5px] text-ink-3">
+            {loading ? "Loading the library..." : `${documents.length} ${documents.length === 1 ? "circular" : "circulars"} from Bangladesh Bank, newest first`}
+          </p>
         </div>
-      </div>
-
-      {/* Search and Department Filter Toolbar */}
-      <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full md:w-96">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="relative w-full md:w-[22rem]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
+          <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
+            Search circulars
+          </label>
           <input
-            type="text"
-            placeholder="Search circulars by number, title, or topic..."
+            id={SEARCH_INPUT_ID}
+            type="search"
+            placeholder="Search by number, title or topic"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-200 dark:text-slate-200 light:text-tealNavy-950 placeholder-slate-400 focus:outline-none focus:border-turquoise font-sans transition"
+            className="field h-10 pl-9 pr-9"
           />
-        </div>
-
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-1">
-          {["ALL", "SMESPD", "BRPD", "DOS", "FEPD", "PSD"].map((dept) => (
+          {search && (
             <button
-              key={dept}
-              onClick={() => setSelectedDept(dept)}
-              className={`px-3 py-1.5 text-xs rounded-lg font-mono font-medium transition ${
-                selectedDept === dept
-                  ? "bg-turquoise text-tealNavy-950 font-bold shadow-sm"
-                  : "bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white text-slate-400 dark:text-slate-400 light:text-slate-600 border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 hover:text-white dark:hover:text-white"
-              }`}
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
             >
-              {dept === "ALL" ? "All Departments" : dept}
+              <X className="h-3.5 w-3.5" />
             </button>
-          ))}
+          )}
         </div>
       </div>
 
-      {/* Main Layout: Desktop Split / Mobile Inline */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Circulars List */}
-        <div className="lg:col-span-5 space-y-3">
-          <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 px-1 font-medium font-mono">
-            <span>Recent Official Circulars ({filteredDocuments.length})</span>
-            <span>Bangladesh Bank</span>
-          </div>
+      <div role="tablist" aria-label="Filter by department" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+        {DEPARTMENTS.map((d) => {
+          const active = dept === d.code;
+          return (
+            <button
+              key={d.code}
+              role="tab"
+              aria-selected={active}
+              type="button"
+              onClick={() => setDept(d.code)}
+              className={`relative shrink-0 rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
+              }`}
+            >
+              {active && (
+                <motion.span layoutId="dept-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+              )}
+              <span className="relative">{d.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
-          {currentUser && !currentUser.is_superuser && (
-            <MyCircularUpload institutions={institutions} onUploaded={loadData} />
-          )}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+        {/* List */}
+        <div className="space-y-3 lg:sticky lg:top-[72px] lg:max-h-[calc(100dvh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1">
+          {currentUser && !currentUser.is_superuser && <MyCircularUpload institutions={institutions} onUploaded={loadData} />}
 
-          {loading ? (
-            <div className="p-8 text-center text-slate-400 text-sm border border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
-              Loading circular repository...
+          {loading && documents.length === 0 ? (
+            <div className="rounded-panel border border-line bg-surface" aria-busy="true" aria-label="Loading circulars">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="space-y-2 border-b border-line px-4 py-3.5 last:border-0">
+                  <SkeletonLine className="h-3 w-40" />
+                  <SkeletonLine className="h-3.5 w-full" />
+                  <SkeletonLine className="h-3.5 w-3/4" />
+                </div>
+              ))}
             </div>
           ) : loadError ? (
-            <div className="p-8 text-center text-rose-300 text-sm border border-rose-800 rounded-xl bg-rose-950/40">
-              {loadError}
-            </div>
+            <Notice kind="error">
+              <p className="font-semibold">Could not load circulars</p>
+              <p className="mt-0.5 text-ink-2">{loadError}</p>
+              <button type="button" onClick={loadData} className="btn-secondary mt-2 py-1">
+                Try again
+              </button>
+            </Notice>
           ) : documents.length === 0 && !search ? (
-            <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
-              No circulars have been added yet.
-            </div>
-          ) : filteredDocuments.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm border border-dashed border-tealNavy-700 rounded-xl bg-tealNavy-900/40">
-              No circulars found matching your search.
-            </div>
+            <EmptyState title="No circulars yet" icon={<FileSearch className="h-6 w-6" strokeWidth={1.5} />}>
+              Circulars appear here once an administrator approves them from the review queue or uploads a PDF.
+            </EmptyState>
+          ) : filtered.length === 0 ? (
+            <EmptyState title="Nothing matches" icon={<Search className="h-6 w-6" strokeWidth={1.5} />}>
+              Try a circular number such as &ldquo;BRPD 12&rdquo;, a different word, or the All filter.
+            </EmptyState>
           ) : (
-            filteredDocuments.map((doc) => {
-              const isSelected = selectedDoc?.id === doc.id;
-              const pageCount = doc.versions?.[0]?.page_count ?? 0;
-              return (
-                <div key={doc.id} className="space-y-3">
-                  {/* Card Item */}
-                  <div
-                    onClick={() => handleSelectDoc(doc)}
-                    className={`p-4 rounded-xl border cursor-pointer transition text-left ${
-                      isSelected
-                        ? "bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-teal-50/70 border-turquoise shadow-[0_0_15px_rgba(45,212,191,0.2)]"
-                        : "bg-tealNavy-900 dark:bg-tealNavy-900 light:bg-white border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-200 hover:bg-tealNavy-850 dark:hover:bg-tealNavy-850 light:hover:bg-slate-50 hover:border-turquoise/60"
-                    }`}
+            <ul className="overflow-hidden rounded-panel border border-line bg-surface">
+              {filtered.map((doc, i) => {
+                const isSelected = selectedDoc?.id === doc.id;
+                const pageCount = doc.versions?.[0]?.page_count ?? 0;
+                return (
+                  <motion.li
+                    key={doc.id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, delay: Math.min(i, 10) * 0.025, ease: EASE_OUT }}
+                    className="border-b border-line last:border-0"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="flex items-center gap-2">
-                        <span className="text-xs font-mono font-bold text-turquoise dark:text-turquoise light:text-teal-800">
-                          {doc.reference_number || "Official Circular"}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isSelected && typeof window !== "undefined" && window.innerWidth < 1024) {
+                          setSelectedDoc(null);
+                          return;
+                        }
+                        handleSelectDoc(doc);
+                      }}
+                      aria-current={isSelected ? "true" : undefined}
+                      className="group relative block w-full px-4 py-3.5 text-left"
+                    >
+                      {isSelected && (
+                        <motion.span
+                          layoutId="selected-row"
+                          className="absolute inset-0 bg-accent-soft"
+                          transition={{ type: "spring", stiffness: 500, damping: 42 }}
+                        />
+                      )}
+                      <span className="absolute inset-0 bg-sunken opacity-0 transition-opacity group-hover:opacity-60" aria-hidden />
+                      <span className="relative block">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="refno truncate">{doc.reference_number || "Circular"}</span>
+                            {doc.is_private && <PrivateTag />}
+                          </span>
+                          <span className="shrink-0 text-[12.5px] text-ink-3 tabular-nums">{shortDate(doc.publication_date)}</span>
                         </span>
-                        {doc.is_private && <PrivateBadge />}
+                        <span className="mt-1.5 line-clamp-3 block text-[14.5px] font-medium leading-snug text-ink">{titleWithoutRef(doc.title, doc.reference_number)}</span>
+                        <span className="mt-2.5 flex items-center justify-between gap-2">
+                          <span className="text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} pages` : "No pages yet"}</span>
+                          <StatusBadge status={doc.publication_status} size="sm" />
+                        </span>
                       </span>
-                      <span className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 font-mono">
-                        {doc.publication_date}
-                      </span>
-                    </div>
+                    </button>
 
-                    <h3 className="text-sm font-semibold text-slate-100 dark:text-slate-100 light:text-tealNavy-950 mt-2 leading-snug">
-                      {doc.title}
-                    </h3>
-
-                    <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-400 light:text-slate-500 mt-3 pt-3 border-t border-tealNavy-800 dark:border-tealNavy-800 light:border-slate-200">
-                      <div className="flex items-center gap-2 font-mono text-[11px]">
-                        <span>{doc.document_type || "CIRCULAR"}</span>
-                        <span>•</span>
-                        <span>{pageCount > 0 ? `${pageCount} pages` : "Complete"}</span>
-                      </div>
-                      {renderPublicationBadge(doc.publication_status)}
-                    </div>
-                  </div>
-
-                  {/* MOBILE VIEW ONLY: Render Detail View Directly Below the Clicked Circular */}
-                  {isSelected && (
-                    <div className="block lg:hidden pt-1 pb-3 animate-in fade-in duration-200">
-                      <CircularDetailView
-                        selectedDoc={doc}
-                        analysis={analysis}
-                        obligations={obligations}
-                        provisions={provisions}
-                        relationships={relationships}
-                        docPages={docPages}
-                        selectedPageNo={selectedPageNo}
-                        setSelectedPageNo={setSelectedPageNo}
-                        showPagesViewer={showPagesViewer}
-                        setShowPagesViewer={setShowPagesViewer}
-                        qaQuery={qaQuery}
-                        setQaQuery={setQaQuery}
-                        qaLoading={qaLoading}
-                        qaResponse={qaResponse}
-                        qaError={qaError}
-                        handleRunQa={handleRunQa}
-                        currentUser={currentUser}
-                        onOpenAuthModal={() => setIsAccountModalOpen(true)}
-                        onRefreshDoc={() => refreshDocument(doc)}
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })
+                    {/* Phone and tablet: the circular opens right under its row. */}
+                    <AnimatePresence initial={false}>
+                      {isSelected && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.28, ease: EASE_OUT }}
+                          className="overflow-hidden bg-sunken/60 lg:hidden"
+                        >
+                          <div className="p-2 sm:p-3">{renderDetail(doc)}</div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.li>
+                );
+              })}
+            </ul>
           )}
         </div>
 
-        {/* DESKTOP VIEW ONLY: Right Column for Selected Circular Details */}
-        <div className="hidden lg:block lg:col-span-7">
-          {selectedDoc ? (
-            <CircularDetailView
-              selectedDoc={selectedDoc}
-              analysis={analysis}
-              obligations={obligations}
-              provisions={provisions}
-              relationships={relationships}
-              docPages={docPages}
-              selectedPageNo={selectedPageNo}
-              setSelectedPageNo={setSelectedPageNo}
-              showPagesViewer={showPagesViewer}
-              setShowPagesViewer={setShowPagesViewer}
-              qaQuery={qaQuery}
-              setQaQuery={setQaQuery}
-              qaLoading={qaLoading}
-              qaResponse={qaResponse}
-              qaError={qaError}
-              handleRunQa={handleRunQa}
-              currentUser={currentUser}
-              onOpenAuthModal={() => setIsAccountModalOpen(true)}
-              onRefreshDoc={() => refreshDocument(selectedDoc)}
-            />
-          ) : (
-            <div className="p-12 text-center border border-dashed border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 rounded-2xl text-slate-400 font-mono text-xs">
-              Select a circular on the left to read its executive summary, requirements, and supporting pages.
-            </div>
-          )}
+        {/* Desktop reading pane */}
+        <div className="hidden min-w-0 lg:block">
+          <AnimatePresence mode="wait">
+            {selectedDoc ? (
+              <motion.div
+                key={selectedDoc.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: EASE_OUT }}
+              >
+                {renderDetail(selectedDoc)}
+              </motion.div>
+            ) : (
+              !loading &&
+              !loadError &&
+              documents.length > 0 && (
+                <EmptyState title="Pick a circular" icon={<FileSearch className="h-6 w-6" strokeWidth={1.5} />}>
+                  Choose one from the list to read its summary, requirements and source pages.
+                </EmptyState>
+              )
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

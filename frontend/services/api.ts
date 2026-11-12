@@ -107,6 +107,9 @@ export interface DocumentPage {
   extraction_method: string;
   ocr_confidence?: number;
   has_tables: boolean;
+  /** SUCCESS_NATIVE, PENDING_VISION, NEEDS_HUMAN_REVIEW, ... */
+  quality_status?: string;
+  vision_error?: string | null;
 }
 
 export interface DocumentItem {
@@ -318,17 +321,12 @@ export interface ProviderStatusInfo {
   gemini_api_key_configured: boolean;
   timeout_seconds: number;
   max_retries: number;
-  billing_policy: string;
+  last_checked_at?: string | null;
   admin_diagnostics?: {
     provider_name: string;
     model_identifier: string;
-    free_tier_eligible: boolean;
-    billing_tier: string;
-    rate_limits: {
-      requests_per_minute: number;
-      tokens_per_minute: number;
-      requests_per_day: number;
-    };
+    base_url?: string | null;
+    last_checked_at?: string | null;
     last_latency_ms?: number;
     last_status_code?: number;
     last_error?: string | null;

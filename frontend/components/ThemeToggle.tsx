@@ -1,68 +1,65 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Sun, Moon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Moon, Sun } from "lucide-react";
 
+type Theme = "light" | "dark";
+const STORAGE_KEY = "theme";
+
+function applyTheme(theme: Theme) {
+  const root = document.documentElement;
+  root.classList.toggle("dark", theme === "dark");
+  root.style.colorScheme = theme;
+}
+
+/** Light by default. The choice is remembered in localStorage under "theme". */
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    setMounted(true);
-    const stored = localStorage.getItem("theme") as "dark" | "light" | null;
-    if (stored) {
-      setTheme(stored);
-      if (stored === "light") {
-        document.documentElement.classList.remove("dark");
-        document.documentElement.classList.add("light");
-      } else {
-        document.documentElement.classList.remove("light");
-        document.documentElement.classList.add("dark");
-      }
-    } else {
-      // Default to dark theme for Visual Direction 04
-      document.documentElement.classList.add("dark");
-      document.documentElement.classList.remove("light");
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      stored = null;
     }
+    setTheme(stored === "dark" ? "dark" : "light");
   }, []);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    localStorage.setItem("theme", nextTheme);
-    if (nextTheme === "light") {
-      document.documentElement.classList.remove("dark");
-      document.documentElement.classList.add("light");
-    } else {
-      document.documentElement.classList.remove("light");
-      document.documentElement.classList.add("dark");
+  const toggle = () => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    applyTheme(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* private mode: the choice lasts for this page only */
     }
   };
 
-  if (!mounted) {
-    return (
-      <button
-        aria-label="Toggle theme"
-        className="w-9 h-9 rounded-lg border border-tealNavy-700 bg-tealNavy-850 flex items-center justify-center text-slate-400"
-      >
-        <Moon className="w-4 h-4" />
-      </button>
-    );
-  }
+  const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
 
   return (
     <button
-      onClick={toggleTheme}
-      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-      title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-      className="w-9 h-9 rounded-lg border border-tealNavy-700 dark:border-tealNavy-700 light:border-slate-300 bg-tealNavy-850 dark:bg-tealNavy-850 light:bg-slate-100 hover:border-turquoise text-slate-300 dark:text-slate-300 light:text-slate-700 hover:text-turquoise transition flex items-center justify-center"
+      type="button"
+      onClick={toggle}
+      aria-label={label}
+      title={label}
+      className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-control border border-line text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink"
     >
-      {theme === "dark" ? (
-        <Sun className="w-4 h-4 text-turquoise" />
-      ) : (
-        <Moon className="w-4 h-4 text-tealNavy-900" />
-      )}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={theme}
+          initial={{ opacity: 0, rotate: -45, scale: 0.6 }}
+          animate={{ opacity: 1, rotate: 0, scale: 1 }}
+          exit={{ opacity: 0, rotate: 45, scale: 0.6 }}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          className="grid place-items-center"
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" strokeWidth={1.75} /> : <Moon className="h-4 w-4" strokeWidth={1.75} />}
+        </motion.span>
+      </AnimatePresence>
     </button>
   );
 }
-
