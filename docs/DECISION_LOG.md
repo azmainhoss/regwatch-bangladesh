@@ -13,11 +13,11 @@
 ### ADR 002: Dual Ingestion Architecture (Automated + Manual Dropzone)
 - **Date:** 2026-11-05
 - **Status:** Accepted
-- **Context:** Live testing against `bb.org.bd` confirmed an active Imperva/TSPD bot challenge. Our security and compliance guidelines strictly forbid circumventing CAPTCHAs or anti-bot protections.
+- **Context:** `bb.org.bd` sits behind an F5/TSPD bot check. Runs from foreign cloud hosts hit challenges; runs from a Bangladeshi home connection did not (tested 2026-11-10: the full listing plus 50+ PDFs, about 3 s apart, with no challenge).
 - **Decision:** Build a dual ingestion architecture:
-  1. An automated connector interface that runs with polite backoffs in authorized/whitelisted environments.
+  1. An automated connector with polite pacing and backoff.
   2. A first-class Admin/API/Folder Manual Dropzone and batch ingestion engine that accepts verified official PDFs directly, computing SHA-256 hashes, deduplicating, and running identical extraction and AI pipelines.
-- **Rationale:** Ensures 100% operational availability without violating anti-bot guidelines or creating brittle scrapers.
+- **Rationale:** Keeps collection running even when the automated connector is blocked or the site is down.
 
 ---
 
@@ -57,12 +57,12 @@
 
 ---
 
-### ADR 007: Anti-Bot Telemetry and Human-in-the-Loop Discovery Review
+### ADR 007: Block Detection and Human-in-the-Loop Discovery Review
 - **Date:** 2026-11-05
 - **Status:** Accepted
-- **Context:** Bangladesh Bank protects its portal with Imperva WAF / TSPD JavaScript challenges. Scraping or bypassing CAPTCHAs violates ethical standards, terms of service, and system guidelines.
-- **Decision:** Detect Imperva TSPD signatures (`bobcmn`, "What code is in the image?", support ID extraction), Cloudflare challenges, and rate limits deterministically. Mark the run as `RESTRICTED`, log diagnostics without bypassing, and record discovered items into a `source_discoveries` review queue. Operators can review candidate links, approve and trigger automated ingestion, or upload files directly.
-- **Rationale:** Ensures complete legal and ethical compliance while providing operators with full visibility into source accessibility and candidate publications.
+- **Context:** Bangladesh Bank's portal uses an F5/TSPD JavaScript bot check that can return a challenge page instead of content.
+- **Decision:** Detect TSPD signatures (`bobcmn`, "What code is in the image?", support ID extraction), Cloudflare challenges, and rate limits deterministically. Mark the run as `RESTRICTED`, log diagnostics, and record discovered items into a `source_discoveries` review queue. Operators can review candidate links, approve and trigger automated ingestion, or upload files directly.
+- **Rationale:** A challenge page must never be mistaken for "no new circulars"; operators get full visibility into source accessibility and candidate publications.
 
 ---
 
