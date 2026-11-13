@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowUpRight, Check, ExternalLink, FileText, Lock, Pause, Play, RefreshCw, Sparkles, UploadCloud, X } from "lucide-react";
 import {
@@ -24,6 +25,7 @@ import {
   fetchProviderStatus,
   fetchSources,
   fetchSourceStats,
+  fetchIngestStatus,
   getStoredUser,
   rejectDiscovery,
   testProviderConnection,
@@ -35,15 +37,22 @@ import {
 } from "@/services/api";
 import GeminiSetupModal from "@/components/GeminiSetupModal";
 import AccountModal from "@/components/AccountModal";
-import StatusBadge, { PrivateTag, Tag } from "@/components/StatusBadge";
+import StatusBadge, { InForceBadge, PrivateTag, Tag } from "@/components/StatusBadge";
+import AdminLinksPanel from "@/components/AdminLinksPanel";
+import { inForceOf, loadPending, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
-type TabId = "queue" | "collection" | "upload" | "library" | "engine";
-type NoticeState = { type: "success" | "warning" | "error"; text: string; status?: string } | null;
+type TabId = "queue" | "collection" | "upload" | "library" | "links" | "engine";
+type NoticeState = { type: "success" | "warning" | "error" | "info"; text: string; status?: string } | null;
+
+/** Server times without a zone are UTC; read them that way so they show in local (Dhaka) time. */
+function asUtc(value: string) {
+  return /[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value}Z`;
+}
 
 function when(value?: string) {
   if (!value) return "Never";
-  const d = new Date(value);
+  const d = new Date(asUtc(value));
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -70,7 +79,19 @@ function PanelHeading({ title, children, actions }: { title: string; children?: 
   );
 }
 
+const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "engine"];
+const asTab = (v: string | null): TabId | null => (v && (TAB_IDS as string[]).includes(v) ? (v as TabId) : null);
+
 export default function AdminConsolePage() {
+  // useSearchParams needs a Suspense boundary so the rest of the page can still be built ahead of time.
+  return (
+    <Suspense fallback={<SkeletonLine className="h-24 w-full" />}>
+      <AdminConsole />
+    </Suspense>
+  );
+}
+
+function AdminConsole() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -80,7 +101,20 @@ export default function AdminConsolePage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [discoveries, setDiscoveries] = useState<SourceDiscovery[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabId>("queue");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlTab = asTab(searchParams.get("tab"));
+  const [tab, setTabState] = useState<TabId>(urlTab ?? "queue");
+  // A link such as /admin?tab=links opens that tab, also when the page is already open.
+  useEffect(() => {
+    if (urlTab) setTabState(urlTab);
+  }, [urlTab]);
+  const setTab = (id: TabId) => {
+    setTabState(id);
+    router.replace(`${pathname}?tab=${id}`, { scroll: false });
+  };
+  const rel = useRelState();
   const [queueFilter, setQueueFilter] = useState<"open" | "all">("open");
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
@@ -102,6 +136,7 @@ export default function AdminConsolePage() {
   // Source checks
   const [triggeringSourceId, setTriggeringSourceId] = useState<string | null>(null);
   const [monitoringNotice, setMonitoringNotice] = useState<NoticeState>(null);
+  const [ingestingSourceId, setIngestingSourceId] = useState<string | null>(null);
 
   // Collection and backfill
   const [sourceStats, setSourceStats] = useState<SourceStats | null>(null);
@@ -161,6 +196,8 @@ export default function AdminConsolePage() {
         }
       }
       setDocuments(docs);
+      seedDocuments(docs);
+      void loadPending();
       setSources(srcs);
       if (srcs.length > 0) {
         try {
@@ -192,12 +229,12 @@ export default function AdminConsolePage() {
       const ok = res.test_result?.success === true;
       setConnectionTestFeedback({
         success: ok,
-        message: ok
-          ? `Connection works. Latency ${res.test_result?.latency_ms ?? "unknown"} ms, service state "${res.service_state || res.status}".`
-          : `Connection failed: ${res.test_result?.error || "the provider did not respond successfully"}.`,
+        message:
+          res.test_result?.message ||
+          (ok ? "Connection works." : "The AI service did not answer. Try again later."),
       });
     } catch (err: any) {
-      setConnectionTestFeedback({ success: false, message: `Connection test failed: ${err.message}` });
+      setConnectionTestFeedback({ success: false, message: "Could not reach the server. Try again." });
     } finally {
       setTestingConnection(false);
     }
@@ -233,7 +270,9 @@ export default function AdminConsolePage() {
       const result = await uploadDocument(formData);
       setUploadMessage({
         type: "success",
-        text: `Added "${result.document.title}": ${result.pages_extracted} pages extracted, SHA-256 ${result.version.file_sha256.substring(0, 16)}...`,
+        text: result.already_in_library
+          ? `"${result.document.title}" is already in the library. Nothing new was added.`
+          : `Added "${result.document.title}" (${result.pages_extracted} ${result.pages_extracted === 1 ? "page" : "pages"}). Bangla or scanned pages show "Waiting to be read" for a few minutes.`,
       });
 
       setFile(null);
@@ -250,6 +289,50 @@ export default function AdminConsolePage() {
     }
   };
 
+  // After "Check now" the server answers as soon as the website's list is read, and adds the new
+  // circulars in the background. While it does, the counts, review queue and library refresh
+  // every few seconds, so they tick up live.
+  const refreshMonitoring = async (sourceId: string) => {
+    const [refreshedSources, refreshedDisc, refreshedDocs, stats] = await Promise.all([
+      fetchSources(),
+      fetchDiscoveries(),
+      fetchDocuments(),
+      fetchSourceStats(sourceId).catch(() => null),
+    ]);
+    setSources(refreshedSources);
+    setDiscoveries(refreshedDisc);
+    setDocuments(refreshedDocs);
+    seedDocuments(refreshedDocs);
+    if (stats) setSourceStats(stats);
+  };
+
+  const watchIngest = (sourceId: string, newCount: number) => {
+    const timer = setInterval(async () => {
+      try {
+        const st = await fetchIngestStatus(sourceId);
+        await refreshMonitoring(sourceId);
+        if (st.running) {
+          setMonitoringNotice({
+            type: "info",
+            text: `${newCount} new found. Adding them now: ${st.done} of ${st.total} done.`,
+          });
+        } else {
+          clearInterval(timer);
+          setIngestingSourceId(null);
+          setMonitoringNotice({
+            type: st.failed > 0 ? "warning" : "success",
+            text:
+              st.failed > 0
+                ? `Added ${st.successful} new ${st.successful === 1 ? "circular" : "circulars"}. ${st.failed} could not be downloaded yet and will be tried again later.`
+                : `Added ${st.successful} new ${st.successful === 1 ? "circular" : "circulars"} to the library.`,
+          });
+        }
+      } catch {
+        /* keep watching; a dropped request is not a result */
+      }
+    }, 3000);
+  };
+
   const handleTriggerRun = async (sourceId: string) => {
     try {
       setTriggeringSourceId(sourceId);
@@ -258,21 +341,34 @@ export default function AdminConsolePage() {
       if (run.access_restricted) {
         setMonitoringNotice({
           type: "warning",
-          status: run.status,
-          text: `The website blocked the check (${run.access_restriction_details?.challenge_type || "anti-bot challenge"}). Checks stop here; RegWatch does not try to get around blocks.`,
+          text: "The website blocked this check, so it did not count. RegWatch does not try to get around blocks; it will try again later.",
+        });
+      } else if (run.status !== "COMPLETED") {
+        // A failed or blocked listing is never shown as "0 new".
+        setMonitoringNotice({
+          type: "warning",
+          text: "The website did not answer properly, so this check did not count. It will try again later.",
         });
       } else {
-        setMonitoringNotice({
-          type: run.status === "FAILED" ? "error" : run.status === "FAILED_RETRY" ? "warning" : "success",
-          status: run.status,
-          text: `Looked at ${run.pages_inspected ?? 0} pages and found ${run.candidate_links_discovered ?? 0} links: ${run.valid_documents_discovered ?? 0} new, ${run.duplicate_count ?? 0} already known.${run.error_log ? ` Errors: ${run.error_log}` : ""}`,
-        });
+        const n = run.valid_documents_discovered ?? 0;
+        const queued = run.ingest_queued ?? 0;
+        if (queued > 0) {
+          setMonitoringNotice({
+            type: "info",
+            text: n > 0 ? `${n} new found. Adding them now; the counts below update by themselves.` : `Nothing new on the website. Adding ${queued} waiting ${queued === 1 ? "circular" : "circulars"} now.`,
+          });
+          setIngestingSourceId(sourceId);
+          watchIngest(sourceId, n);
+        } else {
+          setMonitoringNotice({
+            type: "success",
+            text: n > 0 ? `${n} new found.` : `Nothing new on the website. ${run.duplicate_count ?? 0} already in the list.`,
+          });
+        }
       }
-      const [refreshedSources, refreshedDisc] = await Promise.all([fetchSources(), fetchDiscoveries()]);
-      setSources(refreshedSources);
-      setDiscoveries(refreshedDisc);
+      await refreshMonitoring(sourceId);
     } catch (err: any) {
-      setMonitoringNotice({ type: "error", text: err.message || "Run failed" });
+      setMonitoringNotice({ type: "error", text: err.message || "The check could not run. Try again." });
     } finally {
       setTriggeringSourceId(null);
     }
@@ -351,14 +447,22 @@ export default function AdminConsolePage() {
     }
   };
 
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
   const handleRejectDiscovery = async (discoveryId: string) => {
-    const reason = prompt("Why are you rejecting this file?");
+    const reason = rejectReason.trim();
     if (!reason) return;
+    const before = discoveries;
+    // Show the result at once; put it back if the server refuses.
+    setDiscoveries((list) => list.map((d) => (d.id === discoveryId ? { ...d, status: "REJECTED", rejection_reason: reason } : d)));
+    setRejectingId(null);
+    setRejectReason("");
     try {
       await rejectDiscovery(discoveryId, reason);
-      const refreshedDisc = await fetchDiscoveries();
-      setDiscoveries(refreshedDisc);
+      setDiscoveries(await fetchDiscoveries());
     } catch (err: any) {
+      setDiscoveries(before);
       setMonitoringNotice({ type: "error", text: "Rejection failed: " + err.message });
     }
   };
@@ -428,6 +532,7 @@ export default function AdminConsolePage() {
     { id: "collection", label: "Website checks" },
     { id: "upload", label: "Upload" },
     { id: "library", label: "Library", count: documents.length },
+    { id: "links", label: "Links", count: rel.pending?.total },
     { id: "engine", label: "AI engine" },
   ];
 
@@ -558,6 +663,35 @@ export default function AdminConsolePage() {
                         {disc.file_url || disc.source_url}
                       </p>
                       {disc.rejection_reason && <p className="text-[13px] text-bad">Reason: {disc.rejection_reason}</p>}
+                      {rejectingId === disc.id && (
+                        <form
+                          className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-center"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleRejectDiscovery(disc.id);
+                          }}
+                        >
+                          <input
+                            autoFocus
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") setRejectingId(null);
+                            }}
+                            placeholder="Why are you rejecting this file?"
+                            aria-label="Reason for rejecting"
+                            className="field min-h-[44px] flex-1 sm:min-h-0"
+                          />
+                          <div className="flex gap-2">
+                            <button type="submit" disabled={!rejectReason.trim()} className="btn-primary min-h-[44px] sm:min-h-0">
+                              Reject file
+                            </button>
+                            <button type="button" onClick={() => setRejectingId(null)} className="btn-ghost min-h-[44px] sm:min-h-0">
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {disc.file_url && (
@@ -568,7 +702,14 @@ export default function AdminConsolePage() {
                       )}
                       {disc.status === "VALIDATED" && (
                         <>
-                          <button type="button" onClick={() => handleRejectDiscovery(disc.id)} className="btn-secondary">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectingId(disc.id);
+                              setRejectReason("");
+                            }}
+                            className="btn-secondary"
+                          >
                             <X className="h-4 w-4" />
                             Reject
                           </button>
@@ -698,9 +839,9 @@ export default function AdminConsolePage() {
                           {s.is_active ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                           {s.is_active ? "Pause" : "Resume"}
                         </button>
-                        <button type="button" onClick={() => handleTriggerRun(s.id)} disabled={triggeringSourceId === s.id} className="btn-primary">
-                          <RefreshCw className={`h-4 w-4 ${triggeringSourceId === s.id ? "animate-spin" : ""}`} />
-                          {triggeringSourceId === s.id ? "Checking..." : "Check now"}
+                        <button type="button" onClick={() => handleTriggerRun(s.id)} disabled={triggeringSourceId === s.id || ingestingSourceId === s.id} className="btn-primary">
+                          <RefreshCw className={`h-4 w-4 ${triggeringSourceId === s.id || ingestingSourceId === s.id ? "animate-spin" : ""}`} />
+                          {triggeringSourceId === s.id ? "Checking..." : ingestingSourceId === s.id ? "Adding..." : "Check now"}
                         </button>
                       </div>
                     </li>
@@ -714,7 +855,7 @@ export default function AdminConsolePage() {
         {tab === "upload" && (
           <section className="panel max-w-3xl">
             <PanelHeading title="Upload a circular">
-              Add an official PDF yourself. The file is fingerprinted with SHA-256, the original is stored unchanged, and its text is read page by page.
+              Add an official PDF yourself. The original is kept unchanged, and its text is read page by page.
             </PanelHeading>
             <form onSubmit={handleUpload} className="space-y-4 px-5 py-5">
               <div>
@@ -887,12 +1028,13 @@ export default function AdminConsolePage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-[14px]">
+                <table className="w-full min-w-[860px] text-left text-[14px]">
                   <thead>
                     <tr className="border-b border-line text-[12.5px] text-ink-3">
                       <th className="px-5 py-2.5 font-semibold">Circular</th>
                       <th className="px-3 py-2.5 font-semibold">Issued</th>
                       <th className="px-3 py-2.5 font-semibold">Status</th>
+                      <th className="px-3 py-2.5 font-semibold">In force</th>
                       <th className="px-3 py-2.5 text-right font-semibold">Pages</th>
                       <th className="px-5 py-2.5 text-right font-semibold">
                         <span className="sr-only">PDF</span>
@@ -912,6 +1054,9 @@ export default function AdminConsolePage() {
                         <td className="whitespace-nowrap px-3 py-3 text-ink-2 tabular-nums">{d.publication_date}</td>
                         <td className="px-3 py-3">
                           <StatusBadge status={d.publication_status || "DRAFT"} size="sm" />
+                        </td>
+                        <td className="px-3 py-3">
+                          <InForceBadge info={inForceOf(rel, d)} size="sm" />
                         </td>
                         <td className="px-3 py-3 text-right text-ink-2 tabular-nums">{d.versions?.[0]?.page_count || 0}</td>
                         <td className="px-5 py-3 text-right">
@@ -939,6 +1084,8 @@ export default function AdminConsolePage() {
             )}
           </section>
         )}
+
+        {tab === "links" && <AdminLinksPanel />}
 
         {tab === "engine" && (
           <section className="panel">
@@ -968,7 +1115,7 @@ export default function AdminConsolePage() {
                 <dt className="text-[13px] text-ink-3">Status</dt>
                 <dd className="mt-0.5 truncate text-[15px] font-semibold text-ink">{providerInfo?.service_state || "-"}</dd>
                 <dd className="text-[12.5px] text-ink-3">
-                  {providerInfo?.last_checked_at ? `Checked ${new Date(providerInfo.last_checked_at).toLocaleString()}` : "Not checked yet"}
+                  {providerInfo?.last_checked_at ? `Checked ${when(providerInfo.last_checked_at)}` : "Not checked yet"}
                 </dd>
               </div>
               <div className="min-w-0">

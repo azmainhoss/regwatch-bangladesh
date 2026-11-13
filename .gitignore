@@ -68,3 +68,22 @@ backend/.env.*
 *.swp
 *.swo
 .DS_Store
+
+# Local test run logs
+test-logs/
+
+# Research downloads and request locks
+research/*/data/
+research/.bb_request.lock
+research/.bb_last_request
+
+# local key file
+new-api.txt
+
+# Runtime files from local jobs
+data/*.db-shm
+data/*.db-wal
+data/*.lock
+data/*.log
+data/*.out
+*.tsbuildinfo

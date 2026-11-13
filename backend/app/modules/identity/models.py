@@ -16,7 +16,7 @@ class User(Base):
     profile = relationship("UserProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     memberships = relationship("OrganizationMember", back_populates="user", cascade="all, delete-orphan")
     assigned_tasks = relationship("ComplianceTask", back_populates="assigned_to_user", foreign_keys="ComplianceTask.assigned_to_user_id")
-    submitted_evidence = relationship("TaskEvidence", back_populates="submitted_by_user")
+    submitted_evidence = relationship("TaskEvidence", back_populates="submitted_by_user", foreign_keys="TaskEvidence.submitted_by_user_id")
     reviews = relationship("TaskReview", back_populates="reviewer_user")
 
 

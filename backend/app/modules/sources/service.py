@@ -18,6 +18,24 @@ from backend.app.modules.sources.connector.base import BaseSourceConnector, List
 from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRun
 from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
 
+async def _announce_circular(db, doc) -> None:
+    """Records a new-circular alert in this transaction. Never raises."""
+    try:
+        from backend.app.modules.alerts.emit import circular_published
+        await circular_published(db, doc)
+    except Exception as exc:
+        logger.warning("Alert not recorded: %s", type(exc).__name__)
+
+
+async def _announce_library_change(db, doc_ids) -> None:
+    """After a commit: check the banks that use these circulars. Never raises."""
+    try:
+        from backend.app.modules.alerts.sweeps import library_changed
+        await library_changed(db, doc_ids)
+    except Exception as exc:
+        logger.warning("Alert not recorded: %s", type(exc).__name__)
+
+
 # Bot checks on a file download mean the whole site is refusing us: stop and back off.
 SITE_BLOCK_TYPES = ("IMPERVA_TSPD_CAPTCHA", "CLOUDFLARE_CHALLENGE", "RATE_LIMIT_429")
 
@@ -74,7 +92,13 @@ class SourceMonitoringService:
     NON_APPROVABLE_STATUSES = ("REJECTED", "INGESTED", "DOWNLOADED")
 
     def __init__(self):
+        # Listing checks hold this while they fetch and dedupe. Downloads hold their own lock, so a
+        # listing check never waits for a batch of downloads; every request to the site still goes
+        # through the shared request gate (one at a time, BB_REQUEST_INTERVAL_SECONDS apart).
         self._crawler_lock = asyncio.Lock()
+        self._ingest_lock = asyncio.Lock()
+        self._ingest_tasks: Dict[UUID, asyncio.Task] = {}
+        self._ingest_state: Dict[UUID, Dict[str, Any]] = {}
 
     @staticmethod
     def get_connector_for_source(source: Source) -> BaseSourceConnector:
@@ -94,14 +118,21 @@ class SourceMonitoringService:
         source_id: UUID,
         run_type: str = "SCHEDULED_POLL",
         mode: str = "poll",
+        background_ingest: bool = False,
     ) -> SourceRun:
         """
-        Executes a continuous monitoring cycle:
+        Executes a continuous monitoring cycle (with background_ingest, step 2 runs in the
+        background and this returns as soon as the listing is stored):
         1. Runs the listing check (mode "poll": last 7 days by date filter; "reconcile": full list).
         2. Downloads and ingests the newest discoveries (paced, one request at a time).
         3. Updates audit logs and source health metrics.
         """
         run = await self.execute_discovery_scan(db=db, source_id=source_id, run_type=run_type, mode=mode)
+        if run.status == "COMPLETED" and background_ingest:
+            batch_count = min(run.valid_documents_discovered, 20) if run.valid_documents_discovered > 0 else 5
+            state = self.start_background_ingest(source_id, batch_count)
+            run.ingest_queued = state.get("total") if state.get("running") else 0
+            return run
         if run.status == "COMPLETED":
             # Automatically ingest newly discovered circulars or steadily drain the pending queue
             batch_count = min(run.valid_documents_discovered, 5) if run.valid_documents_discovered > 0 else 5
@@ -121,6 +152,55 @@ class SourceMonitoringService:
             # The backfill may have rolled back the session; reload the run before returning it.
             await db.refresh(run)
         return run
+
+    def ingest_status(self, source_id: UUID) -> Dict[str, Any]:
+        state = dict(self._ingest_state.get(source_id) or {
+            "running": False, "total": 0, "done": 0, "successful": 0, "failed": 0,
+            "started_at": None, "finished_at": None,
+        })
+        state["source_id"] = str(source_id)
+        return state
+
+    def start_background_ingest(self, source_id: UUID, batch_size: int, session_factory=None) -> Dict[str, Any]:
+        """Downloads and adds waiting circulars in the background, one at a time. One job per source."""
+        task = self._ingest_tasks.get(source_id)
+        if task is not None and not task.done():
+            return self.ingest_status(source_id)
+        if session_factory is None:
+            from backend.app.database.session import AsyncSessionLocal
+            session_factory = AsyncSessionLocal
+        self._ingest_state[source_id] = {
+            "running": True, "total": batch_size, "done": 0, "successful": 0, "failed": 0,
+            "started_at": datetime.now(timezone.utc).isoformat(), "finished_at": None,
+        }
+
+        def progress(p: Dict[str, Any]) -> None:
+            self._ingest_state[source_id].update(p)
+
+        async def _job() -> None:
+            try:
+                async with session_factory() as db:
+                    res = await self.execute_backfill_batch(db=db, source_id=source_id, batch_size=batch_size,
+                                                            on_progress=progress)
+                    self._ingest_state[source_id].update(
+                        total=res.get("attempted", 0), done=res.get("attempted", 0),
+                        successful=res.get("successful", 0), failed=res.get("failed", 0),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error(f"Background download for source {source_id} failed: {e}")
+            finally:
+                self._ingest_state[source_id].update(running=False, finished_at=datetime.now(timezone.utc).isoformat())
+                self._ingest_tasks.pop(source_id, None)
+
+        self._ingest_tasks[source_id] = asyncio.create_task(_job())
+        return self.ingest_status(source_id)
+
+    async def wait_for_ingest(self, source_id: UUID) -> None:
+        task = self._ingest_tasks.get(source_id)
+        if task is not None:
+            await asyncio.gather(task, return_exceptions=True)
 
     async def execute_discovery_scan(
         self,
@@ -254,7 +334,8 @@ class SourceMonitoringService:
         batch_size: int = 10,
         department: Optional[str] = None,
         year: Optional[int] = None,
-        language: Optional[str] = None
+        language: Optional[str] = None,
+        on_progress=None,
     ) -> Dict[str, Any]:
         """
         Executes a batch collection and ingestion of discovered candidates into the repository.
@@ -307,10 +388,20 @@ class SourceMonitoringService:
         skipped = 0
         ingested_items = []
 
+        def _report(done: int) -> None:
+            if on_progress is not None:
+                try:
+                    on_progress({"total": len(candidates), "done": done, "successful": successful, "failed": failed})
+                except Exception:
+                    pass
+
         # The connector paces every request (one at a time, BB_REQUEST_INTERVAL_SECONDS apart).
-        async with self._crawler_lock:
+        async with self._ingest_lock:
             candidate_ids = [c.id for c in candidates]
-            for disc_id in candidate_ids:
+            _report(0)
+            for n_done, disc_id in enumerate(candidate_ids):
+                if n_done:
+                    _report(n_done)
                 disc = await db.get(SourceDiscovery, disc_id)
                 if disc is None:
                     continue
@@ -399,6 +490,7 @@ class SourceMonitoringService:
 
                     # Mark as honest machine-processed publication
                     doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
+                    await _announce_circular(db, doc)
 
                     disc = await db.get(SourceDiscovery, disc_id)
                     disc.status = "INGESTED"
@@ -575,6 +667,8 @@ class SourceMonitoringService:
                 version.etag, version.last_modified, version.fetched_at = fetched.etag, fetched.last_modified, fetched.fetched_at
                 summary["same_file"] += 1
             await db.commit()
+            if new_version.document_id == doc_id and new_version.id != version_id:
+                await _announce_library_change(db, [doc_id])
 
         logger.info(f"Archive recheck finished: {summary}")
         return summary
@@ -728,6 +822,7 @@ class SourceMonitoringService:
             raise
 
         doc.publication_status = "PUBLISHED_MACHINE_PROCESSED"
+        await _announce_circular(db, doc)
         discovery = await db.get(SourceDiscovery, discovery_id)
         discovery.status = "INGESTED"
         discovery.document_id = doc.id

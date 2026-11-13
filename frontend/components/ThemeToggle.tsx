@@ -25,6 +25,15 @@ export default function ThemeToggle() {
       stored = null;
     }
     setTheme(stored === "dark" ? "dark" : "light");
+    // Other open tabs follow a change at once.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY) return;
+      const next: Theme = e.newValue === "dark" ? "dark" : "light";
+      setTheme(next);
+      applyTheme(next);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const toggle = () => {
@@ -46,7 +55,7 @@ export default function ThemeToggle() {
       onClick={toggle}
       aria-label={label}
       title={label}
-      className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-control border border-line text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink"
+      className="relative grid h-11 w-9 sm:h-9 place-items-center overflow-hidden rounded-control border border-line text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink"
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span

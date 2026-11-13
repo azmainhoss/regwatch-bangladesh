@@ -22,7 +22,7 @@ async def seed():
         raise SystemExit("Refusing to run the demo seed with ENVIRONMENT=production.")
 
     async with AsyncSessionLocal() as session:
-        print("🌱 Starting database seeding...")
+        print("Starting database seeding...")
 
         # 1. Institutions: Bangladesh Bank
         bb_query = await session.execute(select(Institution).where(Institution.code == "BB"))

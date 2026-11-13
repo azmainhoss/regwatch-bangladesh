@@ -243,7 +243,7 @@ async def test_compliance_task_cannot_be_assigned_outside_org(client):
     org_id = org_resp.json()["id"]
     reg = await client.post(f"/api/v1/organizations/{org_id}/compliance/registers", headers=_auth(token), json={"title": "R"})
     from backend.app.tests.factories import make_obligation
-    obl = await make_obligation()
+    obl = await make_obligation(verified=True, doc_status="PUBLISHED_MACHINE_PROCESSED")
     bad_lead = await client.post(
         f"/api/v1/organizations/{org_id}/compliance/items",
         headers=_auth(token),
@@ -515,7 +515,7 @@ async def test_research_not_grounded_when_ai_fails(monkeypatch):
         async def generate_structured_json(self, **kwargs):
             return LLMResponse(raw_content="partial junk", model_name="x", success=False, error="timeout")
 
-    monkeypatch.setattr("backend.app.modules.research.service.get_ai_provider", lambda *a, **k: FailingProvider())
+    monkeypatch.setattr("backend.app.modules.research.service.get_answer_provider", lambda *a, **k: FailingProvider())
     async with AsyncSessionLocal() as db:
         resp = await ResearchService.query_regulatory_knowledge(db=db, query=f"What is the {token} requirement?")
     assert resp.is_grounded is False

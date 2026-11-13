@@ -49,7 +49,7 @@ class OrganizationMember(Base):
         String(32),
         nullable=False,
         default="ANALYST"
-    )  # ORG_ADMIN, COMPLIANCE_HEAD, DEPARTMENT_LEAD, ANALYST, AUDITOR, VIEWER
+    )  # ORG_ADMIN, COMPLIANCE_HEAD, COMPLIANCE_OFFICER, DEPARTMENT_LEAD, REVIEWER, ANALYST, AUDITOR, VIEWER
     status = Column(String(32), default="ACTIVE", nullable=False)  # ACTIVE, INVITED, SUSPENDED
 
     organization = relationship("Organization", back_populates="members")

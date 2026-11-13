@@ -69,6 +69,59 @@ def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
     )
 
 
+def get_probe_provider() -> BaseAIProvider:
+    """A provider for the admin connection check: tiny call, cheap model, one try, short timeout."""
+    selected = normalize_provider_name(settings.ANALYSIS_PROVIDER)
+    provider = get_ai_provider(selected)  # raises ValueError when not configured
+    if selected == "gemini":
+        return GeminiAIProvider(
+            model_name=settings.PROBE_GEMINI_MODEL or configured_model("gemini"),
+            max_retries=0,
+            timeout_seconds=settings.PROBE_TIMEOUT_SECONDS,
+        )
+    if selected == "openai_compat":
+        return OpenAICompatibleProvider(
+            model_name=settings.ANALYSIS_MODEL,
+            max_retries=0,
+            timeout_seconds=settings.PROBE_TIMEOUT_SECONDS,
+        )
+    return provider
+
+
+def get_answer_provider() -> BaseAIProvider:
+    """Provider for "Ask" answers: the fast model, at most one retry, a shorter timeout."""
+    selected = normalize_provider_name(settings.ANALYSIS_PROVIDER)
+    provider = get_ai_provider(selected)
+    if selected == "gemini":
+        return GeminiAIProvider(
+            model_name=settings.ANSWER_GEMINI_MODEL or configured_model("gemini"),
+            max_retries=settings.ANSWER_MAX_RETRIES,
+            timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS,
+        )
+    if selected == "openai_compat":
+        return OpenAICompatibleProvider(
+            model_name=settings.ANALYSIS_MODEL,
+            max_retries=settings.ANSWER_MAX_RETRIES,
+            timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS,
+        )
+    return provider
+
+
+_PROBE_MESSAGES = {
+    health.QUOTA_EXCEEDED: "The AI service is busy or today's free limit is used up. Try again later.",
+    health.TEMPORARILY_UNAVAILABLE: "The AI service is busy right now. Try again in a few minutes.",
+    health.AUTH_FAILED: "The AI key was refused. Check the key in the server settings.",
+    health.CALL_FAILED: "The AI service did not give a usable answer. Try again later.",
+}
+
+
+def probe_message(status: str, success: bool, latency_ms: Optional[int]) -> str:
+    if success:
+        secs = (latency_ms or 0) / 1000
+        return f"Connection works. It answered in {secs:.1f} s."
+    return _PROBE_MESSAGES.get(status, "The AI service did not answer. Try again later.")
+
+
 def update_provider_health(status: str, latency_ms: Optional[int] = None, status_code: Optional[int] = None,
                            error: Optional[str] = None):
     """Records the outcome of a real check against the configured provider."""

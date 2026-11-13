@@ -60,7 +60,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
   - free OpenRouter models;
   - SambaNova;
   - local models.
-- No paid Claude or GPT for now. They can be tested later if free falls short.
+- No other paid models (such as GPT) for now. They can be tested later if free falls short.
 - Keys: GEMINI_API_KEY in the shell environment, plus `F:\Projects\titan-title-review\.env`.
   The project's own `env` file has empty key lines.
 
@@ -79,6 +79,20 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - **English pages:** keep PyMuPDF (decision 6). Pages with Bijoy, legacy or broken-Bangla fonts go to Gemini.
 - Details: `research/06_VERDICT.md`.
 
+### 11. Downloading the full archive (decided 2026-11-13)
+- **Own name `RegWatchBot/0.1`, one request at a time, 2 s between requests.** (Started at 3 s; moved to 2 s, the fastest tested-clean rate, on 13 Nov at the user's request.) The speed test (300 files at 5 s, 3 s, then 2 s) had no challenge page at any rate.
+  Never below 2 s; no parallel requests (untested, and a block would also stop the live detection test). Details: `research/archive/SPEED_TEST.md`.
+- **Runs 24/7** on the always-on PC as the scheduled task `RegWatchArchiveDownload` (`research/archive/fetch_all.py run`). The 10:00-18:00 window is dropped for downloads.
+- **Back-off on a challenge page:** 30 min, doubling up to 6 h; after 3 blocks in one day it stops and writes `data/STOPPED`.
+- The 15 s spacing in decision 2 still applies to the app's own live checker. The 2 s rate is for the one-off bulk download only.
+- Loading into the app: `backend/scripts/import_archive.py` (stores and reads pages, no analysis).
+
+### 12. Reading the archive's Bangla and scanned pages (decided 2026-11-13, replaces the 12 Nov hand-reading plan)
+- The app reads them itself with all free Gemini keys (`gemini-3.5-flash-lite`, the reading benchmark winner), rotating keys, newest circulars first, via `backend/scripts/read_pages.py`.
+- Free limits: 15 a minute and 500 a day per project, no weekly or monthly cap. A key out of daily quota rests until the reset; quota or busy replies never count against a page.
+- Hand reading through the Gemini app stays as the fallback for pages that fail.
+- Build phase runs on free tiers only; the paid tier is bought at the end (also needed before launch so private bank uploads are not sent to the free tier).
+
 ## Open (being decided by the benchmark; the verdict goes in `research/06_VERDICT.md`)
 - **Analysis:** which free model or method extracts metadata, obligations, applies-to, deadlines, links to other circulars and the English summary.
   Rules are ruled out as the main method: they were tuned on 8 docs and got 26-28 of 40 others right.
@@ -94,7 +108,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - **Split, frozen and read-only:** dev (40 circulars) is the only data used for tuning. Test (90) is scored once, at the end.
   Files: `split_FROZEN.json` and `reading_subset_FROZEN.json`, with hashes in `FROZEN.sha256`.
 - **Gold answers:** the page transcriptions were written by Opus. The analysis answers are written by Sonnet,
-  one agent at a time, to stay inside the user's Claude usage limit. Every quote is checked by code, and I audit 10% by hand.
+  one agent at a time, to stay inside the usage limit. Every quote is checked by code, and I audit 10% by hand.
 - **Scoring is by code wherever possible.** A number measured on data it was tuned on is never reported.
 - **Tuning uses the autoresearch skill (user's instruction).** It runs overnight loops of "change one thing, score, keep or discard",
   on the dev split only. It tunes:

@@ -103,7 +103,7 @@ async def test_private_upload_is_only_visible_to_its_owner(client, monkeypatch):
     assert stats_a["total_documents"] == stats_b["total_documents"] + 1
 
     # Research: the owner's question can cite it, other users' questions cannot.
-    monkeypatch.setattr("backend.app.modules.research.service.get_ai_provider", lambda *a, **k: _EchoProvider())
+    monkeypatch.setattr("backend.app.modules.research.service.get_answer_provider", lambda *a, **k: _EchoProvider())
     question = {"query": f"What is the {secret} return?"}
     res_a = await client.post("/api/v1/research/query", json=question, headers=_auth(token_a))
     assert any(c["document_title"] == title for c in res_a.json()["citations"])
@@ -210,7 +210,7 @@ async def test_research_service_without_user_only_searches_shared(monkeypatch):
             {"o": str(owner.id), "d": str(doc.id)},
         )
         await db.commit()
-    monkeypatch.setattr("backend.app.modules.research.service.get_ai_provider", lambda *a, **k: _EchoProvider())
+    monkeypatch.setattr("backend.app.modules.research.service.get_answer_provider", lambda *a, **k: _EchoProvider())
     async with AsyncSessionLocal() as db:
         anonymous = await ResearchService.query_regulatory_knowledge(db=db, query=f"What is the {secret} limit?")
         as_owner = await ResearchService.query_regulatory_knowledge(db=db, query=f"What is the {secret} limit?", user=owner)

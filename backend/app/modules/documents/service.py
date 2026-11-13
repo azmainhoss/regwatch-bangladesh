@@ -11,6 +11,7 @@ from backend.app.core.logging import logger
 from backend.app.core.storage import storage_service
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.extraction.service import STATUS_PENDING_VISION, extraction_service
+from backend.app.modules.relationships.linking import link_relationship_targets
 
 LANGUAGE_NAMES = {"english": "en", "en": "en", "bangla": "bn", "bengali": "bn", "bn": "bn", "mixed": "mixed"}
 
@@ -290,6 +291,13 @@ class DocumentIngestionService:
             db.add(page_record)
 
         await db.commit()
+        # Circulars that already cite this reference number can now be linked to it.
+        if doc.owner_user_id is None and doc.reference_number:
+            try:
+                await link_relationship_targets(db, doc.id)
+            except Exception as link_err:
+                await db.rollback()
+                logger.warning(f"Could not link relationships to document {doc.id}: {link_err}")
         if any(p.get("quality_status") == STATUS_PENDING_VISION for p in extracted_pages):
             from backend.app.modules.extraction.vision_jobs import vision_worker
             vision_worker.kick()

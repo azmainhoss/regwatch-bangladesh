@@ -78,6 +78,7 @@ class SourceRunRead(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime] = None
 
+    ingest_queued: Optional[int] = None  # circulars being added in the background after this check
     model_config = ConfigDict(from_attributes=True)
 
 

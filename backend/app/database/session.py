@@ -1,5 +1,5 @@
 from typing import AsyncGenerator, Generator
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 from backend.app.core.config import settings
@@ -15,8 +15,22 @@ async_engine = create_async_engine(
     db_url,
     echo=False,
     future=True,
-    connect_args={"check_same_thread": False} if "sqlite" in db_url else {}
+    # SQLite: wait up to 60 s for another process's write (the page reader, the archive import and
+    # the web app share one file) instead of failing at once with "database is locked".
+    connect_args={"check_same_thread": False, "timeout": 60} if "sqlite" in db_url else {}
 )
+
+
+if "sqlite" in db_url:
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA busy_timeout=60000")
+        try:
+            cur.execute("PRAGMA journal_mode=WAL")  # readers never block the writer
+        except Exception:
+            pass  # another process holds the file right now; WAL is switched on by a later connection
+        cur.close()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
@@ -41,7 +55,7 @@ sync_engine = create_engine(
     sync_url,
     echo=False,
     future=True,
-    connect_args={"check_same_thread": False} if "sqlite" in sync_url else {}
+    connect_args={"check_same_thread": False, "timeout": 60} if "sqlite" in sync_url else {}
 )
 
 SyncSessionLocal = sessionmaker(

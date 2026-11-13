@@ -3,7 +3,7 @@
 
 ### 1. Environments
 - **Local Development:** macOS/Linux, virtual environment (`.venv`), SQLite or local PostgreSQL, local storage namespace (`./storage`), mock or API LLM providers.
-- **Staging / Production:** Containerized deployment using Docker & Docker Compose or Kubernetes, PostgreSQL 16 with `pgvector`, Redis 7, private S3-compatible object storage (MinIO or AWS S3), production LLM keys (Gemini / Claude / OpenAI).
+- **Staging / Production:** Containerized deployment using Docker & Docker Compose or Kubernetes, PostgreSQL 16 with `pgvector`, Redis 7, private S3-compatible object storage (MinIO or AWS S3), production LLM keys (Gemini / OpenAI / others).
 
 ---
 

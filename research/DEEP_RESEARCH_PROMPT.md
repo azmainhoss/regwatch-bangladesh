@@ -23,7 +23,7 @@ Please research and compare the options, with 2025 to 2026 sources wherever you 
 
    Include any benchmarks on legal or regulatory information extraction (LegalBench, LexGLUE, contract clause extraction, obligation extraction papers) and on Bangla (BanglaBench, Bangla MMLU and similar).
 
-3. **Cheap hosted APIs as the alternative.** Compare Gemini Flash-Lite and Flash, Claude Haiku, the GPT mini/nano tiers, DeepSeek, Mistral Small and Qwen API, on:
+3. **Cheap hosted APIs as the alternative.** Compare Gemini Flash-Lite and Flash, the GPT mini/nano tiers, DeepSeek, Mistral Small and Qwen API, on:
    - per-token price
    - total yearly cost for my volume (estimate tokens per circular)
    - Bangla quality

@@ -42,43 +42,56 @@ async def get_provider_status():
 @router.post("/provider-test")
 async def test_provider_connection(current_user: User = Depends(get_current_superuser)):
     """
-    Executes an active on-demand handshake probe against the configured AI provider.
-    Updates runtime telemetry without exposing credentials.
+    Quick connection check: one tiny call on a cheap model, no retries, short timeout.
+    A busy (429/503) or slow service answers "busy" at once instead of waiting through retries.
+    The outcome is recorded as the health of the configured analysis model.
     """
-    from backend.app.modules.analysis.providers.factory import get_ai_provider, get_active_provider_info
+    from backend.app.modules.analysis.providers import health
+    from backend.app.modules.analysis.providers.factory import (
+        get_active_provider_info,
+        get_probe_provider,
+        probe_message,
+        update_provider_health,
+    )
     try:
-        provider = get_ai_provider()
-        res = await provider.generate_structured_json(
-            system_prompt="You are a health probe assistant.",
-            user_prompt="Reply with a JSON having key 'status' and value 'healthy'."
-        )
-        info = get_active_provider_info()
-        info["test_result"] = {
-            "success": res.success,
-            "latency_ms": res.latency_ms,
-            "error": res.error
-        }
-        return info
+        provider = get_probe_provider()
     except ValueError as e:
         # Missing or unknown configuration: nothing was called, so no health result is recorded.
         info = get_active_provider_info()
         info["test_result"] = {
             "success": False,
-            "error": str(e)
-        }
-        return info
-    except Exception as e:
-        from backend.app.modules.analysis.providers.factory import update_provider_health
-        update_provider_health(status="TEMPORARILY_UNAVAILABLE", error=str(e))
-        info = get_active_provider_info()
-        info["test_result"] = {
-            "success": False,
-            "error": str(e)
+            "busy": False,
+            "error": str(e),
+            "message": "The AI service is not set up on the server yet.",
         }
         return info
 
+    res = await provider.generate_structured_json(
+        system_prompt="Health check.",
+        user_prompt='Reply with {"status": "ok"}.',
+    )
+    last = health.current()
+    status_name = health.CONNECTED_TESTED if res.success else (last.get("status") or health.TEMPORARILY_UNAVAILABLE)
+    if not res.success and last.get("last_status_code") is None:
+        status_name = health.TEMPORARILY_UNAVAILABLE  # timeout or network drop
+    update_provider_health(
+        status=status_name,
+        latency_ms=res.latency_ms,
+        status_code=last.get("last_status_code"),
+        error=res.error,
+    )
+    info = get_active_provider_info()
+    info["test_result"] = {
+        "success": res.success,
+        "busy": status_name in (health.QUOTA_EXCEEDED, health.TEMPORARILY_UNAVAILABLE),
+        "latency_ms": res.latency_ms,
+        "error": res.error,
+        "message": probe_message(status_name, res.success, res.latency_ms),
+    }
+    return info
 
-@router.post("/{document_id}/analyze", response_model=DocumentAnalysisRead, status_code=status.HTTP_200_OK)
+
+@router.post("/{document_id}/analyze", status_code=status.HTTP_202_ACCEPTED)
 async def analyze_document(
     document_id: UUID,
     payload: AnalyzeDocumentRequest = AnalyzeDocumentRequest(),
@@ -86,31 +99,46 @@ async def analyze_document(
     db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Executes the multi-stage AI intelligence pipeline on a document.
-    Extracts summary, provisions, obligations, relationships, and runs deterministic citation validation.
+    Starts the analysis in the background and answers at once with its state.
+    Poll GET /documents/{id}/analysis-status until it is DONE, FAILED or UNCHANGED.
     """
+    from backend.app.modules.analysis import jobs
+    doc = await get_visible_document(db, document_id, current_user)
+    if not doc.current_version_id:
+        raise HTTPException(status_code=404, detail="This circular has no version to analyse.")
+    provider_name = payload.provider if not settings.is_production else None
+    from backend.app.modules.analysis.auto import pages_waiting
+    waiting = await pages_waiting(db, doc.current_version_id)
+    if waiting:
+        return jobs.mark_waiting_for_pages(document_id, waiting)
+    if not payload.force and not payload.force_human_review:
+        if await jobs.unchanged_since_last_run(db, document_id, provider_name):
+            return jobs.mark_unchanged(document_id)
+    return jobs.start(document_id, provider_name=provider_name, force_human_review=payload.force_human_review)
+
+
+@router.get("/{document_id}/reading-status")
+async def get_reading_status(
+    document_id: UUID,
+    current_user: Optional[User] = Depends(get_document_reader),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """What the circular is waiting for (page reading, daily limit) and roughly how long it will take."""
+    from backend.app.modules.analysis.auto import reading_status
+    doc = await get_visible_document(db, document_id, current_user)
+    return await reading_status(db, doc)
+
+
+@router.get("/{document_id}/analysis-status")
+async def get_analysis_status(
+    document_id: UUID,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """State of the latest background analysis: IDLE, RUNNING, DONE, FAILED or UNCHANGED."""
+    from backend.app.modules.analysis import jobs
     await get_visible_document(db, document_id, current_user)
-    try:
-        analysis = await AnalysisService.analyze_document_version(
-            db=db,
-            document_id=document_id,
-            provider_name=payload.provider if not settings.is_production else None,
-            force_human_review=payload.force_human_review
-        )
-        # Reload with claims and citations for serialization
-        query = (
-            select(DocumentAnalysis)
-            .options(
-                selectinload(DocumentAnalysis.claims).selectinload(AnalysisClaim.citations)
-            )
-            .where(DocumentAnalysis.id == analysis.id)
-        )
-        result = await db.execute(query)
-        return result.scalar_one()
-    except ValueError as ve:
-        raise HTTPException(status_code=404, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis pipeline execution error: {str(e)}")
+    return await jobs.status(db, document_id)
 
 
 @router.get("/{document_id}/analysis", response_model=DocumentAnalysisRead)

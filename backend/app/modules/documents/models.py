@@ -101,6 +101,12 @@ class DocumentPage(Base):
     # Page-image reading jobs that failed on this page, and the last error.
     vision_attempts = Column(Integer, default=0, server_default="0", nullable=False)
     vision_error = Column(Text, nullable=True)
+    # Who last corrected this page's text, when, and why. Every correction is also kept in
+    # `page_corrections`, so earlier ones are never overwritten.
+    correction_reason = Column(Text, nullable=True)
+    corrected_by_user_id = Column(GUID(), nullable=True)
+    corrected_by_name = Column(String(255), nullable=True)
+    corrected_at = Column(DateTime(timezone=True), nullable=True)
 
     version = relationship("DocumentVersion", back_populates="pages")
     provisions = relationship("Provision", back_populates="page")
@@ -109,3 +115,18 @@ class DocumentPage(Base):
     __table_args__ = (
         UniqueConstraint("document_version_id", "page_number", name="uq_doc_version_page_num"),
     )
+
+
+class PageCorrection(Base):
+    """One row per human correction of a page's text. Rows are only ever added."""
+    __tablename__ = "page_corrections"
+
+    page_id = Column(GUID(), ForeignKey("document_pages.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_version_id = Column(GUID(), nullable=False, index=True)
+    page_number = Column(Integer, nullable=False)
+    corrected_by_user_id = Column(GUID(), nullable=True, index=True)
+    corrected_by_name = Column(String(255), nullable=True)
+    reason = Column(Text, nullable=True)
+    # The text the reader saw before this correction, and the text that replaced it.
+    previous_text = Column(Text, nullable=True)
+    corrected_text = Column(Text, nullable=False)

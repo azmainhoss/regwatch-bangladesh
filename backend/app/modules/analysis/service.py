@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -17,7 +18,49 @@ from backend.app.modules.documents.models import Document, DocumentPage, Documen
 from backend.app.modules.extraction.page_router import has_word_boxes, text_layer_lines_by_page
 from backend.app.modules.obligations.models import Obligation
 from backend.app.modules.provisions.models import Provision
+from backend.app.modules.relationships.linking import link_relationship_targets
 from backend.app.modules.relationships.models import DocumentRelationship
+
+
+async def _announce_circular(db, doc) -> None:
+    """Records a new-circular alert in this transaction. Never raises."""
+    try:
+        from backend.app.modules.alerts.emit import circular_published
+        await circular_published(db, doc)
+    except Exception as exc:
+        logger.warning("Alert not recorded: %s", type(exc).__name__)
+
+
+async def _announce_library_change(db, doc_ids) -> None:
+    """After a commit: check the banks that use these circulars. Never raises."""
+    try:
+        from backend.app.modules.alerts.sweeps import library_changed
+        await library_changed(db, doc_ids)
+    except Exception as exc:
+        logger.warning("Alert not recorded: %s", type(exc).__name__)
+
+
+
+def input_fingerprint(model_name: str, pages: List[Dict[str, Any]]) -> str:
+    """Hash of what the model would be sent: same model + same page texts = same fingerprint."""
+    h = hashlib.sha256((model_name or "").encode("utf-8"))
+    for p in sorted(pages, key=lambda x: x["page_number"]):
+        h.update(f"\n#page {p['page_number']}\n".encode("utf-8"))
+        h.update((p.get("cleaned_text") or "").encode("utf-8"))
+    return h.hexdigest()
+
+
+def pages_payload_for(version: DocumentVersion) -> List[Dict[str, Any]]:
+    return [
+        {
+            "page_number": p.page_number,
+            "raw_text": p.cleaned_text or p.raw_text,
+            "cleaned_text": p.cleaned_text or p.raw_text,
+            "has_tables": p.has_tables,
+            "line_boxes": p.line_boxes,
+        }
+        for p in version.pages
+    ]
 
 
 class AnalysisService:
@@ -73,6 +116,10 @@ class AnalysisService:
         version = version_query.scalar_one_or_none()
         if not version or not version.pages:
             raise ValueError("Document version or its pages are missing.")
+        waiting = [p for p in version.pages if p.quality_status == "PENDING_VISION" and not p.is_human_corrected]
+        if waiting:
+            # Never analyse empty Bangla or scanned pages: wait until every page has been read.
+            raise ValueError(f"Pages are still being read ({len(waiting)} waiting).")
 
         # Check for active concurrent processing (prevent duplicate pipeline runs)
         now = datetime.now(timezone.utc)
@@ -87,7 +134,7 @@ class AnalysisService:
         # The lease is the concurrency guard; the document status is left alone
         # until a new analysis has been produced and saved.
         worker_id = f"worker-{os.getpid()}-{uuid4().hex[:6]}"
-        lease_token = await AnalysisLeaseManager.acquire_lease(db, doc.id, worker_id)
+        lease_token = await AnalysisLeaseManager.acquire_lease(db, doc.id, worker_id, lease_duration_seconds=900)
         await db.commit()
         prior_status = doc.publication_status
         doc_id = doc.id
@@ -109,16 +156,7 @@ class AnalysisService:
         await AnalysisService._fill_text_layer_word_boxes(version)
 
         # Prepare page dictionary for pipeline
-        pages_payload = [
-            {
-                "page_number": p.page_number,
-                "raw_text": p.cleaned_text or p.raw_text,
-                "cleaned_text": p.cleaned_text or p.raw_text,
-                "has_tables": p.has_tables,
-                "line_boxes": p.line_boxes,
-            }
-            for p in version.pages
-        ]
+        pages_payload = pages_payload_for(version)
 
         try:
             provider = get_ai_provider(provider_name)
@@ -133,6 +171,10 @@ class AnalysisService:
         except Exception as e:
             await _fail(str(e))
             raise RuntimeError(f"AI analysis pipeline failed: {e}") from e
+        try:
+            result.structured_payload["input_sha256"] = input_fingerprint(provider.model_name, pages_payload)
+        except Exception:
+            pass
 
         if not result.success:
             await _fail(str(result.error))
@@ -261,7 +303,7 @@ class AnalysisService:
             target_page_id = page_id_map.get(p_no, default_page_id)
             rel_record = DocumentRelationship(
                 source_document_id=doc.id,
-                target_document_id=None,  # Linked later if target exists
+                target_document_id=None,  # Filled in by link_relationship_targets once the cited circular is found
                 target_reference_hint=rel_data.get("target_reference_hint"),
                 relationship_type=rel_data.get("relationship_type", "REFERENCES"),
                 source_page_id=target_page_id,
@@ -299,8 +341,25 @@ class AnalysisService:
 
         # Update Document publication status and release durable lease
         doc.publication_status = "AWAITING_REVIEW" if needs_re_review else result.publication_status
+        await _announce_circular(db, doc)
         await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="RELEASED")
         await db.commit()
+        # Fill in which stored circular each cited reference names (never guessed; see relationships/linking.py).
+        try:
+            await link_relationship_targets(db, doc.id)
+        except Exception as link_err:
+            await db.rollback()
+            logger.warning(f"Could not link relationship targets for document {doc.id}: {link_err}")
+        try:
+            rel_targets = (await db.execute(
+                select(DocumentRelationship.target_document_id).where(
+                    DocumentRelationship.source_document_id == doc.id,
+                    DocumentRelationship.target_document_id.is_not(None),
+                )
+            )).scalars().all()
+        except Exception:
+            rel_targets = []
+        await _announce_library_change(db, [doc.id, *rel_targets])
         await db.refresh(analysis)
         return analysis
 
@@ -401,6 +460,9 @@ class AnalysisService:
             analysis.review_notes = review_notes
 
         doc.publication_status = decision
+        await _announce_circular(db, doc)
         await db.commit()
+        if decision in ("WITHDRAWN", "SUPERSEDED"):
+            await _announce_library_change(db, [doc.id])
         await db.refresh(doc)
         return doc

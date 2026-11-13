@@ -72,3 +72,8 @@ def health_for(provider: str, model: str) -> Dict[str, Any]:
     if _HEALTH.get("provider") == provider and _HEALTH.get("model") == model:
         return dict(_HEALTH)
     return _empty()
+
+
+def current() -> Dict[str, Any]:
+    """The last recorded call, whatever provider or model it was."""
+    return dict(_HEALTH)

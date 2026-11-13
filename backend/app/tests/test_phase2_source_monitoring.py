@@ -147,6 +147,15 @@ async def test_source_monitoring_run_with_mocked_network():
             assert run_data["outcome"] == "OK"
             assert run_data["candidate_links_discovered"] == 2
             assert run_data["access_restricted"] is False
+            # Downloads run in the background after the answer; wait for them while the site is mocked.
+            assert run_data["ingest_queued"] == 2
+            from uuid import UUID as _UUID
+            from backend.app.modules.sources.service import source_monitoring_service as _sms
+            status_resp = await client.get(f"/api/v1/sources/{source_id}/ingest-status", headers=headers)
+            assert status_resp.status_code == 200
+            await _sms.wait_for_ingest(_UUID(source_id))
+            done = (await client.get(f"/api/v1/sources/{source_id}/ingest-status", headers=headers)).json()
+            assert done["running"] is False and done["done"] == 2
 
         # 4. Check Discovery Review Queue
         disc_resp = await client.get("/api/v1/sources/discoveries", headers=headers)

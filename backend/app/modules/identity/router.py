@@ -1,6 +1,7 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
@@ -38,7 +39,15 @@ async def register(
 
     profile = UserProfile(user_id=user.id, preferences={})
     db.add(profile)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two sign-ups with the same email at the same moment.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email already exists"
+        )
     await db.refresh(user)
 
     expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

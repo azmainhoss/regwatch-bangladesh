@@ -61,6 +61,8 @@ class OpenAICompatibleProvider(BaseAIProvider):
         response_format: Optional[str] = None,
         client: Optional[httpx.AsyncClient] = None,
         sleep: SleepFn = asyncio.sleep,
+        max_retries: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
     ):
         super().__init__(model_name=model_name or settings.ANALYSIS_MODEL or "")
         self.base_url = (base_url or settings.OPENAI_COMPAT_BASE_URL or "").rstrip("/")
@@ -68,6 +70,8 @@ class OpenAICompatibleProvider(BaseAIProvider):
         self.response_format = (response_format or settings.OPENAI_COMPAT_RESPONSE_FORMAT or "json_object").lower()
         self._client = client
         self._sleep = sleep
+        self._max_retries = max_retries
+        self._timeout = timeout_seconds
 
     def _fail(self, error: str, raw: str = "", latency_ms: int = 0, status_code: Optional[int] = None,
               usage: Optional[TokenUsage] = None, record: bool = True) -> LLMResponse:
@@ -122,12 +126,12 @@ class OpenAICompatibleProvider(BaseAIProvider):
 
         start = time.time()
         own_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS)
+        client = self._client or httpx.AsyncClient(timeout=self._timeout or settings.AI_TIMEOUT_SECONDS)
         try:
             outcome = await post_with_backoff(
                 client, url, payload, headers,
                 label=f"{self.base_url} {self.model_name}",
-                max_retries=settings.AI_MAX_RETRIES,
+                max_retries=settings.AI_MAX_RETRIES if self._max_retries is None else self._max_retries,
                 base_seconds=settings.AI_RETRY_BASE_SECONDS,
                 max_seconds=settings.AI_RETRY_MAX_SECONDS,
                 sleep=self._sleep,

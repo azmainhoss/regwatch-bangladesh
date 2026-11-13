@@ -56,12 +56,16 @@ class GeminiAIProvider(BaseAIProvider):
         api_key: Optional[str] = None,
         client: Optional[httpx.AsyncClient] = None,
         sleep: SleepFn = asyncio.sleep,
+        max_retries: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
     ):
         model = model_name or settings.ANALYSIS_MODEL or settings.GEMINI_ANALYSIS_DEFAULT_MODEL
         super().__init__(model_name=model)
         self.api_key = api_key or settings.GEMINI_API_KEY
         self._client = client
         self._sleep = sleep
+        self._max_retries = max_retries
+        self._timeout = timeout_seconds
 
     def _fail(self, error: str, raw: str = "", latency_ms: int = 0, status_code: Optional[int] = None,
               usage: Optional[TokenUsage] = None) -> LLMResponse:
@@ -108,10 +112,10 @@ class GeminiAIProvider(BaseAIProvider):
             "generationConfig": generation_config,
         }
 
-        max_retries = max(0, settings.AI_MAX_RETRIES)
+        max_retries = max(0, settings.AI_MAX_RETRIES if self._max_retries is None else self._max_retries)
         start = time.time()
         own_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=settings.AI_TIMEOUT_SECONDS)
+        client = self._client or httpx.AsyncClient(timeout=self._timeout or settings.AI_TIMEOUT_SECONDS)
         try:
             # Outer loop only repeats when a 200 reply held unreadable JSON.
             parse_attempt = 0

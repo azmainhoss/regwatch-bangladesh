@@ -63,19 +63,69 @@ class VisionResult:
     error: Optional[str] = None
     model: Optional[str] = None
     no_key: bool = False
+    # The service was busy, rate-limited or out of today's quota: not the page's fault, so the
+    # page keeps waiting and no failed try is counted.
+    transient: bool = False
+    quota_exhausted: bool = False
 
 
 _lock: Optional[asyncio.Lock] = None
 _lock_loop = None
 
 
-def _call_lock() -> asyncio.Lock:
-    """One vision call at a time per process (the lock is remade if the event loop changes)."""
-    global _lock, _lock_loop
+_key_gates: dict = {}
+# Keys that used up today's free quota, with the time the quota comes back (UTC).
+_exhausted_until: dict = {}
+
+
+def _next_quota_reset():
+    """Free daily quotas reset at midnight Pacific time; 08:05 UTC is safely after it."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    reset = now.replace(hour=8, minute=5, second=0, microsecond=0)
+    if reset <= now:
+        reset += timedelta(days=1)
+    return reset
+
+
+def mark_key_exhausted(api_key: str) -> None:
+    _exhausted_until[api_key] = _next_quota_reset()
+
+
+def available_gemini_keys() -> list:
+    """The keys that still have quota today."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return [k for k in gemini_keys() if not (_exhausted_until.get(k) and _exhausted_until[k] > now)]
+
+
+def _is_daily_quota(resp) -> bool:
+    body = (resp.text or "")[:4000]
+    return resp.status_code == 429 and ("PerDay" in body or "per day" in body.lower())
+
+
+def gemini_keys() -> list:
+    """GEMINI_API_KEY first, then any extra keys, without repeats."""
+    keys = [settings.GEMINI_API_KEY] if settings.GEMINI_API_KEY else []
+    for k in (settings.GEMINI_EXTRA_API_KEYS or "").split(","):
+        k = k.strip()
+        if k and k not in keys:
+            keys.append(k)
+    return keys
+
+
+def _call_lock(api_key: str = "") -> asyncio.Semaphore:
+    """At most VISION_CALLS_PER_KEY calls at once per key (remade if the event loop changes)."""
+    global _lock_loop
     loop = asyncio.get_running_loop()
-    if _lock is None or _lock_loop is not loop:
-        _lock, _lock_loop = asyncio.Lock(), loop
-    return _lock
+    if _lock_loop is not loop:
+        _key_gates.clear()
+        _lock_loop = loop
+    gate = _key_gates.get(api_key)
+    if gate is None:
+        gate = asyncio.Semaphore(max(1, settings.VISION_CALLS_PER_KEY))
+        _key_gates[api_key] = gate
+    return gate
 
 
 def render_page_png(pdf_bytes: bytes, page_number: int, dpi: Optional[int] = None) -> bytes:
@@ -167,20 +217,28 @@ async def read_page_image(
     own_client = client is None
     client = client or httpx.AsyncClient(timeout=settings.VISION_TIMEOUT_SECONDS)
     try:
-        async with _call_lock():
+        async with _call_lock(api_key):
             last_error = "no reply"
+            busy = False
             for attempt in range(settings.VISION_MAX_RETRIES + 1):
                 try:
                     resp = await client.post(url, json=payload, headers=headers)
                 except httpx.HTTPError as e:
                     last_error = f"network error: {type(e).__name__}: {e}"
+                    busy = True
                     if attempt < settings.VISION_MAX_RETRIES:
                         await sleep(settings.VISION_RETRY_BASE_SECONDS * (2 ** attempt))
                         continue
                     break
 
+                if _is_daily_quota(resp):
+                    mark_key_exhausted(api_key)
+                    logger.info("A Gemini key used up today's free quota; it rests until the daily reset.")
+                    return VisionResult(success=False, error="daily limit reached", model=model,
+                                        transient=True, quota_exhausted=True)
                 if resp.status_code in RETRY_STATUSES:
                     last_error = f"HTTP {resp.status_code}"
+                    busy = True
                     if attempt < settings.VISION_MAX_RETRIES:
                         delay = _retry_delay(resp, attempt)
                         logger.info(f"Gemini vision busy ({resp.status_code}); retrying in {delay:.0f} s.")
@@ -190,16 +248,18 @@ async def read_page_image(
 
                 if resp.status_code != 200:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                    busy = False
                     break
 
                 try:
                     lines = parse_vision_reply(resp.json())
                 except (ValueError, json.JSONDecodeError) as e:
                     last_error = f"unusable answer: {e}"
+                    busy = False
                     break
                 text = "\n".join(line["text"] for line in lines)
                 return VisionResult(success=True, text=text, line_boxes=lines, model=model)
-            return VisionResult(success=False, error=last_error, model=model)
+            return VisionResult(success=False, error=last_error, model=model, transient=busy)
     finally:
         if own_client:
             await client.aclose()

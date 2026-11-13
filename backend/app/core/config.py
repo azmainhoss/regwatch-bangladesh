@@ -1,7 +1,7 @@
 import os
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 from pydantic_settings import BaseSettings, NoDecode
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 
 # Old hardcoded signing key. Kept only so production can refuse to run with it.
 LEGACY_DEFAULT_SECRET_KEY = "dev-secret-key-regwatch-bangladesh-super-secure-at-least-32-chars"
@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     STORAGE_LOCAL_ROOT: str = "./storage"
     ORIGINALS_STORAGE_NAMESPACE: str = "originals"
     EVIDENCE_STORAGE_NAMESPACE: str = "evidence"
+    # Largest evidence file a bank may attach to a task.
+    EVIDENCE_MAX_BYTES: int = 25 * 1024 * 1024
     # Rendered page images for the source-page viewer. A cache only: safe to delete at any time.
     # Empty means <STORAGE_LOCAL_ROOT>/page_images.
     PAGE_IMAGE_CACHE_DIR: Optional[str] = None
@@ -52,7 +54,12 @@ class Settings(BaseSettings):
     VISION_MAX_RETRIES: int = 4  # retries inside one call on 429/503, with backoff
     VISION_RETRY_BASE_SECONDS: float = 5.0
     VISION_MAX_ATTEMPTS: int = 5  # failed jobs on one page before it goes to a person
-    VISION_POLL_SECONDS: int = 60
+    VISION_POLL_SECONDS: int = 60  # fallback only: uploads wake the job at once
+    # Pages of one circular are read a few at a time: up to VISION_CALLS_PER_KEY calls at once on
+    # each key, rotating over GEMINI_API_KEY plus GEMINI_EXTRA_API_KEYS (comma-separated, optional).
+    VISION_CALLS_PER_KEY: int = 2
+    VISION_MAX_PARALLEL: int = 8
+    GEMINI_EXTRA_API_KEYS: Optional[str] = None
     VISION_TIMEOUT_SECONDS: int = 120
     # Run the page-reading job in this process. It also runs wherever SCHEDULER_ENABLED is on.
     VISION_WORKER_ENABLED: bool = False
@@ -77,6 +84,13 @@ class Settings(BaseSettings):
     AI_RETRY_BASE_SECONDS: float = 5.0
     AI_RETRY_MAX_SECONDS: float = 120.0
     AI_TIMEOUT_SECONDS: int = 120
+    # Admin "Test connection": one tiny call on a cheap model, no retries, short timeout.
+    PROBE_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    PROBE_TIMEOUT_SECONDS: float = 15.0
+    # "Ask" answers: fast model, one retry at most, shorter timeout (the matching quotes show at once).
+    ANSWER_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    ANSWER_MAX_RETRIES: int = 1
+    ANSWER_TIMEOUT_SECONDS: float = 45.0
 
     # Talking to bb.org.bd (DECISIONS.md 1 and 2)
     # The checker uses its own name, one request at a time, at least this many seconds apart.
@@ -107,6 +121,32 @@ class Settings(BaseSettings):
     # Turn off on all but one process when running several workers.
     SCHEDULER_ENABLED: bool = False  # turn on explicitly on the one machine that collects
 
+    # Alerts and email (docs/specs/ALERTS_SPEC.md). Email is off unless SMTP_HOST and SMTP_FROM are both set.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[SecretStr] = None  # never logged or returned
+    SMTP_FROM: Optional[str] = None
+    SMTP_FROM_NAME: str = "RegWatch Bangladesh"
+    SMTP_TLS_MODE: Literal["starttls", "ssl", "none"] = "starttls"
+    SMTP_TIMEOUT_SECONDS: int = 20
+    # Base address for links inside emails (no trailing slash).
+    APP_PUBLIC_URL: str = "http://localhost:3000"
+    # Run the alerts job in this process even when SCHEDULER_ENABLED is off. One process only.
+    ALERTS_WORKER_ENABLED: bool = False
+    # Hand new alerts to people right after a save is committed. Tests turn this off.
+    ALERTS_KICK_AFTER_COMMIT: bool = True
+    ALERTS_WORKER_POLL_SECONDS: int = 30
+    ALERTS_SWEEP_MINUTES: int = 15
+    ALERTS_ON_POLL_SWEEP_MINUTES: int = 10
+    # Days before a deadline that raise a "due soon" alert, comma separated (each 0-90).
+    ALERTS_DUE_SOON_DAYS: str = "7,1"
+    ALERTS_DIGEST_TIME: str = "10:30"  # Dhaka time, inside the window the host PC is on
+    ALERTS_EMAIL_MAX_ATTEMPTS: int = 6
+    ALERTS_EMAIL_MAX_AGE_HOURS: int = 48
+    ALERTS_PUBLISH_SWEEP_HOURS: int = 48
+    ALERTS_RETENTION_DAYS: int = 180
+
     # CORS: comma separated list (or JSON list) of exact origins allowed to call the API.
     ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
@@ -126,6 +166,20 @@ class Settings(BaseSettings):
                 return [str(v).strip() for v in json.loads(raw) if str(v).strip()]
             return [part.strip() for part in raw.split(",") if part.strip()]
         return value
+
+    @field_validator("SMTP_FROM_NAME", "APP_PUBLIC_URL", mode="after")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip().rstrip("/") if value else value
+
+    @property
+    def due_soon_days(self) -> List[int]:
+        days = set()
+        for part in str(self.ALERTS_DUE_SOON_DAYS or "").split(","):
+            part = part.strip()
+            if part.isdigit() and 0 <= int(part) <= 90:
+                days.add(int(part))
+        return sorted(days) or [1]
 
     @property
     def is_production(self) -> bool:

@@ -10,6 +10,9 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, description="Password must be at least 8 characters")
 
 

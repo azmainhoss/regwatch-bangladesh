@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowUpRight, BookOpenText, FileDown, Lock, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowUpRight, BookOpenText, FileDown, GitBranch, ListPlus, Lock, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import {
   AuthUser,
   DocumentAnalysisData,
@@ -12,14 +12,24 @@ import {
   ObligationItem,
   QuoteBox,
   RelationshipItem,
+  type ResearchCitation,
   documentPdfUrl,
+  fetchAnalysisStatus,
+  fetchReadingStatus,
+  type ReadingStatus,
   openDocumentPdf,
   reextractDocument,
   reviewDocumentAnalysis,
   triggerDocumentAnalysis,
 } from "@/services/api";
-import StatusBadge, { PrivateTag, Tag } from "./StatusBadge";
+import StatusBadge, { AwaitingReviewTag, InForceBadge, PrivateTag, Tag } from "./StatusBadge";
+import CompareButtons from "./CompareButtons";
+import { loadStatus, inForceOf, useRelState } from "@/services/relationshipsStore";
+import { relLabel } from "./LinksView";
 import PagePanel, { type PageHighlight } from "./PagePanel";
+import AddToRegisterModal from "./workspace/AddToRegisterModal";
+import { rememberOrg, useAddRights } from "./workspace/useAddRights";
+import { ensureWorkspace, orgItems, useWorkspace } from "@/services/workspaceStore";
 import { EASE_OUT, Notice, SkeletonLine, hasBangla, titleWithoutRef } from "./ui";
 
 export interface QaResponse {
@@ -45,11 +55,15 @@ interface Props {
   setQaQuery: (q: string) => void;
   qaLoading: boolean;
   qaResponse: QaResponse | null;
+  qaMatches?: ResearchCitation[] | null;
   qaError: string | null;
   onAsk: (e: React.FormEvent) => void;
   currentUser: AuthUser | null;
   onSignIn: () => void;
   onRefresh: () => void;
+  onPageSaved: (page: DocumentPage) => void;
+  /** Set when the pages shown are those of an older version (opened from a register item). */
+  viewingVersionId?: string | null;
 }
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -116,6 +130,35 @@ function PageLink({ page, onClick }: { page?: number; onClick: () => void }) {
   );
 }
 
+
+function minutesText(m: number) {
+  if (m <= 1) return "about a minute";
+  if (m < 60) return `about ${m} minutes`;
+  const h = Math.round(m / 60);
+  return `about ${h} ${h === 1 ? "hour" : "hours"}`;
+}
+
+/** One plain sentence: what is being waited for, how far along, how long, and what comes next. */
+function readingLine(total: number, waiting: number, r: ReadingStatus | null) {
+  const ready = `${total - waiting} of ${total} pages ready`;
+  const next =
+    r?.analysis_after === "AUTOMATIC"
+      ? " The summary and requirements are added by themselves right after."
+      : r?.analysis_after === "LATER"
+        ? " The summary and requirements for older circulars are added later."
+        : " An administrator can run the analysis once all pages are read.";
+  if (!r) return `Reading the page images: ${ready}. The text appears here by itself as each page is read.`;
+  if (r.state === "PAUSED_DAILY_LIMIT") {
+    const at = r.resumes_at ? new Date(r.resumes_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+    return `Page reading is paused: today's free reading limit is used up. It starts again${at ? ` at about ${at}` : " tomorrow"}. ${ready}.${next}`;
+  }
+  if (r.state === "PAUSED_NO_KEY" || r.state === "PAUSED_NOT_RUNNING")
+    return `Page reading is not running right now, so these pages are waiting. ${ready}.${next}`;
+  if (r.state === "QUEUED")
+    return `Waiting in line: ${r.pages_ahead} pages from newer circulars are read first. ${ready}, ${minutesText(r.minutes_left)} left.${next}`;
+  return `Reading the page images: ${ready}, ${minutesText(r.minutes_left)} left. The text appears here by itself as each page is read.${next}`;
+}
+
 export default function CircularDetail(props: Props) {
   const {
     doc,
@@ -134,6 +177,7 @@ export default function CircularDetail(props: Props) {
     setQaQuery,
     qaLoading,
     qaResponse,
+    qaMatches,
     qaError,
     onAsk,
     currentUser,
@@ -144,10 +188,54 @@ export default function CircularDetail(props: Props) {
   const [analyzing, setAnalyzing] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [reextracting, setReextracting] = useState(false);
-  const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error" | "info"; text: string; canForce?: boolean } | null>(null);
 
   const isAdmin = !!currentUser?.is_superuser;
+  const [addOpen, setAddOpen] = useState(false);
+  const [added, setAdded] = useState<{ orgId: string; registerId: string; count: number } | null>(null);
+  const rights = useAddRights(!!currentUser);
+  const wsState = useWorkspace();
+  const published = String(doc.publication_status || "").startsWith("PUBLISHED");
+  const canAddToRegister = !!currentUser && !doc.is_private && published && !!rights.active;
+  const activeOrgId = rights.active?.id ?? null;
+  useEffect(() => {
+    // Preload the bank workspace so the "In your register" tags are right and adding is instant.
+    if (canAddToRegister && activeOrgId) void ensureWorkspace(activeOrgId);
+  }, [canAddToRegister, activeOrgId]);
+  const inYourRegister = (obl: ObligationItem) =>
+    !!activeOrgId &&
+    orgItems(wsState, activeOrgId).some((i) => i.source.document_id === doc.id && (i.obligation_id === obl.id || i.source.quote === obl.supporting_text));
+  const rel = useRelState();
+  const relStatus = rel.status[doc.id];
+  const inForce = inForceOf(rel, doc);
+  const awaiting = (relStatus?.unconfirmed_incoming.length ?? 0) + (relStatus?.outgoing.filter((l) => l.verification_status === "PENDING_REVIEW").length ?? 0);
+
+  // In-force status, links and compare targets: shown from the shared copy at once, refreshed in the background.
+  useEffect(() => {
+    loadStatus(doc.id).catch(() => undefined);
+  }, [doc.id, currentUser?.id]);
+
   const pageCount = doc.versions?.[0]?.page_count ?? pages.length;
+  const waitingCount = pages.filter((p) => p.quality_status === "PENDING_VISION").length;
+  // What the circular is waiting for and roughly how long: refreshed with every page update and
+  // every 10 s while pages wait, so the line below is never stale.
+  const [reading, setReading] = useState<ReadingStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetchReadingStatus(doc.id)
+        .then((r) => alive && setReading(r))
+        .catch(() => undefined);
+    void load();
+    if (waitingCount === 0) return () => {
+      alive = false;
+    };
+    const t = setInterval(load, 10000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [doc.id, waitingCount]);
 
   const openPage = (n: number, quote?: string | null, boxes?: QuoteBox[] | null) => {
     setPageNumber(n);
@@ -155,17 +243,71 @@ export default function CircularDetail(props: Props) {
     setPagePanelOpen(true);
   };
 
-  const runAnalysis = async () => {
-    try {
-      setAnalyzing(true);
-      setAdminMessage(null);
-      await triggerDocumentAnalysis(doc.id, "gemini");
-      setAdminMessage({ type: "success", text: "Analysis finished. The circular now needs a human sign-off." });
+  // Analysis runs in the background on the server. While it runs, this page checks every few
+  // seconds and redraws itself the moment it ends, so the screen is never stale.
+  const finishAnalysis = (state: string, message?: string | null) => {
+    setAnalyzing(false);
+    if (state === "DONE") {
+      setAdminMessage({ type: "success", text: "Analysis finished. The badge above shows whether it was published or needs a sign-off." });
       onRefresh();
+    } else if (state === "FAILED") {
+      setAdminMessage({ type: "error", text: message || "The analysis could not finish. Earlier results are kept." });
+    } else if (state === "WAITING_FOR_PAGES") {
+      setAdminMessage({ type: "info", text: message || "Some pages are still being read. The analysis can run once they are done." });
+    } else if (state === "UNCHANGED") {
+      setAdminMessage({ type: "info", text: message || "Nothing changed since the last analysis.", canForce: true });
+    }
+  };
+
+  useEffect(() => {
+    // Pick up a run that is already going (started earlier or by another admin).
+    if (!isAdmin) return;
+    let cancelled = false;
+    fetchAnalysisStatus(doc.id)
+      .then((st) => {
+        if (cancelled) return;
+        if (st.state === "RUNNING") {
+          setAnalyzing(true);
+          setAdminMessage({ type: "info", text: "Analysing this circular. This page updates by itself when it is done." });
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [doc.id, isAdmin]);
+
+  useEffect(() => {
+    if (!analyzing) return;
+    let stopped = false;
+    const timer = setInterval(async () => {
+      try {
+        const st = await fetchAnalysisStatus(doc.id);
+        if (!stopped && st.state !== "RUNNING") {
+          stopped = true;
+          clearInterval(timer);
+          finishAnalysis(st.state, st.message);
+        }
+      } catch {
+        /* keep checking; a dropped request is not a result */
+      }
+    }, 2500);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyzing, doc.id]);
+
+  const runAnalysis = async (force = false) => {
+    setAnalyzing(true);
+    setAdminMessage({ type: "info", text: "Analysing this circular. This page updates by itself when it is done." });
+    try {
+      const st = await triggerDocumentAnalysis(doc.id, { force });
+      if (st.state !== "RUNNING") finishAnalysis(st.state, st.message);
     } catch (e: any) {
-      setAdminMessage({ type: "error", text: "Analysis failed: " + (e.message || String(e)) });
-    } finally {
       setAnalyzing(false);
+      setAdminMessage({ type: "error", text: e.message || "Could not start the analysis." });
     }
   };
 
@@ -173,8 +315,8 @@ export default function CircularDetail(props: Props) {
     try {
       setPublishing(true);
       setAdminMessage(null);
-      const res = await reviewDocumentAnalysis(doc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
-      setAdminMessage({ type: "success", text: res?.message || `Status updated to ${res?.publication_status}.` });
+      await reviewDocumentAnalysis(doc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
+      setAdminMessage({ type: "success", text: "Signed off. The circular is now published as human reviewed." });
       onRefresh();
     } catch (e: any) {
       setAdminMessage({ type: "error", text: "Sign-off failed: " + (e.message || String(e)) });
@@ -272,7 +414,7 @@ export default function CircularDetail(props: Props) {
               <StatusBadge status="AWAITING_REVIEW" size="sm" />
               <span className="text-[14px] text-ink-2">No analysis has been run on this circular yet.</span>
               {isAdmin && (
-                <button type="button" onClick={runAnalysis} disabled={analyzing} className="btn-secondary py-1">
+                <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
                   <Sparkles className="h-3.5 w-3.5" />
                   {analyzing ? "Running..." : "Run analysis"}
                 </button>
@@ -310,7 +452,7 @@ export default function CircularDetail(props: Props) {
           <div className="flex flex-wrap items-center gap-3 text-[14.5px] text-ink-3">
             <span>No requirements have been extracted for this circular yet.</span>
             {!analysis && isAdmin && (
-              <button type="button" onClick={runAnalysis} disabled={analyzing} className="btn-secondary py-1">
+              <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
                 {analyzing ? "Extracting..." : "Extract requirements"}
               </button>
             )}
@@ -329,7 +471,16 @@ export default function CircularDetail(props: Props) {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
                     <h4 className="max-w-prose text-[15.5px] font-semibold leading-snug text-ink">{obl.title}</h4>
-                    {obl.obligation_type && <Tag tone="accent">{readable(obl.obligation_type)}</Tag>}
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      {inYourRegister(obl) && (
+                        <span data-testid="in-register-tag">
+                          <Tag tone="ok" title="This obligation is already in a register of your bank">
+                            In your register
+                          </Tag>
+                        </span>
+                      )}
+                      {obl.obligation_type && <Tag tone="accent">{readable(obl.obligation_type)}</Tag>}
+                    </span>
                   </div>
                   <p className="max-w-prose text-[15px] leading-relaxed text-ink-2">{obl.requirement_description}</p>
                   {obl.supporting_text && (
@@ -340,7 +491,7 @@ export default function CircularDetail(props: Props) {
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-3">
                     <PageLink page={citedPage} onClick={() => citedPage && openPage(citedPage, obl.supporting_text, obl.quote_boxes)} />
                     <span>Applies to: {obl.applicability_summary || "Not stated"}</span>
-                    {obl.explicit_deadline && <span className="font-semibold text-warn">Deadline: {obl.explicit_deadline}</span>}
+                    {obl.explicit_deadline && <span className="font-semibold text-warn">Deadline: {formatDate(obl.explicit_deadline)}</span>}
                   </div>
                 </motion.li>
               );
@@ -378,7 +529,7 @@ export default function CircularDetail(props: Props) {
           <div>
             <dt className="text-[13px] text-ink-3">Compliance deadline</dt>
             <dd className={`mt-0.5 text-[15px] font-semibold tabular-nums ${complianceDeadline ? "text-warn" : "text-ink"}`}>
-              {complianceDeadline || "Not stated"}
+              {formatDate(complianceDeadline) || "Not stated"}
             </dd>
           </div>
         </dl>
@@ -401,17 +552,34 @@ export default function CircularDetail(props: Props) {
       {relationships.length > 0 && (
         <Section title="Related circulars" count={relationships.length}>
           <ul className="divide-y divide-line">
-            {relationships.map((rel, idx) => {
-              const relPage = rel.quote_boxes?.[0]?.page_number;
+            {relationships.map((item, idx) => {
+              // The same link as the history view sees it: it knows the stored circular and whether the link is confirmed.
+              const known = relStatus?.outgoing.find((l) => l.id === item.id);
+              const relPage = item.quote_boxes?.[0]?.page_number ?? known?.page_number ?? undefined;
+              const status = known?.verification_status ?? item.verification_status;
+              const pendingLink = status === "PENDING_REVIEW";
+              const target = known?.target;
               return (
-                <li key={rel.id ?? idx} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
+                <li key={item.id ?? idx} className={`space-y-1.5 py-3 first:pt-0 last:pb-0 ${pendingLink ? "opacity-85" : ""}`} data-testid="related-item" data-status={status}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="refno">{rel.target_reference_hint || "Cited circular"}</span>
-                    <Tag tone="info">{readable(rel.relationship_type)}</Tag>
+                    {target ? (
+                      <Link href={`/?doc=${target.id}`} className="refno hover:underline">
+                        {target.reference_number || target.title}
+                      </Link>
+                    ) : (
+                      <span className="refno">{item.target_reference_hint || "Cited circular"}</span>
+                    )}
+                    <Tag tone={pendingLink ? "muted" : "info"}>{known ? relLabel(item.relationship_type) : readable(item.relationship_type)}</Tag>
+                    {pendingLink && <AwaitingReviewTag />}
+                    {!target && item.target_reference_hint && (
+                      <Tag tone="muted" title="This circular is not in the library yet">
+                        Not in library
+                      </Tag>
+                    )}
                   </div>
-                  {rel.supporting_quote && <blockquote className="quote max-w-prose">&ldquo;{rel.supporting_quote}&rdquo;</blockquote>}
+                  {item.supporting_quote && <blockquote className="quote max-w-prose">&ldquo;{item.supporting_quote}&rdquo;</blockquote>}
                   {relPage && pages.length > 0 && (
-                    <PageLink page={relPage} onClick={() => openPage(relPage, rel.supporting_quote, rel.quote_boxes)} />
+                    <PageLink page={relPage} onClick={() => openPage(relPage, item.supporting_quote, item.quote_boxes)} />
                   )}
                 </li>
               );
@@ -444,6 +612,32 @@ export default function CircularDetail(props: Props) {
           <Notice kind="error" className="mt-3">
             {qaError}
           </Notice>
+        )}
+
+        {qaLoading && !qaResponse && (
+          <div className="mt-4 space-y-3 rounded-panel border border-line bg-sunken/50 p-4" aria-live="polite">
+            <p className="flex items-center gap-2 text-[14px] text-ink-2">
+              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              Writing the answer. The matching lines are below already.
+            </p>
+            {!qaMatches ? (
+              <SkeletonLine />
+            ) : qaMatches.length === 0 ? (
+              <p className="text-[13.5px] text-ink-3">No line in this circular uses those exact words. The answer may still find it.</p>
+            ) : (
+              <div className="space-y-3 border-t border-line pt-3">
+                <p className="text-[13px] font-semibold text-ink-2">Matching lines</p>
+                {qaMatches.slice(0, 4).map((m, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <blockquote className="quote" lang={hasBangla(m.verbatim_excerpt) ? "bn" : undefined}>
+                      &ldquo;{m.verbatim_excerpt}&rdquo;
+                    </blockquote>
+                    <PageLink page={m.page_number} onClick={() => openPage(m.page_number, m.verbatim_excerpt, (m.quote_boxes as QuoteBox[]) ?? null)} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {qaResponse && (
@@ -484,6 +678,8 @@ export default function CircularDetail(props: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="refno">{doc.reference_number || "Circular"}</span>
           <StatusBadge status={doc.publication_status} />
+          <InForceBadge info={inForce} />
+          {awaiting > 0 && <AwaitingReviewTag count={awaiting} />}
           {doc.is_private && <PrivateTag />}
         </div>
         <h2 className="max-w-[60ch] text-[22px] font-semibold leading-[1.3] tracking-[-0.01em] text-ink [text-wrap:balance] sm:text-[24px]">
@@ -504,11 +700,22 @@ export default function CircularDetail(props: Props) {
             </span>
           )}
           <span>{readable(doc.document_type) || "Circular"}</span>
-          {pageCount > 0 && <span className="tabular-nums">{pageCount} pages</span>}
+          {pageCount > 0 && <span className="tabular-nums">{pageCount} {pageCount === 1 ? "page" : "pages"}</span>}
           <span>Bangladesh Bank</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {pdfButton}
+          <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button">
+            <GitBranch className="h-4 w-4" strokeWidth={1.75} />
+            History &amp; links
+          </Link>
+          <CompareButtons doc={doc} outgoing={relStatus?.outgoing ?? []} />
+          {canAddToRegister && (
+            <button type="button" className="btn-secondary" onClick={() => setAddOpen(true)} data-testid="add-to-register-button">
+              <ListPlus className="h-4 w-4" strokeWidth={1.75} />
+              Add to register
+            </button>
+          )}
           {pages.length > 0 && (
             <button
               type="button"
@@ -529,6 +736,23 @@ export default function CircularDetail(props: Props) {
           )}
         </div>
 
+        {props.viewingVersionId && props.viewingVersionId !== doc.current_version_id && (
+          <Notice kind="info">You are viewing an older version of this circular (the one the register item was built from).</Notice>
+        )}
+        {added && (
+          <Notice kind="success" onDismiss={() => setAdded(null)}>
+            {added.count} item{added.count === 1 ? "" : "s"} added.{" "}
+            <Link href={`/workspace/${added.orgId}/registers/${added.registerId}`} className="font-semibold text-accent underline">
+              View register
+            </Link>
+          </Notice>
+        )}
+        {waitingCount > 0 && <Notice kind="info">{readingLine(pages.length, waitingCount, reading)}</Notice>}
+        {waitingCount === 0 && !analysis && reading?.analysis_after === "LATER" && (
+          <Notice kind="info">
+            This is an older circular from the archive. Its full text is here now; the summary and requirements will be added later.
+          </Notice>
+        )}
         {isAdmin && (
           <div className="mt-2 space-y-2 rounded-panel bg-sunken px-3 py-2.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -536,7 +760,7 @@ export default function CircularDetail(props: Props) {
                 <ShieldCheck className="h-4 w-4" strokeWidth={1.75} />
                 Admin
               </span>
-              <button type="button" onClick={runAnalysis} disabled={analyzing} className="btn-secondary py-1">
+              <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
                 <RefreshCw className={`h-3.5 w-3.5 ${analyzing ? "animate-spin" : ""}`} />
                 {analyzing ? "Analysing..." : "Run analysis"}
               </button>
@@ -550,7 +774,16 @@ export default function CircularDetail(props: Props) {
                 Console
               </Link>
             </div>
-            {adminMessage && <Notice kind={adminMessage.type === "error" ? "error" : "success"}>{adminMessage.text}</Notice>}
+            {adminMessage && (
+              <Notice kind={adminMessage.type}>
+                {adminMessage.text}
+                {adminMessage.canForce && (
+                  <button type="button" onClick={() => runAnalysis(true)} className="ml-2 font-semibold underline underline-offset-2">
+                    Run it again anyway
+                  </button>
+                )}
+              </Notice>
+            )}
           </div>
         )}
       </header>
@@ -567,7 +800,7 @@ export default function CircularDetail(props: Props) {
             <div className="h-full shadow-pop xl:shadow-none">
               <PagePanel
                 documentId={doc.id}
-                versionId={doc.current_version_id || doc.versions?.[0]?.id}
+                versionId={props.viewingVersionId || doc.current_version_id || doc.versions?.[0]?.id}
                 pages={pages}
                 pageNumber={pageNumber}
                 onPageChange={(n) => {
@@ -576,11 +809,27 @@ export default function CircularDetail(props: Props) {
                 }}
                 onClose={() => setPagePanelOpen(false)}
                 highlight={highlight}
+                canEdit={!!currentUser?.is_superuser}
+                onPageSaved={props.onPageSaved}
               />
             </div>
           </motion.div>
         )}
       </div>
+      {canAddToRegister && rights.active && (
+        <AddToRegisterModal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          orgId={rights.active.id}
+          orgOptions={rights.eligible}
+          onOrgChange={(id) => {
+            rights.setActive(id);
+            rememberOrg(id);
+          }}
+          initialDocumentId={doc.id}
+          onAdded={(registerId, count) => count > 0 && rights.active && setAdded({ orgId: rights.active.id, registerId, count })}
+        />
+      )}
     </article>
   );
 }

@@ -45,6 +45,9 @@ def _quotes_to_ids(response: Dict[str, Any], sentences: List[tuple]) -> None:
             item["quote_span_ids"] = _ids_for_quote(quote, sentences)
 
 
+_RESEARCH_LINE = re.compile(r"^\[(D\d+\.p\d+\.s\d+)\] (.*)$", re.MULTILINE)
+
+
 class MockAIProvider(BaseAIProvider):
     """
     Deterministic mock provider for testing, local offline verification,
@@ -56,6 +59,31 @@ class MockAIProvider(BaseAIProvider):
         super().__init__(model_name=model_name)
         self.simulate_failure: bool = False
         self.simulate_invalid_json: bool = False
+
+    def _research_answer(self, prompt: str, start_time: float) -> LLMResponse:
+        lines = _RESEARCH_LINE.findall(prompt)
+        question = re.search(r"Question:\s*(.*)", prompt)
+        words = {w.lower() for w in re.findall(r"[\wঀ-৿]+", question.group(1) if question else "") if len(w) > 3}
+        scored = sorted(
+            ((sum(1 for w in words if w in text.lower()), i) for i, (_sid, text) in enumerate(lines)),
+            key=lambda x: (-x[0], x[1]),
+        )
+        chosen = [i for score, i in scored[:2] if score > 0] or ([0] if lines else [])
+        if not chosen:
+            parsed: Dict[str, Any] = {"answer": "I could not verify this from the available regulatory documents.", "sources": []}
+        else:
+            ids = [lines[i][0] for i in sorted(chosen)]
+            first = re.sub(r"\s+", " ", lines[sorted(chosen)[0]][1]).strip()
+            parsed = {"answer": f"The circular says: {first}", "sources": [{"quote_span_ids": ids}], "caveats": []}
+        return LLMResponse(
+            raw_content=json.dumps(parsed),
+            parsed_json=parsed,
+            token_usage=TokenUsage(prompt_tokens=200, completion_tokens=60, total_tokens=260),
+            model_name=self.model_name,
+            latency_ms=int((time.time() - start_time) * 1000),
+            success=True,
+            error=None,
+        )
 
     async def generate_structured_json(
         self,
@@ -90,6 +118,7 @@ class MockAIProvider(BaseAIProvider):
 
         # Sentence-ID prompts (analysis v2) show "[p1.s3] text" lines. Detection below reads the
         # document text without the ID tags, so an ID like "p1.s105" can never look like content.
+        raw_prompt = user_prompt
         sentences = _SENTENCE_LINE.findall(user_prompt)
         user_prompt = _SENTENCE_TAG.sub("", user_prompt)
 
@@ -105,6 +134,11 @@ class MockAIProvider(BaseAIProvider):
                 success=True,
                 error=None
             )
+
+        # Research questions show "[D1.p3.s2] text" lines. Answer from the sentences that share
+        # words with the question, and name them by ID, the way a model would.
+        if "<regulatory_corpus>" in user_prompt and "Question:" in user_prompt:
+            return self._research_answer(raw_prompt, start_time)
 
         # Detect document reference number from user prompt
         ref_match = re.search(r"BRPD Circular No\.\s*(\d+)", user_prompt, re.IGNORECASE)

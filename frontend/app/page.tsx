@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { FileSearch, Search, X } from "lucide-react";
 import {
@@ -22,12 +23,15 @@ import {
   fetchInstitutions,
   getStoredUser,
   queryResearchAssistant,
+  fetchResearchMatches,
+  type ResearchCitation,
 } from "@/services/api";
 import AccountModal from "@/components/AccountModal";
 import MyCircularUpload from "@/components/MyCircularUpload";
 import CircularDetail, { QaResponse } from "@/components/CircularDetail";
 import type { PageHighlight } from "@/components/PagePanel";
-import StatusBadge, { PrivateTag } from "@/components/StatusBadge";
+import StatusBadge, { InForceBadge, PrivateTag } from "@/components/StatusBadge";
+import { inForceOf, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { SEARCH_INPUT_ID } from "@/components/AppHeader";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
@@ -47,7 +51,13 @@ function shortDate(value?: string) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-export default function CircularsPage() {
+function CircularsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const docParam = searchParams.get("doc");
+  const pageParam = searchParams.get("page");
+  const versionParam = searchParams.get("version");
+  const rel = useRelState();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -60,11 +70,16 @@ export default function CircularsPage() {
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [docPages, setDocPages] = useState<DocumentPage[]>([]);
+  const selectedDocIdRef = useRef<string | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pagePanelOpen, setPagePanelOpen] = useState(false);
   const [highlight, setHighlight] = useState<PageHighlight | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Set when a register item opened an older version of the circular: its pages are shown instead of the current ones.
+  const [viewVersion, setViewVersion] = useState<string | null>(null);
+  const viewVersionRef = useRef<string | null>(null);
+  viewVersionRef.current = viewVersion;
 
   const [analysis, setAnalysis] = useState<DocumentAnalysisData | null>(null);
   const [obligations, setObligations] = useState<ObligationItem[]>([]);
@@ -73,10 +88,23 @@ export default function CircularsPage() {
   const [qaQuery, setQaQuery] = useState("");
   const [qaLoading, setQaLoading] = useState(false);
   const [qaResponse, setQaResponse] = useState<QaResponse | null>(null);
+  const [qaMatches, setQaMatches] = useState<ResearchCitation[] | null>(null);
+  const qaAskId = useRef(0);
   const [qaError, setQaError] = useState<string | null>(null);
 
   // Ignores answers for a circular the user has already moved away from.
   const selectionToken = useRef(0);
+  // True when the page was opened by a "?doc=<id>&page=<n>" link, so the first-circular default never overrides it.
+  const deepLinkRequested = useRef(false);
+  // Latest values for effects that must not re-run when they change.
+  const selectedRef = useRef<DocumentItem | null>(null);
+  const pageNumberRef = useRef(1);
+  const panelOpenRef = useRef(false);
+  // Set when a circular was just opened at phone width, so its detail is scrolled into view.
+  const wantScroll = useRef(false);
+  selectedRef.current = selectedDoc;
+  pageNumberRef.current = pageNumber;
+  panelOpenRef.current = pagePanelOpen;
 
   useEffect(() => {
     // Show the cached user immediately, then confirm the role with GET /auth/me.
@@ -89,19 +117,24 @@ export default function CircularsPage() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
-  const handleSelectDoc = async (doc: DocumentItem) => {
+  const handleSelectDoc = async (doc: DocumentItem, version?: string | null) => {
     const token = ++selectionToken.current;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) wantScroll.current = true;
     setSelectedDoc(doc);
+    selectedDocIdRef.current = doc.id;
     setPageNumber(1);
     setHighlight(null);
     setQaResponse(null);
+    setQaMatches(null);
     setQaError(null);
     setDetailError(null);
     setDetailLoading(true);
+    const older = version && version !== doc.current_version_id ? version : null;
+    setViewVersion(older);
 
-    if (doc.versions && doc.versions.length > 0) {
-      // The current version is the one the analysis and its quotes point at.
-      fetchDocumentPages(doc.id, doc.current_version_id || doc.versions[0].id)
+    if (older || (doc.versions && doc.versions.length > 0)) {
+      // The current version is the one the analysis and its quotes point at, unless a link asked for an older one.
+      fetchDocumentPages(doc.id, older || doc.current_version_id || doc.versions[0].id)
         .then((pages) => token === selectionToken.current && setDocPages(pages))
         .catch(() => token === selectionToken.current && setDocPages([]));
     } else {
@@ -131,8 +164,9 @@ export default function CircularsPage() {
       setLoadError(null);
       const [docs, insts] = await Promise.all([fetchDocuments({ search, corpus_type: "GENUINE" }), fetchInstitutions()]);
       setDocuments(docs);
+      seedDocuments(docs);
       setInstitutions(insts);
-      if (!selectedDoc && docs.length > 0 && typeof window !== "undefined" && window.innerWidth >= 1024) {
+      if (!selectedDoc && !deepLinkRequested.current && docs.length > 0 && typeof window !== "undefined" && window.innerWidth >= 1024) {
         handleSelectDoc(docs[0]);
       }
     } catch (err: any) {
@@ -142,10 +176,29 @@ export default function CircularsPage() {
     }
   };
 
+  // Pages waiting to be read from the page image fill in by themselves: while any page waits,
+  // the page list is re-read every few seconds and the new text shows the moment it is stored.
+  const waitingPages = docPages.some((p) => p.quality_status === "PENDING_VISION");
+  useEffect(() => {
+    if (!selectedDoc || !waitingPages) return;
+    const versionId = viewVersion || selectedDoc.current_version_id || selectedDoc.versions?.[0]?.id;
+    if (!versionId) return;
+    const docId = selectedDoc.id;
+    const timer = window.setInterval(() => {
+      fetchDocumentPages(docId, versionId)
+        .then((pages) => {
+          if (selectedDocIdRef.current === docId) setDocPages(pages);
+        })
+        .catch(() => undefined);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [selectedDoc, viewVersion, waitingPages]);
+
   // Re-reads one document after an admin action so its status badge is current.
   const refreshDocument = async (doc: DocumentItem) => {
     try {
       const fresh = await fetchDocument(doc.id);
+      seedDocuments([fresh]);
       setDocuments((prev) => prev.map((d) => (d.id === fresh.id ? fresh : d)));
       await handleSelectDoc(fresh);
     } catch (err: any) {
@@ -160,18 +213,100 @@ export default function CircularsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, currentUser?.id]);
 
+  // Opens "/?doc=<id>&page=<n>" (search results, links from other screens, a refresh): the circular, with its
+  // source page showing. The same address then stays in the bar while the circular is open.
+  useEffect(() => {
+    if (!docParam) return;
+    const wanted = parseInt(pageParam || "", 10);
+    const hasPage = Number.isFinite(wanted) && wanted > 0;
+    deepLinkRequested.current = true;
+    if (selectedRef.current?.id === docParam) {
+      const wantVersion = versionParam && versionParam !== selectedRef.current.current_version_id ? versionParam : null;
+      if (wantVersion !== viewVersionRef.current) {
+        handleSelectDoc(selectedRef.current, wantVersion);
+        if (hasPage) {
+          setPageNumber(wanted);
+          setPagePanelOpen(true);
+        }
+        return;
+      }
+      if (hasPage && (pageNumberRef.current !== wanted || !panelOpenRef.current)) {
+        setPageNumber(wanted);
+        setPagePanelOpen(true);
+      }
+      return;
+    }
+    let alive = true;
+    fetchDocument(docParam)
+      .then((doc) => {
+        if (!alive) return;
+        seedDocuments([doc]);
+        handleSelectDoc(doc, versionParam);
+        if (hasPage) {
+          setPageNumber(wanted);
+          setPagePanelOpen(true);
+        }
+      })
+      .catch((err: any) => alive && setLoadError(err.message || "Could not open that circular."));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docParam, pageParam, versionParam]);
+
+  // Keeps the address in step with what is open, without adding history entries (the back button still leaves the page).
+  useEffect(() => {
+    if (!selectedDoc) return;
+    const p = new URLSearchParams();
+    p.set("doc", selectedDoc.id);
+    if (pagePanelOpen) p.set("page", String(pageNumber));
+    if (viewVersion) p.set("version", viewVersion);
+    if (window.location.search !== `?${p.toString()}`) router.replace(`/?${p.toString()}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDoc?.id, pagePanelOpen, pageNumber, viewVersion]);
+
+  // Phone width: after a circular opens (from a list tap or a link), bring its detail into view.
+  useEffect(() => {
+    if (!selectedDoc || !wantScroll.current) return;
+    const id = selectedDoc.id;
+    const go = () => {
+      const el = document.getElementById(`circular-${id}`) ?? document.getElementById("circular-standalone");
+      if (el && window.innerWidth < 1024) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const t1 = window.setTimeout(go, 90);
+    // Again once the row above has finished collapsing.
+    const t2 = window.setTimeout(() => {
+      go();
+      wantScroll.current = false;
+    }, 420);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDoc?.id]);
+
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qaQuery.trim() || !selectedDoc) return;
+    const id = ++qaAskId.current;
+    setQaLoading(true);
+    setQaError(null);
+    setQaResponse(null);
+    setQaMatches(null);
+    // Matching lines come from a local search and show at once; the written answer fills in after.
+    fetchResearchMatches(qaQuery, selectedDoc.id)
+      .then((m) => {
+        if (id === qaAskId.current) setQaMatches(m);
+      })
+      .catch(() => undefined);
     try {
-      setQaLoading(true);
-      setQaError(null);
       const res = await queryResearchAssistant(qaQuery, selectedDoc.id);
-      setQaResponse(res);
+      if (id === qaAskId.current) setQaResponse(res);
     } catch (err: any) {
-      setQaError(err.message || "Failed to process question.");
+      if (id === qaAskId.current) setQaError(err.message || "Failed to process question.");
     } finally {
-      setQaLoading(false);
+      if (id === qaAskId.current) setQaLoading(false);
     }
   };
 
@@ -191,6 +326,7 @@ export default function CircularsPage() {
       )}
       <CircularDetail
         doc={doc}
+        viewingVersionId={viewVersion}
         analysis={analysis}
         obligations={obligations}
         relationships={relationships}
@@ -206,11 +342,13 @@ export default function CircularsPage() {
         setQaQuery={setQaQuery}
         qaLoading={qaLoading}
         qaResponse={qaResponse}
+        qaMatches={qaMatches}
         qaError={qaError}
         onAsk={handleAsk}
         currentUser={currentUser}
         onSignIn={() => setAccountOpen(true)}
         onRefresh={() => refreshDocument(doc)}
+        onPageSaved={(saved) => setDocPages((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
       />
     </>
   );
@@ -289,6 +427,13 @@ export default function CircularsPage() {
         <div className="space-y-3 lg:sticky lg:top-[72px] lg:max-h-[calc(100dvh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1">
           {currentUser && !currentUser.is_superuser && <MyCircularUpload institutions={institutions} onUploaded={loadData} />}
 
+          {/* Phone and tablet: a circular opened by a link that is not in the list below still shows here. */}
+          {selectedDoc && !filtered.some((d) => d.id === selectedDoc.id) && (
+            <div id="circular-standalone" className="scroll-mt-[72px] lg:hidden">
+              {renderDetail(selectedDoc)}
+            </div>
+          )}
+
           {loading && documents.length === 0 ? (
             <div className="rounded-panel border border-line bg-surface" aria-busy="true" aria-label="Loading circulars">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -323,16 +468,18 @@ export default function CircularsPage() {
                 return (
                   <motion.li
                     key={doc.id}
+                    id={`circular-${doc.id}`}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.22, delay: Math.min(i, 10) * 0.025, ease: EASE_OUT }}
-                    className="border-b border-line last:border-0"
+                    className="scroll-mt-[72px] border-b border-line last:border-0"
                   >
                     <button
                       type="button"
                       onClick={() => {
                         if (isSelected && typeof window !== "undefined" && window.innerWidth < 1024) {
                           setSelectedDoc(null);
+                          router.replace("/", { scroll: false });
                           return;
                         }
                         handleSelectDoc(doc);
@@ -358,8 +505,11 @@ export default function CircularsPage() {
                         </span>
                         <span className="mt-1.5 line-clamp-3 block text-[14.5px] font-medium leading-snug text-ink">{titleWithoutRef(doc.title, doc.reference_number)}</span>
                         <span className="mt-2.5 flex items-center justify-between gap-2">
-                          <span className="text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} pages` : "No pages yet"}</span>
-                          <StatusBadge status={doc.publication_status} size="sm" />
+                          <span className="shrink-0 whitespace-nowrap text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}` : "No pages yet"}</span>
+                          <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                            <InForceBadge info={inForceOf(rel, doc)} size="sm" plain />
+                            <StatusBadge status={doc.publication_status} size="sm" />
+                          </span>
                         </span>
                       </span>
                     </button>
@@ -411,5 +561,13 @@ export default function CircularsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CircularsPage() {
+  return (
+    <Suspense fallback={null}>
+      <CircularsPageInner />
+    </Suspense>
   );
 }

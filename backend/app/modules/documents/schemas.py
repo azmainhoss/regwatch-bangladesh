@@ -24,6 +24,10 @@ class DocumentPageRead(BaseModel):
     line_boxes: Optional[List[Dict[str, Any]]] = None
     vision_attempts: int = 0
     vision_error: Optional[str] = None
+    # The latest correction: who, when and why. Earlier ones stay in the page_corrections table.
+    correction_reason: Optional[str] = None
+    corrected_by_name: Optional[str] = None
+    corrected_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -122,6 +126,11 @@ class DocumentRead(DocumentBase):
     versions: List[DocumentVersionRead] = []
     owner_user_id: Optional[UUID] = None
     is_synthetic_fixture: Optional[bool] = Field(default=False, exclude=True)
+    # IN_FORCE, AMENDED, REPLACED or REPEALED, from confirmed links only. None where it was not worked out
+    # (for example right after an upload). The circular that changed this one is named next to it.
+    in_force_status: Optional[str] = None
+    in_force_by_id: Optional[UUID] = None
+    in_force_by_reference: Optional[str] = None
 
     @computed_field
     @property
@@ -170,3 +179,91 @@ class DocumentUploadResponse(BaseModel):
     version: DocumentVersionRead
     pages_extracted: int
     message: str
+    already_in_library: bool = False
+
+
+class SearchSnippet(BaseModel):
+    """A short piece of a page's stored text around the search words. `text` is an exact substring of the page."""
+    page_number: int
+    version_id: UUID
+    language: str = "en"
+    text: str
+    # [start, end) of each search word inside `text`, counted in UTF-16 units (what a browser slices with).
+    matches: List[List[int]] = []
+    starts_mid_text: bool = False
+    ends_mid_text: bool = False
+
+
+class SearchHit(BaseModel):
+    document_id: UUID
+    reference_number: Optional[str] = None
+    title: str
+    title_bn: Optional[str] = None
+    publication_date: date
+    publication_status: str
+    document_type: str
+    department_code: Optional[str] = None
+    current_version_id: Optional[UUID] = None
+    is_private: bool = False
+    title_match: bool = False
+    matching_pages: int = 0
+    snippets: List[SearchSnippet] = []
+
+
+class SearchResponse(BaseModel):
+    query: str
+    terms: List[str] = []
+    total: int
+    limit: int
+    offset: int
+    results: List[SearchHit] = []
+
+
+class CompareSide(BaseModel):
+    version_id: UUID
+    document_id: UUID
+    reference_number: Optional[str] = None
+    title: str
+    version_number: int
+    language: str = "en"
+    page_count: int = 0
+    pages_compared: int = 0
+
+
+class CompareWord(BaseModel):
+    op: str  # equal, insert or delete
+    text: str
+
+
+class CompareOp(BaseModel):
+    op: str  # equal, insert, delete or replace
+    left_text: Optional[str] = None
+    right_text: Optional[str] = None
+    left_page: Optional[int] = None
+    right_page: Optional[int] = None
+    words: List[CompareWord] = []
+
+
+class ComparePageSummary(BaseModel):
+    left_page: Optional[int] = None
+    right_page: Optional[int] = None
+    inserted: int = 0
+    deleted: int = 0
+    changed: int = 0
+    unchanged: int = 0
+
+
+class CompareStats(BaseModel):
+    equal: int = 0
+    insert: int = 0
+    delete: int = 0
+    replace: int = 0
+
+
+class CompareResponse(BaseModel):
+    left: CompareSide
+    right: CompareSide
+    truncated: bool = False
+    stats: CompareStats
+    pages: List[ComparePageSummary] = []
+    ops: List[CompareOp] = []

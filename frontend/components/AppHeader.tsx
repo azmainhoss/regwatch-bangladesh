@@ -7,6 +7,8 @@ import { motion } from "framer-motion";
 import { Search, UserRound } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
+import BellButton from "./alerts/BellButton";
+import { startAlertsSync } from "../services/alertsStore";
 import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "../services/api";
 
 export const SEARCH_INPUT_ID = "circular-search";
@@ -38,6 +40,13 @@ export default function AppHeader() {
     return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
   }, []);
 
+  // Alerts: poll while someone is signed in, and load the first page and the settings in the background.
+  const signedInId = currentUser?.id ?? null;
+  useEffect(() => {
+    if (!signedInId) return;
+    return startAlertsSync();
+  }, [signedInId]);
+
   const focusSearch = () => {
     const input = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
     if (pathname === "/" && input) {
@@ -50,6 +59,8 @@ export default function AppHeader() {
 
   const nav = [
     { href: "/", label: "Circulars", show: true },
+    { href: "/search", label: "Search", show: true },
+    { href: "/workspace", label: "Workspace", show: !!currentUser },
     { href: "/admin", label: "Admin", show: !!currentUser?.is_superuser },
   ].filter((n) => n.show);
 
@@ -63,16 +74,16 @@ export default function AppHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
-        <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
-          <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="RegWatch home">
+        <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
+          <Link href="/" className="flex min-h-[44px] shrink-0 items-center gap-2.5" aria-label="RegWatch home">
             <Mark />
-            <span className="leading-tight">
+            <span className="hidden leading-tight sm:block">
               <span className="block text-[15px] font-bold tracking-tight text-ink">RegWatch</span>
               <span className="hidden text-2xs font-medium text-ink-3 sm:block">Bangladesh Bank circulars</span>
             </span>
           </Link>
 
-          <nav className="flex items-center gap-1 text-[14px] font-semibold" aria-label="Main">
+          <nav className="flex min-w-0 items-center gap-0 overflow-x-auto text-[14px] font-semibold sm:gap-1 sm:overflow-visible" aria-label="Main">
             {nav.map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
@@ -80,13 +91,13 @@ export default function AppHeader() {
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`relative rounded-control px-2.5 py-1.5 transition-colors ${active ? "text-ink" : "text-ink-3 hover:text-ink"}`}
+                  className={`relative flex min-h-[44px] items-center rounded-control px-2 transition-colors sm:min-h-0 sm:px-2.5 sm:py-1.5 ${active ? "text-ink" : "text-ink-3 hover:text-ink"}`}
                 >
                   {item.label}
                   {active && (
                     <motion.span
                       layoutId="nav-underline"
-                      className="absolute inset-x-2.5 -bottom-[11px] h-[2px] rounded-full bg-accent"
+                      className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-accent sm:inset-x-2.5 sm:-bottom-[11px]"
                       transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   )}
@@ -96,12 +107,12 @@ export default function AppHeader() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            {pathname !== "/" && (
+            {pathname !== "/" && pathname !== "/search" && (
             <>
             <button
               type="button"
               onClick={focusSearch}
-              className="hidden h-9 items-center gap-2 rounded-control border border-line bg-surface px-3 text-[13px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink-2 md:flex md:w-56"
+              className="hidden h-9 items-center gap-2 rounded-control border border-line bg-surface px-3 text-[13px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink-2 xl:flex xl:w-56"
             >
               <Search className="h-4 w-4" strokeWidth={1.75} />
               <span>Search circulars</span>
@@ -110,17 +121,19 @@ export default function AppHeader() {
               type="button"
               onClick={focusSearch}
               aria-label="Search circulars"
-              className="grid h-9 w-9 place-items-center rounded-control border border-line text-ink-2 hover:bg-sunken md:hidden"
+              className="hidden h-9 w-9 place-items-center rounded-control border border-line text-ink-2 hover:bg-sunken sm:grid xl:hidden"
             >
               <Search className="h-4 w-4" strokeWidth={1.75} />
             </button>
             </>
             )}
 
+            {currentUser && <BellButton />}
+
             <button
               type="button"
               onClick={() => setAccountOpen(true)}
-              className="flex h-9 items-center gap-2 rounded-control border border-line px-1.5 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
+              className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-9 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
               title={currentUser ? `Signed in as ${currentUser.email}` : "Sign in"}
             >
               {currentUser ? (

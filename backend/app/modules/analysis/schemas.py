@@ -52,6 +52,7 @@ class DocumentAnalysisRead(BaseModel):
 class AnalyzeDocumentRequest(BaseModel):
     provider: Optional[str] = None  # mock, gemini
     force_human_review: bool = False
+    force: bool = False  # run again even when the pages and model are unchanged
 
 
 class ReviewDocumentRequest(BaseModel):

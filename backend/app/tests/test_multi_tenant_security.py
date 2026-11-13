@@ -66,8 +66,8 @@ async def test_strict_multi_tenant_isolation():
         assert "Cross-tenant access forbidden" in breach_1.json()["detail"]
 
         # 7. User A creates a Compliance Item & Task in Org A
-        from backend.app.tests.factories import make_obligation
-        dummy_ob_id = str((await make_obligation()).id)
+        from backend.app.tests.factories import make_obligation, make_user
+        dummy_ob_id = str((await make_obligation(verified=True, doc_status="PUBLISHED_MACHINE_PROCESSED")).id)
         item_a_resp = await client.post(
             f"/api/v1/organizations/{org_a_id}/compliance/items",
             headers=headers_a,
@@ -92,10 +92,10 @@ async def test_strict_multi_tenant_isolation():
             }
         )
         assert task_a_resp.status_code == 201
-        task_a_id = task_a_resp.json()["id"]
+        task_a_id = task_a_resp.json()["task"]["id"]
 
         # 8. User A uploads confidential Evidence to Task A in Org A
-        evidence_content = b"CONFIDENTIAL INTERNAL AUDIT REPORT OF BANK ALPHA"
+        evidence_content = b"%PDF-1.4 CONFIDENTIAL INTERNAL AUDIT REPORT OF BANK ALPHA"
         files = {"file": ("alpha_audit_report.pdf", evidence_content, "application/pdf")}
         data = {"notes": "Strictly confidential board review notes"}
         evidence_resp = await client.post(
@@ -105,7 +105,7 @@ async def test_strict_multi_tenant_isolation():
             data=data
         )
         assert evidence_resp.status_code == 201
-        evidence_a_id = evidence_resp.json()["id"]
+        evidence_a_id = evidence_resp.json()["evidence"]["id"]
 
         # 9. ATTACK 2: User B attempts to view evidence list for Task A
         breach_2 = await client.get(
@@ -137,12 +137,25 @@ async def test_strict_multi_tenant_isolation():
         assert legit_download.status_code == 200
         assert legit_download.content == evidence_content
 
-        # 13. User A signs off review on Task A
-        review_resp = await client.post(
+        # 13. The uploader cannot approve their own evidence; a second member (REVIEWER) does
+        self_review = await client.post(
             f"/api/v1/organizations/{org_a_id}/compliance/tasks/{task_a_id}/reviews",
             headers=headers_a,
+            json={"decision": "APPROVED", "comments": "Approving my own upload."}
+        )
+        assert self_review.status_code == 403
+        reviewer, reviewer_token = await make_user()
+        add_reviewer = await client.post(
+            f"/api/v1/organizations/{org_a_id}/members",
+            headers=headers_a,
+            json={"user_id": str(reviewer.id), "role": "REVIEWER"}
+        )
+        assert add_reviewer.status_code == 201
+        review_resp = await client.post(
+            f"/api/v1/organizations/{org_a_id}/compliance/tasks/{task_a_id}/reviews",
+            headers={"Authorization": f"Bearer {reviewer_token}"},
             json={"decision": "APPROVED", "comments": "Board committee approved policy alignment."}
         )
         assert review_resp.status_code == 201
-        assert review_resp.json()["decision"] == "APPROVED"
+        assert review_resp.json()["review"]["decision"] == "APPROVED"
 

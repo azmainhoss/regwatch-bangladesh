@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import List, Optional
 from uuid import UUID
@@ -20,23 +20,44 @@ from backend.app.modules.documents.access import (
     get_visible_version,
     visible_documents_condition,
 )
-from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
+from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion, PageCorrection
 from backend.app.modules.documents.schemas import (
+    CompareResponse,
     DashboardStatsRead,
     DocumentPageRead,
     DocumentRead,
     DocumentUploadResponse,
     DocumentVersionRead,
     PageCorrectionRequest,
+    SearchResponse,
 )
 from backend.app.modules.documents.schemas import as_table_list
-from backend.app.modules.documents.service import document_ingestion_service
+from backend.app.modules.documents.compare import compare_versions
+from backend.app.modules.documents.search import search_documents
+from backend.app.modules.relationships.status import bulk_in_force
+from backend.app.modules.documents.service import _same_owner, document_ingestion_service
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.sources.models import Source
 
 router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
 
 MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+async def _with_in_force(db: AsyncSession, docs, user: Optional[User]) -> List[DocumentRead]:
+    """DocumentRead for each document, with its in-force status (confirmed links only; one query for the whole page)."""
+    statuses = await bulk_in_force(db, [d.id for d in docs], user)
+    out: List[DocumentRead] = []
+    for d in docs:
+        item = DocumentRead.model_validate(d)
+        info = statuses.get(str(d.id))
+        if info is not None:
+            item.in_force_status = info.status
+            if info.by is not None:
+                item.in_force_by_id = info.by.id
+                item.in_force_by_reference = info.by.reference_number
+        out.append(item)
+    return out
 
 from backend.app.modules.documents.synthetic import is_synthetic_document, synthetic_sql_condition
 
@@ -124,6 +145,13 @@ async def upload_document(
             detail="Malformed PDF: document contains 0 pages."
         )
 
+    import hashlib
+    already = (await db.execute(
+        select(DocumentVersion.id).join(Document, Document.id == DocumentVersion.document_id)
+        .where(DocumentVersion.file_sha256 == hashlib.sha256(content).hexdigest(), _same_owner(owner_user_id))
+        .limit(1)
+    )).first() is not None
+
     doc, version, page_count = await document_ingestion_service.ingest_document(
         db=db,
         pdf_bytes=content,
@@ -143,7 +171,8 @@ async def upload_document(
         document=DocumentRead.model_validate(doc),
         version=DocumentVersionRead.model_validate(version),
         pages_extracted=page_count,
-        message="Document successfully ingested and extracted page-by-page."
+        message="Document successfully ingested and extracted page-by-page.",
+        already_in_library=already,
     )
 
 
@@ -267,7 +296,47 @@ async def list_documents(
 
     query = query.limit(limit).offset(offset)
     result = await db.execute(query)
-    return result.scalars().all()
+    return await _with_in_force(db, result.scalars().all(), current_user)
+
+
+@router.get("/search", response_model=SearchResponse)
+async def search_circulars(
+    q: str = Query("", max_length=200, description="Words to find in titles, reference numbers and page text."),
+    department: Optional[str] = Query(None, description="Department code such as BRPD."),
+    year_from: Optional[int] = Query(None, ge=1900, le=2100),
+    year_to: Optional[int] = Query(None, ge=1900, le=2100),
+    doc_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None, description="A publication status, or PUBLISHED for any published one."),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    current_user: Optional[User] = Depends(get_document_reader),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Searches every circular the caller may read (shared library, plus their own private uploads) by
+    title, reference number and the text of every page of its current files. Each hit lists up to 3
+    matching pages with a snippet cut from the stored page text.
+    """
+    return await search_documents(
+        db, current_user, q,
+        department=department, year_from=year_from, year_to=year_to,
+        doc_type=doc_type, status=status, limit=limit, offset=offset,
+    )
+
+
+@router.get("/compare", response_model=CompareResponse)
+async def compare_circular_versions(
+    left: UUID = Query(..., description="Version id of the older (left) file."),
+    right: UUID = Query(..., description="Version id of the newer (right) file."),
+    current_user: Optional[User] = Depends(get_document_reader),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Compares the page text of two stored files clause by clause, then word by word inside changed clauses.
+    Both files must belong to circulars the caller may read. Text pieces are copied from the stored pages.
+    Only the first 300 pages of each file are compared (`truncated` says when that cut something off).
+    """
+    return await compare_versions(db, left, right, current_user)
 
 
 @router.get("/{document_id}", response_model=DocumentRead)
@@ -285,7 +354,7 @@ async def get_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    return doc
+    return (await _with_in_force(db, [doc], current_user))[0]
 
 
 @router.get("/{document_id}/versions/{version_id}/pages", response_model=List[DocumentPageRead])
@@ -409,12 +478,34 @@ async def submit_human_correction(
     if not page_record:
         raise HTTPException(status_code=404, detail="Page record not found")
 
-    page_record.human_corrected_text = payload.corrected_text
-    page_record.cleaned_text = payload.corrected_text
+    corrected_text = payload.corrected_text.strip()
+    if not corrected_text:
+        raise HTTPException(status_code=422, detail="The corrected text cannot be empty.")
+
+    reason = (payload.correction_notes or "").strip()[:1000] or None
+    who = (current_user.full_name or current_user.email or "").strip() or None
+    db.add(PageCorrection(
+        page_id=page_record.id,
+        document_version_id=version_id,
+        page_number=page_no,
+        corrected_by_user_id=current_user.id,
+        corrected_by_name=who,
+        reason=reason,
+        previous_text=page_record.cleaned_text or page_record.raw_text,
+        corrected_text=corrected_text,
+    ))
+    page_record.correction_reason = reason
+    page_record.corrected_by_user_id = current_user.id
+    page_record.corrected_by_name = who
+    page_record.corrected_at = datetime.now(timezone.utc)
+
+    page_record.human_corrected_text = corrected_text
+    page_record.cleaned_text = corrected_text
     page_record.is_human_corrected = True
     page_record.extraction_method = "HUMAN_CORRECTED"
     page_record.quality_status = "SUCCESS_NORMALIZED"
     page_record.quality_score = 1.0
+    page_record.vision_error = None
 
     await db.commit()
     await db.refresh(page_record)
@@ -422,7 +513,8 @@ async def submit_human_correction(
         "message": f"Human correction successfully applied to page {page_no}.",
         "page_number": page_no,
         "is_human_corrected": True,
-        "extraction_method": page_record.extraction_method
+        "extraction_method": page_record.extraction_method,
+        "page": DocumentPageRead.model_validate(page_record).model_dump(mode="json"),
     }
 
 

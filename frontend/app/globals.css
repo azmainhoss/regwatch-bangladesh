@@ -196,3 +196,46 @@ html.dark {
     scroll-behavior: auto !important;
   }
 }
+
+/* Printing the board report: no navigation or buttons, black on white, rows kept whole, full quotes. */
+@media print {
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  html,
+  html.dark {
+    color-scheme: light;
+    --canvas: 255 255 255;
+    --surface: 255 255 255;
+    --sunken: 245 245 245;
+    --line: 200 200 200;
+    --line-strong: 160 160 160;
+    --ink: 0 0 0;
+    --ink-2: 30 30 30;
+    --ink-3: 70 70 70;
+    --accent: 0 0 0;
+    --ok: 0 0 0;
+    --warn: 0 0 0;
+    --bad: 0 0 0;
+    --info: 0 0 0;
+    --muted: 70 70 70;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .print-break-avoid,
+  li {
+    break-inside: avoid;
+  }
+  .line-clamp-2 {
+    -webkit-line-clamp: unset !important;
+    display: block !important;
+  }
+}

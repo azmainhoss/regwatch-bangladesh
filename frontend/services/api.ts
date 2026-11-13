@@ -104,6 +104,10 @@ export interface DocumentPage {
   page_number: number;
   raw_text: string;
   cleaned_text?: string;
+  human_corrected_text?: string | null;
+  correction_reason?: string | null;
+  corrected_by_name?: string | null;
+  corrected_at?: string | null;
   extraction_method: string;
   ocr_confidence?: number;
   has_tables: boolean;
@@ -152,6 +156,10 @@ export interface DocumentItem {
   /** Set when this is a private upload; only that user can see it. */
   owner_user_id?: string | null;
   is_private?: boolean;
+  /** IN_FORCE, AMENDED, REPLACED or REPEALED, from confirmed links only. */
+  in_force_status?: string | null;
+  in_force_by_id?: string | null;
+  in_force_by_reference?: string | null;
 }
 
 export interface Source {
@@ -183,6 +191,8 @@ export interface SourceRun {
   downloads_attempted: number;
   downloads_successful: number;
   duplicate_count: number;
+  /** Circulars being added in the background after a "Check now". */
+  ingest_queued?: number | null;
   access_restricted: boolean;
   access_restriction_details: Record<string, any>;
   retry_count: number;
@@ -352,8 +362,10 @@ export interface ProviderStatusInfo {
   };
   test_result?: {
     success: boolean;
+    busy?: boolean;
     latency_ms?: number;
     error?: string | null;
+    message?: string;
   };
 }
 
@@ -507,6 +519,21 @@ export async function triggerSourceRun(sourceId: string): Promise<SourceRun> {
     headers,
   });
   if (!res.ok) await throwApiError(res, "Failed to trigger source monitoring run");
+  return res.json();
+}
+
+export interface IngestStatus {
+  source_id: string;
+  running: boolean;
+  total: number;
+  done: number;
+  successful: number;
+  failed: number;
+}
+
+export async function fetchIngestStatus(sourceId: string): Promise<IngestStatus> {
+  const res = await apiFetch(`/sources/${sourceId}/ingest-status`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not check the downloads");
   return res.json();
 }
 
@@ -673,16 +700,55 @@ export interface DocumentAnalysisData {
   review_notes?: string;
 }
 
-export async function triggerDocumentAnalysis(documentId: string, provider?: string): Promise<DocumentAnalysisData> {
+export interface AnalysisJobStatus {
+  document_id: string;
+  state: "IDLE" | "RUNNING" | "DONE" | "FAILED" | "UNCHANGED" | "WAITING_FOR_PAGES";
+  started_at?: string | null;
+  finished_at?: string | null;
+  message?: string | null;
+}
+
+/** Starts the analysis in the background. Answers at once; poll fetchAnalysisStatus until it ends. */
+export async function triggerDocumentAnalysis(
+  documentId: string,
+  opts: { provider?: string; force?: boolean } = {}
+): Promise<AnalysisJobStatus> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
   const payload: Record<string, any> = {};
-  if (provider) payload.provider = provider;
+  if (opts.provider) payload.provider = opts.provider;
+  if (opts.force) payload.force = true;
   const res = await apiFetch(`/documents/${documentId}/analyze`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
   });
-  if (!res.ok) await throwApiError(res, "Failed to run AI analysis");
+  if (!res.ok) await throwApiError(res, "Could not start the analysis");
+  return res.json();
+}
+
+export interface ReadingStatus {
+  pages_total: number;
+  pages_waiting: number;
+  pages_ahead: number;
+  minutes_left: number;
+  state: "DONE" | "READING" | "QUEUED" | "PAUSED_DAILY_LIMIT" | "PAUSED_NO_KEY" | "PAUSED_NOT_RUNNING";
+  resumes_at?: string | null;
+  /** What happens after reading: analysed by itself, later (older circulars), or when an admin asks. */
+  analysis_after: "AUTOMATIC" | "LATER" | "ON_REQUEST";
+}
+
+export async function fetchReadingStatus(documentId: string): Promise<ReadingStatus | null> {
+  const res = await apiFetch(`/documents/${documentId}/reading-status`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function fetchAnalysisStatus(documentId: string): Promise<AnalysisJobStatus> {
+  const res = await apiFetch(`/documents/${documentId}/analysis-status`, {
+    headers: { ...getAuthHeaders() },
+    cache: "no-store",
+  });
+  if (!res.ok) await throwApiError(res, "Could not check the analysis");
   return res.json();
 }
 
@@ -738,7 +804,7 @@ export async function submitPageCorrection(
   pageNo: number,
   correctedText: string,
   notes?: string
-): Promise<any> {
+): Promise<{ message: string; page: DocumentPage }> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
   const res = await apiFetch(`/documents/${documentId}/versions/${versionId}/pages/${pageNo}/correct`, {
     method: "POST",
@@ -749,12 +815,26 @@ export async function submitPageCorrection(
   return res.json();
 }
 
-export async function queryResearchAssistant(query: string, documentId?: string): Promise<{
+export interface ResearchCitation {
+  document_title: string;
+  reference_number?: string | null;
+  page_number: number;
+  verbatim_excerpt: string;
+  document_id?: string | null;
+  version_id?: string | null;
+  sentence_ids?: string[];
+  quote_boxes?: QuoteBox[] | Array<Record<string, unknown>>;
+}
+
+export interface ResearchAnswer {
   query: string;
   answer: string;
   is_grounded: boolean;
-  citations: Array<{ document_title: string; reference_number?: string; page_number: number; verbatim_excerpt: string }>;
-}> {
+  citations: ResearchCitation[];
+  caveats: string[];
+}
+
+export async function queryResearchAssistant(query: string, documentId?: string): Promise<ResearchAnswer> {
   const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
   const res = await apiFetch(`/research/query`, {
     method: "POST",
@@ -762,8 +842,273 @@ export async function queryResearchAssistant(query: string, documentId?: string)
     body: JSON.stringify({ query, document_id: documentId }),
   });
   if (res.status === 401) {
-    throw new ApiError(401, "Please sign in to ask questions about this circular.");
+    throw new ApiError(401, "Please sign in to ask questions.");
   }
   if (!res.ok) await throwApiError(res, "Research query failed");
+  return res.json();
+}
+
+/** The sentences that best match a question, exact from the page. Local search only: instant. */
+export async function fetchResearchMatches(query: string, documentId?: string): Promise<ResearchCitation[]> {
+  const headers = { ...getAuthHeaders(), "Content-Type": "application/json" };
+  const res = await apiFetch(`/research/matches`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ query, document_id: documentId }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data?.matches) ? data.matches : [];
+}
+
+export interface SearchSnippet {
+  page_number: number;
+  version_id: string;
+  language: string;
+  text: string;
+  /** [start, end) of each search word inside `text`, in UTF-16 units. */
+  matches: Array<[number, number]>;
+  starts_mid_text: boolean;
+  ends_mid_text: boolean;
+}
+
+export interface SearchHit {
+  document_id: string;
+  reference_number?: string | null;
+  title: string;
+  title_bn?: string | null;
+  publication_date: string;
+  publication_status: string;
+  document_type: string;
+  department_code?: string | null;
+  current_version_id?: string | null;
+  is_private: boolean;
+  title_match: boolean;
+  matching_pages: number;
+  snippets: SearchSnippet[];
+}
+
+export interface SearchResponse {
+  query: string;
+  terms: string[];
+  total: number;
+  limit: number;
+  offset: number;
+  results: SearchHit[];
+}
+
+export interface SearchParams {
+  q: string;
+  department?: string;
+  year_from?: string;
+  year_to?: string;
+  doc_type?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function searchCirculars(params: SearchParams, signal?: AbortSignal): Promise<SearchResponse> {
+  const query = new URLSearchParams();
+  (Object.keys(params) as Array<keyof SearchParams>).forEach((k) => {
+    const v = params[k];
+    if (v !== undefined && v !== "" && v !== null) query.append(k, String(v));
+  });
+  const res = await apiFetch(`/documents/search?${query.toString()}`, { cache: "no-store", signal });
+  if (!res.ok) await throwApiError(res, "Search failed");
+  return res.json();
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Links between circulars: in-force status, history, graph, admin review, compare
+// ---------------------------------------------------------------------------------------------
+
+export type InForceStatus = "IN_FORCE" | "AMENDED" | "REPLACED" | "REPEALED";
+
+export interface DocumentRef {
+  id: string;
+  reference_number?: string | null;
+  title: string;
+  publication_date?: string | null;
+  current_version_id?: string | null;
+  is_private: boolean;
+  in_force_status?: string | null;
+}
+
+/** One relationship with the exact quote and page that support it. */
+export interface RelLink {
+  id: string;
+  relationship_type: string;
+  /** PENDING_REVIEW links never change a circular's in-force status. */
+  verification_status: "PENDING_REVIEW" | "VERIFIED" | "REJECTED" | string;
+  confidence: number;
+  detection_method?: string | null;
+  supporting_quote: string;
+  page_number?: number | null;
+  source_version_id?: string | null;
+  quote_boxes?: QuoteBox[] | null;
+  source: DocumentRef;
+  target?: DocumentRef | null;
+  target_reference_hint?: string | null;
+  reviewed_at?: string | null;
+}
+
+export interface RelStatus {
+  document_id: string;
+  in_force_status: string;
+  in_force_by?: DocumentRef | null;
+  current_version?: DocumentRef | null;
+  chain_has_cycle: boolean;
+  verified_incoming: RelLink[];
+  unconfirmed_incoming: RelLink[];
+  outgoing: RelLink[];
+}
+
+export interface RelGraphNode {
+  key: string;
+  document_id?: string | null;
+  reference_number?: string | null;
+  title: string;
+  publication_date?: string | null;
+  in_force_status?: string | null;
+  in_library: boolean;
+  is_private: boolean;
+  is_center: boolean;
+  current_version_id?: string | null;
+}
+
+export interface RelGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relationship_type: string;
+  verification_status: string;
+  supporting_quote: string;
+  page_number?: number | null;
+  source_version_id?: string | null;
+  source_document_id: string;
+  target_document_id?: string | null;
+  target_reference_hint?: string | null;
+  confidence: number;
+}
+
+export interface RelGraph {
+  document_id: string;
+  depth: number;
+  nodes: RelGraphNode[];
+  edges: RelGraphEdge[];
+  truncated: boolean;
+}
+
+export interface RelTimelineItem {
+  document: DocumentRef;
+  is_selected: boolean;
+  is_current: boolean;
+  changes: RelLink[];
+}
+
+export interface RelTimeline {
+  document_id: string;
+  in_force_status: string;
+  in_force_by?: DocumentRef | null;
+  current_version?: DocumentRef | null;
+  chain_has_cycle: boolean;
+  has_unconfirmed: boolean;
+  items: RelTimelineItem[];
+}
+
+export interface PendingLinks {
+  total: number;
+  limit: number;
+  offset: number;
+  links: RelLink[];
+}
+
+export interface ReviewResult {
+  link: RelLink;
+  source_in_force_status?: string | null;
+  target_in_force_status?: string | null;
+}
+
+export async function fetchRelStatus(documentId: string): Promise<RelStatus> {
+  const res = await apiFetch(`/relationships/document/${documentId}/status`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the in-force status");
+  return res.json();
+}
+
+export async function fetchRelGraph(documentId: string, depth = 2): Promise<RelGraph> {
+  const res = await apiFetch(`/relationships/document/${documentId}/graph?depth=${depth}`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the relationship graph");
+  return res.json();
+}
+
+export async function fetchRelTimeline(documentId: string): Promise<RelTimeline> {
+  const res = await apiFetch(`/relationships/document/${documentId}/timeline`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the history");
+  return res.json();
+}
+
+/** Admin only. */
+export async function fetchPendingLinks(limit = 100): Promise<PendingLinks> {
+  const res = await apiFetch(`/relationships/pending?limit=${limit}`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the links awaiting review");
+  return res.json();
+}
+
+/** Admin only. VERIFIED confirms a link (it then counts for the in-force status); REJECTED drops it. */
+export async function reviewRelationship(relationshipId: string, decision: "VERIFIED" | "REJECTED"): Promise<ReviewResult> {
+  const res = await apiFetch(`/relationships/${relationshipId}/review`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not save that decision");
+  return res.json();
+}
+
+/** Admin only. Looks again for the stored circular each unlinked reference names. */
+export async function relinkRelationships(): Promise<{ linked: number; still_unlinked: number; message: string }> {
+  const res = await apiFetch(`/relationships/relink`, { method: "POST", headers: getAuthHeaders() });
+  if (!res.ok) await throwApiError(res, "Could not look for link targets");
+  return res.json();
+}
+
+export interface CompareSide {
+  version_id: string;
+  document_id: string;
+  reference_number?: string | null;
+  title: string;
+  version_number: number;
+  language: string;
+  page_count: number;
+  pages_compared: number;
+}
+
+export interface CompareWord {
+  op: "equal" | "insert" | "delete";
+  text: string;
+}
+
+export interface CompareOp {
+  op: "equal" | "insert" | "delete" | "replace";
+  left_text?: string | null;
+  right_text?: string | null;
+  left_page?: number | null;
+  right_page?: number | null;
+  words: CompareWord[];
+}
+
+export interface CompareResult {
+  left: CompareSide;
+  right: CompareSide;
+  truncated: boolean;
+  stats: { equal: number; insert: number; delete: number; replace: number };
+  ops: CompareOp[];
+}
+
+export async function compareVersions(leftVersionId: string, rightVersionId: string, signal?: AbortSignal): Promise<CompareResult> {
+  const res = await apiFetch(`/documents/compare?left=${leftVersionId}&right=${rightVersionId}`, { cache: "no-store", signal });
+  if (!res.ok) await throwApiError(res, "Could not compare these files");
   return res.json();
 }

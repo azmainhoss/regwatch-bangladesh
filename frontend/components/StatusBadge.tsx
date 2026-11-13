@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   AlertTriangle,
   Ban,
@@ -9,8 +10,11 @@ import {
   History,
   Loader2,
   Lock,
+  PenLine,
   RotateCw,
   ScanText,
+  Replace,
+  ShieldOff,
   type LucideIcon,
 } from "lucide-react";
 
@@ -73,7 +77,7 @@ const STATUSES: Record<string, StatusSpec> = {
   RESTRICTED: { label: "Blocked", tone: "bad", icon: Lock },
 };
 
-const TONE_CLASS: Record<Tone, string> = {
+export const TONE_CLASS: Record<Tone, string> = {
   ok: "bg-ok-soft text-ok ring-ok/25",
   warn: "bg-warn-soft text-warn ring-warn/30",
   bad: "bg-bad-soft text-bad ring-bad/25",
@@ -124,6 +128,64 @@ export function PrivateTag() {
     <Tag tone="muted" title="Private: only you can see this circular">
       <Lock className="h-3 w-3" strokeWidth={2} aria-hidden />
       Private
+    </Tag>
+  );
+}
+
+
+const IN_FORCE_SPEC: Record<string, { label: string; verb: string; tone: Tone; icon: LucideIcon; hint: string }> = {
+  IN_FORCE: { label: "In force", verb: "", tone: "ok", icon: CheckCircle2, hint: "No confirmed circular has changed or replaced this one" },
+  AMENDED: { label: "Amended", verb: "Amended by", tone: "info", icon: PenLine, hint: "Still in force, but changed by a later circular" },
+  REPLACED: { label: "Replaced", verb: "Replaced by", tone: "warn", icon: Replace, hint: "A later circular replaces this one" },
+  REPEALED: { label: "Repealed", verb: "Repealed by", tone: "bad", icon: ShieldOff, hint: "A later circular repeals this one" },
+};
+
+export interface InForceView {
+  status: string;
+  byId?: string | null;
+  byRef?: string | null;
+}
+
+/**
+ * Whether a circular is still in force. Only confirmed links count; links awaiting review never change it.
+ * With a newer circular known, the badge names it and (unless `plain`) links to it.
+ */
+export function InForceBadge({ info, size = "md", plain = false }: { info?: InForceView | null; size?: "sm" | "md"; plain?: boolean }) {
+  if (!info) return null;
+  const spec = IN_FORCE_SPEC[info.status];
+  if (!spec) return null;
+  const Icon = spec.icon;
+  const named = info.status !== "IN_FORCE" && info.status !== "AMENDED" && info.byRef ? `${spec.verb} ${info.byRef}` : spec.label;
+  const title = info.byRef && info.status !== "IN_FORCE" ? `${spec.verb} ${info.byRef}. ${spec.hint}` : spec.hint;
+  const cls = `inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full font-semibold ring-1 ring-inset ${TONE_CLASS[spec.tone]} ${
+    size === "sm" ? "px-1.5 py-px text-2xs" : "px-2 py-0.5 text-xs"
+  }`;
+  const inner = (
+    <>
+      <Icon className={size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5"} strokeWidth={2} aria-hidden />
+      <span className="truncate">{named}</span>
+    </>
+  );
+  if (!plain && info.byId && info.status !== "IN_FORCE") {
+    return (
+      <Link href={`/?doc=${info.byId}`} title={title} data-testid="in-force-badge" data-status={info.status} className={`${cls} hover:brightness-95`}>
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <span title={title} data-testid="in-force-badge" data-status={info.status} className={cls}>
+      {inner}
+    </span>
+  );
+}
+
+/** A link that has not been confirmed yet. It is shown for information and changes nothing. */
+export function AwaitingReviewTag({ count }: { count?: number }) {
+  return (
+    <Tag tone="muted" title="Not confirmed yet. Unconfirmed links never change a circular's in-force status.">
+      <Clock className="h-3 w-3" strokeWidth={2} aria-hidden />
+      {typeof count === "number" ? `${count} awaiting review` : "Awaiting review"}
     </Tag>
   );
 }

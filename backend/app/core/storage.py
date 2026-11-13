@@ -15,7 +15,8 @@ class BaseStorageService(ABC):
         namespace: str,
         filename_prefix: str,
         content: bytes,
-        extension: str = ".pdf"
+        extension: str = ".pdf",
+        fanout: int = 2,
     ) -> Tuple[str, str, int]:
         """
         Stores file content immutably.
@@ -56,15 +57,17 @@ class LocalStorageService(BaseStorageService):
         namespace: str,
         filename_prefix: str,
         content: bytes,
-        extension: str = ".pdf"
+        extension: str = ".pdf",
+        fanout: int = 2,
     ) -> Tuple[str, str, int]:
         sha256_hash = self.compute_sha256(content)
         file_size = len(content)
 
         # Structure path: <namespace>/<first 2 chars of hash>/<next 2 chars>/<hash><extension>
-        sub_dir_1 = sha256_hash[:2]
-        sub_dir_2 = sha256_hash[2:4]
-        target_dir = self.root_dir / namespace / sub_dir_1 / sub_dir_2
+        # (fanout=1 keeps only the first folder level, for short paths on Windows).
+        target_dir = self.root_dir / namespace / sha256_hash[:2]
+        if fanout >= 2:
+            target_dir = target_dir / sha256_hash[2:4]
         target_dir.mkdir(parents=True, exist_ok=True)
 
         target_file = target_dir / f"{sha256_hash}{extension}"

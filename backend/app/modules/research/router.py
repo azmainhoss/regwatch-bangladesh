@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User
-from backend.app.modules.research.service import ResearchQueryResponse, ResearchService
+from backend.app.modules.research.service import ResearchMatchesResponse, ResearchQueryResponse, ResearchService
 
 router = APIRouter(prefix="/research", tags=["Regulatory Research Assistant"])
 
@@ -31,6 +31,24 @@ async def query_regulatory_assistant(
         raise HTTPException(status_code=400, detail="Query string too short.")
 
     return await ResearchService.query_regulatory_knowledge(
+        db=db,
+        query=payload.query,
+        document_id=payload.document_id,
+        institution_id=payload.institution_id,
+        user=current_user,
+    )
+
+
+@router.post("/matches", response_model=ResearchMatchesResponse)
+async def find_matching_sentences(
+    payload: ResearchQueryRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """The sentences that best match a question, exact from the page. Local search only, so it is instant."""
+    if not payload.query or len(payload.query.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Query string too short.")
+    return await ResearchService.find_matches(
         db=db,
         query=payload.query,
         document_id=payload.document_id,

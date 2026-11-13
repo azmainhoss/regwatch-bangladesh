@@ -1,7 +1,9 @@
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +19,11 @@ from backend.app.modules.analysis.router import router as analysis_router
 from backend.app.modules.research.router import router as research_router
 from backend.app.modules.organizations.router import router as organizations_router
 from backend.app.modules.compliance.router import router as compliance_router
+from backend.app.modules.compliance.service import ConflictError
+from backend.app.modules.relationships.router import router as relationships_router
+from backend.app.modules.alerts.router import router as alerts_router
+from backend.app.modules.alerts.worker import alerts_worker
+from backend.app.modules.alerts.mailer import email_configured
 from backend.app.workers.scheduler import monitoring_scheduler
 from backend.app.modules.extraction.vision_jobs import vision_worker
 
@@ -49,8 +56,16 @@ async def lifespan(app: FastAPI):
     run_vision = settings.SCHEDULER_ENABLED or settings.VISION_WORKER_ENABLED
     if run_vision:
         await vision_worker.start()
+    # Alerts: the inbox works without this job; email, deadline checks and the daily summary need it.
+    run_alerts = settings.SCHEDULER_ENABLED or settings.ALERTS_WORKER_ENABLED
+    if run_alerts:
+        await alerts_worker.start()
+    elif email_configured():
+        logger.info("Email is set up but the alerts job is off. Set ALERTS_WORKER_ENABLED=true on one process.")
     yield
     logger.info("Shutting down application...")
+    if run_alerts:
+        await alerts_worker.stop()
     if settings.SCHEDULER_ENABLED:
         await monitoring_scheduler.stop()
     if run_vision:
@@ -120,3 +135,11 @@ app.include_router(documents_router, prefix=settings.API_V1_STR)
 app.include_router(research_router, prefix=settings.API_V1_STR)
 app.include_router(organizations_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_router, prefix=settings.API_V1_STR)
+app.include_router(relationships_router, prefix=settings.API_V1_STR)
+app.include_router(alerts_router, prefix=settings.API_V1_STR)
+
+
+@app.exception_handler(ConflictError)
+async def conflict_handler(_request, exc: ConflictError):
+    """A save made against an out-of-date copy: say so, and return the current record."""
+    return JSONResponse(status_code=409, content={"detail": exc.message, "current": jsonable_encoder(exc.current)})

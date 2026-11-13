@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, JSON, String, Text
+from sqlalchemy import Column, ForeignKey, Index, JSON, String, Text
 from backend.app.database.base import Base, GUID
 
 
@@ -14,3 +14,5 @@ class AuditEvent(Base):
     after_state = Column(JSON, nullable=True)
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(Text, nullable=True)
+
+    __table_args__ = (Index("ix_audit_events_org_created", "organization_id", "created_at"),)

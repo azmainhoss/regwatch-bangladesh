@@ -3,7 +3,7 @@
 
 ### 1. Design Principles
 1. **Multi-Stage Processing:** We deliberately avoid "single mega-prompts". Breaking analysis into discrete stages guarantees schema compliance, prevents context exhaustion, and enables independent auditing of each inference step.
-2. **Provider Agnostic Architecture (`BaseAIProvider`):** The engine abstracts LLM calls through a unified provider interface. Implementations support Google Gemini (`GeminiAIProvider`), OpenAI, Anthropic, or deterministic local models (`MockAIProvider`) for testing.
+2. **Provider Agnostic Architecture (`BaseAIProvider`):** The engine abstracts LLM calls through a unified provider interface. Implementations support Google Gemini (`GeminiAIProvider`), OpenAI-compatible APIs, or deterministic local models (`MockAIProvider`) for testing.
 3. **Structured Outputs:** All stages output strictly validated Pydantic models. Unstructured free-form answers are rejected.
 4. **Mandatory Deterministic Citation Validation:** Any extracted obligation or relationship claim MUST include an exact string quotation and page reference. `CitationValidator` deterministically verifies that the quotation exists on the claimed page of `document_pages`. If the excerpt cannot be verified, the claim is flagged with `UNVERIFIED` and publication is withheld.
 5. **Prompt Injection Defense:** Untrusted document text is enclosed inside inert `<regulatory_document_content>` delimiters with system-level instruction boundaries prohibiting command execution.

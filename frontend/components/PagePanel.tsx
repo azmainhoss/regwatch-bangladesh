@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlignLeft, ChevronLeft, ChevronRight, FileImage, PenLine, X, ZoomIn, ZoomOut } from "lucide-react";
-import { fetchPageImage, type Box2D, type DocumentPage, type QuoteBox } from "@/services/api";
+import { AlignLeft, ChevronLeft, ChevronRight, FileImage, PenLine, Pencil, X, ZoomIn, ZoomOut } from "lucide-react";
+import { fetchPageImage, submitPageCorrection, type Box2D, type DocumentPage, type QuoteBox } from "@/services/api";
 import StatusBadge, { Tag } from "./StatusBadge";
-import { EASE_OUT, hasBangla } from "./ui";
+import { EASE_OUT, Notice, hasBangla } from "./ui";
 
 /** A quote to show on the source page: its text, and its boxes on the page when known. */
 export interface PageHighlight {
@@ -23,6 +23,23 @@ interface Props {
   onPageChange: (n: number) => void;
   onClose: () => void;
   highlight?: PageHighlight | null;
+  /** True for administrators: shows the "Edit text" button. */
+  canEdit?: boolean;
+  /** Called with the saved page so every screen showing it redraws at once. */
+  onPageSaved?: (page: DocumentPage) => void;
+}
+
+/** The text a reader sees: a person's correction when there is one, else the extracted text. */
+export function pageText(page?: DocumentPage | null): string {
+  if (!page) return "";
+  const corrected = page.is_human_corrected ? page.human_corrected_text ?? page.cleaned_text : null;
+  return (corrected ?? page.raw_text ?? "").trim();
+}
+
+function correctionDate(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 type View = "image" | "text";
@@ -190,14 +207,49 @@ function ToolbarButton({
  * marked, or the extracted text. The text view is used when the image cannot be loaded
  * or when a quote has no position on the page.
  */
-export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight }: Props) {
+export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight, canEdit, onPageSaved }: Props) {
   const reduceMotion = useReducedMotion();
   const sorted = useMemo(() => [...pages].sort((a, b) => a.page_number - b.page_number), [pages]);
   const page = sorted.find((p) => p.page_number === pageNumber) ?? sorted[0];
   const idx = page ? sorted.indexOf(page) : -1;
-  const text = page?.raw_text?.trim() ?? "";
+  const text = pageText(page);
   const quote = highlight?.text ?? null;
   const body = useMemo(() => markQuote(text, quote), [text, quote]);
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraft(text);
+    setReason("");
+    setSaveError(null);
+    setEditing(true);
+  };
+  const cancelEdit = () => {
+    if (saving) return;
+    setEditing(false);
+    setSaveError(null);
+  };
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!page || !versionId || saving) return;
+    if (!draft.trim()) return setSaveError("The page text cannot be empty.");
+    if (!reason.trim()) return setSaveError("Please say why you are changing it.");
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await submitPageCorrection(documentId, versionId, page.page_number, draft, reason.trim());
+      onPageSaved?.(res.page);
+      setEditing(false);
+    } catch (err: any) {
+      setSaveError(err?.message || "Could not save the text.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>(1);
   const [chosenView, setChosenView] = useState<View | null>(null);
@@ -216,7 +268,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
 
   const canShowImage = !!versionId && !image.failed;
   const autoView: View = !canShowImage ? "text" : highlight && boxes.length === 0 && text ? "text" : "image";
-  const view: View = chosenView === "image" && !canShowImage ? "text" : chosenView ?? autoView;
+  const view: View = editing ? "text" : chosenView === "image" && !canShowImage ? "text" : chosenView ?? autoView;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -259,7 +311,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
         <button
           type="button"
           onClick={() => idx > 0 && onPageChange(sorted[idx - 1].page_number)}
-          disabled={idx <= 0}
+          disabled={idx <= 0 || editing}
           aria-label="Previous page"
           className="btn-ghost h-8 w-8 p-0"
         >
@@ -272,7 +324,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
         <button
           type="button"
           onClick={() => idx >= 0 && idx < sorted.length - 1 && onPageChange(sorted[idx + 1].page_number)}
-          disabled={idx < 0 || idx >= sorted.length - 1}
+          disabled={idx < 0 || idx >= sorted.length - 1 || editing}
           aria-label="Next page"
           className="btn-ghost h-8 w-8 p-0"
         >
@@ -300,6 +352,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                 key={p.id}
                 type="button"
                 onClick={() => onPageChange(p.page_number)}
+                disabled={editing}
                 aria-current={active ? "page" : undefined}
                 className={`relative min-w-[2rem] rounded-control px-2 py-1 text-[13px] font-semibold tabular-nums transition-colors ${
                   active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken"
@@ -315,10 +368,18 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
         </nav>
       )}
 
+      {page?.is_human_corrected && (page.corrected_by_name || page.corrected_at || page.correction_reason) && (
+        <p className="border-b border-line bg-sunken/50 px-3 py-1.5 text-[12.5px] leading-snug text-ink-2" data-testid="correction-line">
+          Corrected{page.corrected_by_name ? ` by ${page.corrected_by_name}` : ""}
+          {page.corrected_at ? ` on ${correctionDate(page.corrected_at)}` : ""}
+          {page.correction_reason ? `: ${page.correction_reason}` : ""}
+        </p>
+      )}
+
       {page && (
         <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
           <div role="group" aria-label="Show the page as" className="inline-flex rounded-control bg-sunken p-0.5">
-            <ToolbarButton active={view === "image"} onClick={() => setChosenView("image")} label="Original page" disabled={!canShowImage}>
+            <ToolbarButton active={view === "image"} onClick={() => setChosenView("image")} label="Original page" disabled={!canShowImage || editing}>
               <FileImage className="h-3.5 w-3.5" strokeWidth={1.75} />
               Page
             </ToolbarButton>
@@ -343,6 +404,12 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                 <ZoomIn className="h-3.5 w-3.5" strokeWidth={1.75} />
               </ToolbarButton>
             </div>
+          )}
+          {canEdit && view === "text" && !editing && (
+            <button type="button" onClick={startEdit} className="btn-secondary ml-auto h-7 px-2.5 text-[12.5px]">
+              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Edit text
+            </button>
           )}
           {highlight && view === "image" && boxes.length > 0 && (
             <span className="ml-auto hidden items-center gap-1.5 text-[12.5px] text-ink-3 sm:flex">
@@ -412,6 +479,48 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                   <div className="aspect-[1/1.414] w-full animate-pulse rounded-[4px] bg-sunken ring-1 ring-line" aria-busy="true" aria-label="Loading page image" />
                 )}
               </div>
+            ) : editing ? (
+              <form onSubmit={saveEdit} className="flex flex-col gap-3">
+                {saveError && <Notice kind="error">{saveError}</Notice>}
+                {!text && <p className="text-[13px] text-ink-3">Type what the original page says. Use the Page view to check it.</p>}
+                <div>
+                  <label htmlFor="page-edit-text" className="field-label">
+                    Page {page.page_number} text
+                  </label>
+                  <textarea
+                    id="page-edit-text"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    disabled={saving}
+                    rows={10}
+                    lang={hasBangla(draft) ? "bn" : undefined}
+                    className="field min-h-[28dvh] resize-y text-[14.5px] leading-[1.7]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="page-edit-reason" className="field-label">
+                    Reason for the change
+                  </label>
+                  <input
+                    id="page-edit-reason"
+                    type="text"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    disabled={saving}
+                    maxLength={300}
+                    placeholder="For example: fixed a wrong digit"
+                    className="field"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="submit" disabled={saving} className="btn-primary">
+                    {saving ? "Saving..." : "Save"}
+                  </button>
+                  <button type="button" onClick={cancelEdit} disabled={saving} className="btn-secondary">
+                    Cancel
+                  </button>
+                </div>
+              </form>
             ) : text ? (
               <div
                 lang={hasBangla(text) ? "bn" : undefined}
@@ -426,7 +535,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                   <p>It has no usable text layer, so it is waiting to be read from the page image.</p>
                 )}
                 {page.quality_status === "NEEDS_HUMAN_REVIEW" && <p>Reading it automatically did not work. A person needs to check it.</p>}
-                {page.vision_error && <p className="text-bad">Last attempt: {page.vision_error}</p>}
+                {page.vision_error && page.quality_status === "PENDING_VISION" && <p>The last try did not work. It will be tried again soon.</p>}
               </div>
             )}
           </motion.div>

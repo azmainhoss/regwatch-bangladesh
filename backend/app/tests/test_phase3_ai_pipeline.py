@@ -176,8 +176,17 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
         headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
     print("ANALYZE RESPONSE:", analyze_res.status_code, analyze_res.text)
-    assert analyze_res.status_code == 200
-    analysis = analyze_res.json()
+    assert analyze_res.status_code == 202
+    assert analyze_res.json()["state"] == "RUNNING"
+    from uuid import UUID as _UUID
+    from backend.app.modules.analysis import jobs as _jobs
+    await _jobs.wait(_UUID(doc_id))
+    status_res = await client.get(
+        f"/api/v1/documents/{doc_id}/analysis-status",
+        headers={"Authorization": f"Bearer {admin_auth_token}"},
+    )
+    assert status_res.json()["state"] == "DONE"
+    analysis = (await client.get(f"/api/v1/documents/{doc_id}/analysis")).json()
 
     assert analysis["model_name"] == "mock-regulatory-v1"
     assert analysis["prompt_version"] == "v2"
@@ -245,6 +254,9 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
         json={"provider": "mock", "force_human_review": True},
         headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
+    from uuid import UUID as _UUID
+    from backend.app.modules.analysis import jobs as _jobs
+    await _jobs.wait(_UUID(doc_id))
 
     doc_check = await client.get(f"/api/v1/documents/{doc_id}")
     assert doc_check.json()["publication_status"] == "AWAITING_REVIEW"

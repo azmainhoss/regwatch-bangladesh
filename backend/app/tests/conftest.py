@@ -25,6 +25,10 @@ os.environ["OPENAI_COMPAT_BASE_URL"] = ""
 os.environ["OPENAI_COMPAT_API_KEY"] = ""
 os.environ["GEMINI_API_KEY"] = ""
 os.environ["BB_REQUEST_INTERVAL_SECONDS"] = "0"
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_FROM"] = ""
+os.environ["ALERTS_KICK_AFTER_COMMIT"] = "false"
+os.environ["ALERTS_WORKER_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 

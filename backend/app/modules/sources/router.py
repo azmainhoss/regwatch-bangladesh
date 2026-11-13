@@ -216,6 +216,15 @@ async def update_source(
     return source
 
 
+@router.get("/{source_id}/ingest-status")
+async def get_ingest_status(
+    source_id: UUID,
+    current_user: User = Depends(get_current_superuser),
+):
+    """Progress of the background download started by "Check now"."""
+    return source_monitoring_service.ingest_status(source_id)
+
+
 @router.post("/{source_id}/trigger", response_model=SourceRunRead)
 async def trigger_source_monitoring(
     source_id: UUID,
@@ -227,10 +236,12 @@ async def trigger_source_monitoring(
     Returns the executed SourceRun with diagnostic telemetry and anti-bot checks.
     """
     try:
+        # Answers as soon as the listing is stored; downloads continue in the background.
         run = await source_monitoring_service.execute_source_monitoring(
             db=db,
             source_id=source_id,
-            run_type="MANUAL_TRIGGER"
+            run_type="MANUAL_TRIGGER",
+            background_ingest=True,
         )
         return run
     except ValueError as e:
