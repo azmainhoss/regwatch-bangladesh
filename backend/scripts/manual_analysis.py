@@ -14,12 +14,23 @@ Work folder: research/archive/data/manual_analysis/ (git-ignored)
     answers/<doc_id>.json the analysis written for it
     done/<doc_id>.json    answers that were loaded
     log.jsonl             one line per load
+    REDO.txt              circulars handed out or analysed while some pages were unread (see mark-redo)
+    done/replaced/        old answers set aside when a circular is analysed again
+
+A REDO.txt line whose reason starts with "approved" (mark-redo --approved) is a person's go-ahead to analyse
+an already analysed circular again: once all its pages are read, export writes its text out again and
+removes its old answer from the work repo (prints "Redo: <doc> | <reference>"); the new answer replaces the
+old analysis when it is loaded. Until then its old answer and inbox file stay as they are.
+
+A circular is handed out only when every page has usable text: none still waiting to be read, and none
+whose reading failed or whose text is damaged (a short but clean page is fine).
 
 Usage (from the repo root, with the repo .venv):
     .venv/Scripts/python.exe backend/scripts/manual_analysis.py status
     .venv/Scripts/python.exe backend/scripts/manual_analysis.py next --n 10
     .venv/Scripts/python.exe backend/scripts/manual_analysis.py check            # all files in answers/
     .venv/Scripts/python.exe backend/scripts/manual_analysis.py load             # check, then load all answers/
+    .venv/Scripts/python.exe backend/scripts/manual_analysis.py mark-redo <doc_id> ... --reason "..."
 """
 import argparse
 import asyncio
@@ -44,10 +55,12 @@ from backend.app.core.config import settings  # noqa: E402
 from backend.app.modules.analysis import prompts  # noqa: E402
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse  # noqa: E402
 from backend.app.modules.analysis.sentences import SentenceIndex  # noqa: E402
+from backend.app.modules.extraction.quality import ExtractionQualityAssessor, text_layer_looks_damaged  # noqa: E402
 
 WORK = ROOT / "research" / "archive" / "data" / "manual_analysis"
 INBOX, ANSWERS, DONE = WORK / "inbox", WORK / "answers", WORK / "done"
 LOG = WORK / "log.jsonl"
+REDO = WORK / "REDO.txt"
 CUTOFF = "2024-11-14"
 MODEL_NAME = "manual-analysis-v1"
 
@@ -88,10 +101,58 @@ def _hex(value: Any) -> str:
     return str(value).replace("-", "").lower()
 
 
+STUCK_SQL = """
+select p.document_version_id, coalesce(nullif(p.cleaned_text, ''), p.raw_text, '')
+from document_pages p
+where p.quality_status in ('NEEDS_HUMAN_REVIEW', 'READ_FAILED') and coalesce(p.is_human_corrected, 0) = 0
+"""
+
+
+def page_text_unusable(text: str) -> bool:
+    """A page that was not read (or an old page flagged for review) has no usable text when it is
+    empty or its text looks damaged."""
+    text = (text or "").strip()
+    if not text:
+        return True
+    return text_layer_looks_damaged(ExtractionQualityAssessor.assess_page(1, text, "TEXT_LAYER"))
+
+
 def targets() -> List[Dict[str, Any]]:
+    """The chosen circulars. `unread` counts pages without usable text yet: still waiting to be read,
+    or with a person and empty or damaged."""
     with _ro() as c:
         cols = ["id", "version_id", "title", "reference", "date", "pages", "chars", "waiting", "analyses"]
-        return [dict(zip(cols, r)) for r in c.execute(TARGET_SQL)]
+        rows = [dict(zip(cols, r)) for r in c.execute(TARGET_SQL)]
+        stuck: Dict[str, int] = {}
+        for version_id, text in c.execute(STUCK_SQL):
+            if page_text_unusable(text):
+                stuck[_hex(version_id)] = stuck.get(_hex(version_id), 0) + 1
+    for r in rows:
+        r["stuck"] = stuck.get(_hex(r["version_id"]), 0)
+        r["unread"] = (r["waiting"] or 0) + r["stuck"]
+    return rows
+
+
+def read_redo() -> Dict[str, str]:
+    """REDO.txt: one `<doc_id> | reason` line per circular to analyse again once its pages are all read."""
+    if not REDO.exists():
+        return {}
+    out: Dict[str, str] = {}
+    for line in REDO.read_text(encoding="utf-8").splitlines():
+        key, _, reason = line.partition("|")
+        if key.strip():
+            out[key.strip()] = reason.strip()
+    return out
+
+
+def redo_approved(items: Dict[str, str]) -> set:
+    """REDO.txt keys a person approved for a fresh analysis (reason starts with "approved")."""
+    return {k for k, v in items.items() if v.lower().startswith("approved")}
+
+
+def write_redo(items: Dict[str, str]) -> None:
+    WORK.mkdir(parents=True, exist_ok=True)
+    REDO.write_text("".join(f"{k} | {v}\n" for k, v in items.items()), encoding="utf-8")
 
 
 def _file_key(doc_id: Any) -> str:
@@ -134,14 +195,16 @@ async def _load_pages(version_id: str) -> List[Dict[str, Any]]:
 
 def cmd_status(args) -> None:
     rows = targets()
-    ready = [r for r in rows if not r["waiting"]]
+    ready = [r for r in rows if not r["unread"]]
     done = [r for r in rows if r["analyses"]]
     big = [r for r in ready if r["chars"] > args.max_chars and not r["analyses"]]
     print(f"Chosen circulars: {len(rows)}")
     print(f"  analysed: {len(done)}")
     print(f"  ready, not analysed: {len(ready) - len([r for r in ready if r['analyses']])} "
           f"(of which {len(big)} are long, over {args.max_chars} characters)")
-    print(f"  pages still being read: {len(rows) - len(ready)} circulars")
+    print(f"  pages still being read: {len([r for r in rows if r['waiting']])} circulars; "
+          f"pages with a person and no usable text: {len([r for r in rows if r['stuck']])} circulars")
+    print(f"  to analyse again once read (REDO.txt): {len(read_redo())}")
     print(f"  handed out (inbox): {len(list(INBOX.glob('*.txt'))) if INBOX.exists() else 0}, "
           f"answers waiting to load: {len(list(ANSWERS.glob('*.json'))) if ANSWERS.exists() else 0}")
     left = [r for r in ready if not r["analyses"] and r["chars"] <= args.max_chars]
@@ -156,7 +219,7 @@ async def cmd_next(args) -> None:
     picked = []
     for r in targets():
         key = _file_key(r["id"])
-        if r["waiting"] or r["analyses"] or key in taken:
+        if r["unread"] or r["analyses"] or key in taken:
             continue
         if (r["chars"] > args.max_chars) != args.long:
             continue
@@ -324,6 +387,10 @@ async def cmd_load(args) -> int:
             print(f"{f.stem}: load failed: {e}")
             continue
         shutil.move(str(f), DONE / f.name)
+        redo = read_redo()
+        if f.stem in redo_approved(redo):
+            redo.pop(f.stem)  # the fresh analysis is in: nothing left to redo
+            write_redo(redo)
         (INBOX / f"{f.stem}.txt").unlink(missing_ok=True)
         with LOG.open("a", encoding="utf-8") as log:
             log.write(json.dumps({"doc": f.stem, "at": datetime.now(timezone.utc).isoformat(), "points": counts}) + "\n")
@@ -419,10 +486,33 @@ async def cmd_export(args) -> None:
     _write_check_py(repo)
     have = ({p.stem for p in ANSWERS.glob("*.json")} | {p.stem for p in DONE.glob("*.json")}
             | {p.stem for p in (repo / "answers").glob("*.json")} | {p.stem for p in INBOX.glob("*.txt")})
-    added = removed = 0
+    added = removed = held = pulled = 0
+    redo = read_redo()
+    approved = redo_approved(redo)
+    redo_ready: List[str] = []
+    redo_now: List[str] = []
     repo_answers = {p.stem for p in (repo / "answers").glob("*.json")}
     for r in targets():
         key = _file_key(r["id"])
+        if key in approved:
+            # A person approved analysing it again. Wait until every page is read; then write its text out
+            # again and drop the old answer so its lane picks it up. Never taken off the queue meanwhile.
+            if not r["unread"] and (key in repo_answers or r["analyses"]):
+                header = (f"# {r['title']}\n# reference: {r['reference'] or '-'} | listed date: {r['date']} | "
+                          f"pages: {r['pages']} | document: {key}\n\n")
+                fresh = header + SentenceIndex.build(await _load_pages(r["version_id"])).render_for_prompt()
+                folder = "inbox_long" if r["chars"] > args.max_chars else "inbox"
+                old = repo / folder / f"{key}.txt"
+                if not old.exists() or old.read_text(encoding="utf-8") != fresh:
+                    for other in ("inbox", "inbox_long"):
+                        (repo / other / f"{key}.txt").unlink(missing_ok=True)
+                    (repo / folder / f"{key}.txt").write_text(fresh, encoding="utf-8")
+                    (repo / "answers" / f"{key}.json").unlink(missing_ok=True)
+                    if (DONE / f"{key}.json").exists():
+                        (DONE / "replaced").mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(DONE / f"{key}.json"), DONE / "replaced" / f"{key}.json")
+                    redo_now.append(f"Redo: {key} | {r['reference'] or r['title']}")
+            continue
         if (r["analyses"] or key in have) and key not in repo_answers:
             # Done on this PC (or handed out here): take it off the cloud's list.
             for folder in ("inbox", "inbox_long"):
@@ -430,7 +520,21 @@ async def cmd_export(args) -> None:
                 if stale.exists():
                     stale.unlink()
                     removed += 1
-        if r["waiting"] or r["analyses"] or key in have:
+        if r["unread"]:
+            # Some pages have no usable text yet: hold it back, and take it off the cloud's list if nobody
+            # answered it yet, so it is never analysed with pages missing. It goes out again once read.
+            if not r["analyses"] and key not in have:
+                held += 1
+            if key not in repo_answers:
+                for folder in ("inbox", "inbox_long"):
+                    early = repo / folder / f"{key}.txt"
+                    if early.exists():
+                        early.unlink()
+                        pulled += 1
+            continue
+        if r["analyses"] or key in have:
+            if key in redo:
+                redo_ready.append(key)  # read now, but already analysed: replacing that is a person's call
             continue
         folder = repo / ("inbox_long" if r["chars"] > args.max_chars else "inbox")
         out = folder / f"{key}.txt"
@@ -441,13 +545,34 @@ async def cmd_export(args) -> None:
                   f"pages: {r['pages']} | document: {key}\n\n")
         out.write_text(header + index.render_for_prompt(), encoding="utf-8")
         added += 1
+        redo.pop(key, None)  # handed out again with every page read: nothing left to redo
+    if REDO.exists() or redo:
+        write_redo(redo)
     # Work order: short circulars newest first, then the long ones newest first.
     order = [_file_key(r["id"]) for r in targets()]
     short = [k for k in order if (repo / "inbox" / f"{k}.txt").exists()]
     long_ = [k for k in order if (repo / "inbox_long" / f"{k}.txt").exists()]
     (repo / "QUEUE.txt").write_text(
         "".join(f"inbox/{k}.txt\n" for k in short) + "".join(f"inbox_long/{k}.txt\n" for k in long_), encoding="utf-8")
-    print(f"Exported {added} new circular(s), removed {removed} done here, to {repo}; queue has {len(short)} short and {len(long_)} long")
+    print(f"Exported {added} new circular(s), removed {removed} done here, held back {held} with unread pages "
+          f"(took {pulled} off the queue), to {repo}; queue has {len(short)} short and {len(long_)} long")
+    for line in redo_now:
+        print(line)
+    if redo_ready:
+        print(f"{len(redo_ready)} circular(s) in REDO.txt are now fully read but already analysed; "
+              f"analysing them again replaces the old answer, so a person decides: {', '.join(redo_ready)}")
+
+
+def cmd_mark_redo(args) -> None:
+    """Notes circulars to analyse again once all their pages are read (they went out with pages unread)."""
+    items = read_redo()
+    reason = args.reason
+    if getattr(args, "approved", False) and not reason.lower().startswith("approved"):
+        reason = f"approved: {reason}"
+    for key in args.docs:
+        items[_file_key(key)] = reason
+    write_redo(items)
+    print(f"REDO.txt now lists {len(items)} circular(s).")
 
 
 async def cmd_pull(args) -> int:
@@ -482,9 +607,16 @@ def main() -> int:
     p.add_argument("--repo", required=True)
     p.add_argument("--max-chars", type=int, default=60000)
     sub.add_parser("pull", help="load new answers from the shared work repo").add_argument("--repo", required=True)
+    p = sub.add_parser("mark-redo", help="list circulars to analyse again once all their pages are read")
+    p.add_argument("docs", nargs="+")
+    p.add_argument("--reason", default="handed out while some pages were unread")
+    p.add_argument("--approved", action="store_true", help="a person approved analysing it again once read")
     args = ap.parse_args()
     if args.cmd == "status":
         cmd_status(args)
+        return 0
+    if args.cmd == "mark-redo":
+        cmd_mark_redo(args)
         return 0
     fn = {"next": cmd_next, "check": cmd_check, "load": cmd_load, "export": cmd_export, "pull": cmd_pull}[args.cmd]
 

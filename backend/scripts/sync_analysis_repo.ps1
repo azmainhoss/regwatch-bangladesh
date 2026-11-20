@@ -44,15 +44,29 @@ if ($copied -gt 0) {
 Set-Location $app
 $out = & $py backend\scripts\manual_analysis.py pull --repo $repo 2>&1 | Where-Object { $_ -match "loaded|failed|not loaded|Loaded|No new" }
 $out | ForEach-Object { Log "load: $_" }
-$out = & $py backend\scripts\manual_analysis.py export --repo $repo 2>&1 | Where-Object { $_ -match "^Exported" }
+$out = & $py backend\scripts\manual_analysis.py export --repo $repo 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match "^(Exported|Redo: )" }
 $out | ForEach-Object { Log "export: $_" }
 
 Set-Location $repo
+# Circulars a person approved to analyse again, now fully read: one commit each (new text in, old answer out).
+$redone = 0
+foreach ($line in ($out | Where-Object { $_ -match "^Redo: " })) {
+    $key, $ref = ($line -replace "^Redo: ", "") -split " \| ", 2
+    foreach ($f in @("answers/$key.json", "inbox/$key.txt", "inbox_long/$key.txt")) { git add -A -- $f 2>$null }
+    git diff --cached --quiet
+    if ($LASTEXITCODE -ne 0) { git commit --quiet -m "Redo analysis: $ref (pages re-read)"; $redone++ }
+}
 git add inbox inbox_long QUEUE.txt INSTRUCTIONS.md check.py 2>$null
 git diff --cached --quiet
-if ($LASTEXITCODE -ne 0) {
-    git commit --quiet -m "Add newly read circulars"
+if ($LASTEXITCODE -ne 0 -or $redone -gt 0) {
+    git diff --cached --quiet
+    if ($LASTEXITCODE -ne 0) { git commit --quiet -m "Add newly read circulars" }
     git pull --rebase --quiet 2>&1 | ForEach-Object { Log "pull: $_" }
     git push --quiet 2>&1 | ForEach-Object { Log "push: $_" }
-    Log "pushed new circulars"
+    Log "pushed new circulars ($redone sent back for a fresh analysis)"
 }
+
+# New circulars held because a page could not be read by any reader: they wait for a reading by hand.
+Set-Location $app
+$held = & $py backend\scripts\held_pages.py list 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match "held page" }
+if ($held -and $held -notmatch "^0 held") { Log "held: $held - read them by hand with backend\scripts\held_pages.py (see HANDOFF.md)" }
