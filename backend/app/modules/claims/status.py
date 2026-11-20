@@ -117,25 +117,19 @@ def route(claim: Any, doc: Any, today: Optional[date] = None, force_review: bool
     new = is_new_circular(doc, today)
     results = [c["result"] for c in judged_checks(claim)]
 
+    # No point ever waits for a person (user's rule): a point that fails a check is hidden, and a
+    # change-the-law link that passed every check is shown as "Mentions" (link_shown_type).
     if FAIL in results:
-        if claim.is_high_stakes and (new or future_deadline(claim, today)):
-            claim.check_status, claim.review_queue = WAITING_FOR_PERSON, REQUIRED
-        else:
-            claim.check_status, claim.review_queue = NOT_SHOWN, OPTIONAL
+        claim.check_status, claim.review_queue = NOT_SHOWN, None
         return
     if WAIT in results:
         claim.check_status, claim.review_queue = CHECKING, None
         return
-    if is_change_link(claim) and link_extras_all_pass(claim):
-        # Passed everything, but "amends" changes which rule is in force: a person confirms it.
-        claim.check_status = WAITING_FOR_PERSON
-        claim.review_queue = REQUIRED if new else OPTIONAL
-        if force_review:
-            ask_for_review(claim)
+    if force_review:
+        # Analysed while a page was not read cleanly: hide its points until it is analysed again.
+        claim.check_status, claim.review_queue = NOT_SHOWN, None
         return
     claim.check_status, claim.review_queue = PASSED, None
-    if force_review:
-        ask_for_review(claim)
 
 
 def ask_for_review(claim: Any) -> None:

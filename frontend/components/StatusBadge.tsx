@@ -38,7 +38,7 @@ const STATUSES: Record<string, StatusSpec> = {
   PUBLISHED_HUMAN_REVIEWED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_VERIFIED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_PROCESSED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "Its points have not been checked yet" },
-  AWAITING_REVIEW: { label: "Points waiting", tone: "warn", icon: Clock, hint: "Some points are waiting for our team to check them; the rest are shown" },
+  AWAITING_REVIEW: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   NEEDS_REVISION: { label: "Needs revision", tone: "warn", icon: AlertTriangle },
   ANALYZING: { label: "Analysing", tone: "info", icon: Loader2, spin: true },
   EXTRACTION_FAILED: { label: "Extraction failed", tone: "bad", icon: AlertTriangle },

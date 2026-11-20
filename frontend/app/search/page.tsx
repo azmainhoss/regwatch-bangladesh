@@ -34,7 +34,6 @@ const DOC_TYPES = [
 const STATUS_OPTIONS = [
   { value: "PUBLISHED", label: "Any published" },
   { value: "PUBLISHED_MACHINE_VERIFIED", label: "Checked" },
-  { value: "AWAITING_REVIEW", label: "Points waiting" },
 ];
 
 interface Filters {

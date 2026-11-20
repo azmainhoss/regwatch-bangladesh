@@ -494,11 +494,10 @@ export default function CircularDetail(props: Props) {
       {view.state === "ANALYSING" && !analyzing && (
         <Notice kind="info">Analysing this circular. This page updates by itself when it is done.</Notice>
       )}
-      {hasHeld && counts && (
+      {isAdmin && hasHeld && counts && (
         <p className="text-[14px] text-ink-2" data-testid="showing-count">
           Showing {counts.shown} of {counts.total} points.
-          {isAdmin && counts.waiting_for_team > 0 && ` ${counts.waiting_for_team} waiting for a check.`}
-          {isAdmin && counts.not_shown > 0 && ` ${counts.not_shown} not shown.`}
+          {counts.waiting_for_team + counts.not_shown > 0 && ` Hidden: failed a check (re-check pending): ${counts.waiting_for_team + counts.not_shown}.`}
         </p>
       )}
       {isAdmin && counts && counts.checking > 0 && (

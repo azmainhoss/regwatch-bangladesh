@@ -116,11 +116,8 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
       const marked = pages.length > 0 && group.every((h) => !!h.page_number && h.quote_boxes.length > 0);
       const what = `${n} ${noun(section, n)}`;
       const be = n === 1 ? "is" : "are";
-      const it = n === 1 ? "it" : "them";
       let before = "";
-      if (state === "waiting_for_team") {
-        before = `${what} ${be} waiting for our team to check ${it}, usually within one working day. Until then, `;
-      } else if (state === "not_shown") {
+      if (state === "waiting_for_team" || state === "not_shown") {
         before = `${what} did not pass our checks, so ${n === 1 ? "it is" : "they are"} not shown. `;
       } else if (checking.paused_until) {
         const at = clockTime(checking.paused_until);
@@ -142,7 +139,6 @@ export function checkedTag(item: ClaimItem): string {
 /** The badge a reader sees for the whole circular. */
 export function checkedBadge(counts: { total: number; shown: number }, anyByTeam: boolean): { label: string; hint: string; tone: "ok" | "info" } | null {
   if (counts.total === 0) return null;
-  if (counts.shown < counts.total) return { label: "Partly checked", hint: "Some points did not pass our checks yet and are not shown", tone: "info" };
   if (anyByTeam) return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
   return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
 }
@@ -150,7 +146,7 @@ export function checkedBadge(counts: { total: number; shown: number }, anyByTeam
 /** An administrator's plain line for a point that is not shown. */
 export function adminStateText(item: ClaimItem): string {
   const why = (item.why ?? []).filter(Boolean).join(" ");
-  if (item.status === "WAITING_FOR_PERSON") return why ? `Waiting for a check: ${why}` : "Waiting for a check";
+  if (item.status === "WAITING_FOR_PERSON") return why ? `Hidden: failed a check (re-check pending): ${why}` : "Hidden: failed a check (re-check pending)";
   if (item.status === "CHECKING") return "Still being checked against the page image";
   return why ? `Not shown: ${why}` : "Not shown";
 }
