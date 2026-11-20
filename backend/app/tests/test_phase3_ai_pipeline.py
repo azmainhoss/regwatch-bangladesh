@@ -141,7 +141,7 @@ async def test_ai_provider_error_handling_and_invalid_json():
 @pytest.mark.anyio
 async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, auth_token: str, admin_auth_token: str):
     """
-    Ingests BRPD Circular 15/2024, executes the AI analysis pipeline,
+    Ingests BRPD Circular 15/2024, executes the Analysis pipeline,
     and verifies that provisions, obligations, and relationships are persisted
     with page-level citations.
     """
@@ -186,10 +186,13 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
         headers={"Authorization": f"Bearer {admin_auth_token}"},
     )
     assert status_res.json()["state"] == "DONE"
-    analysis = (await client.get(f"/api/v1/documents/{doc_id}/analysis")).json()
+    # Readers get no analysis internals; administrators do.
+    reader_view = (await client.get(f"/api/v1/documents/{doc_id}/analysis")).json()
+    assert reader_view["structured_payload"] == {} and reader_view["model_name"] == "" and reader_view["claims"] == []
+    analysis = (await client.get(f"/api/v1/documents/{doc_id}/analysis", headers={"Authorization": f"Bearer {admin_auth_token}"})).json()
 
     assert analysis["model_name"] == "mock-regulatory-v1"
-    assert analysis["prompt_version"] == "v2"
+    assert analysis["prompt_version"] == "v3"
     assert analysis["citation_coverage_score"] >= 0.95
     assert len(analysis["key_changes"]) >= 2
     assert analysis["tokens_used"] > 0
@@ -215,7 +218,11 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
     assert stage2_obl["page_id"] is not None
 
     # 5. Retrieve Relationships
+    # A reader sees the link only as a mention; the real type (AMENDS) waits for a person.
     rel_res = await client.get(f"/api/v1/documents/{doc_id}/relationships")
+    assert rel_res.status_code == 200
+    assert [r["relationship_type"] for r in rel_res.json()] in ([], ["REFERENCES"])
+    rel_res = await client.get(f"/api/v1/documents/{doc_id}/relationships", headers={"Authorization": f"Bearer {admin_auth_token}"})
     assert rel_res.status_code == 200
     relationships = rel_res.json()
     assert len(relationships) >= 1
@@ -261,7 +268,7 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
     doc_check = await client.get(f"/api/v1/documents/{doc_id}")
     assert doc_check.json()["publication_status"] == "AWAITING_REVIEW"
 
-    # Human Editor Approves Publication (requires admin/reviewer authorization)
+    # A circular is no longer signed off as a whole: people decide each point on the review screen.
     publish_res = await client.post(
         f"/api/v1/documents/{doc_id}/publish",
         json={
@@ -270,11 +277,14 @@ async def test_human_review_and_publication_workflow(client: AsyncClient, auth_t
         },
         headers={"Authorization": f"Bearer {admin_auth_token}"}
     )
-    assert publish_res.status_code == 200
-    assert publish_res.json()["publication_status"] == "PUBLISHED_HUMAN_REVIEWED"
+    assert publish_res.status_code == 400
+    assert publish_res.json()["detail"] == "Decide each point on the Points to check screen."
+    # Held-back points were never shown to readers meanwhile.
+    claims = (await client.get(f"/api/v1/documents/{doc_id}/claims")).json()
+    assert claims["counts"]["shown"] == 0 and all(not rows for rows in claims["sections"].values())
 
     doc_after = await client.get(f"/api/v1/documents/{doc_id}")
-    assert doc_after.json()["publication_status"] == "PUBLISHED_HUMAN_REVIEWED"
+    assert doc_after.json()["publication_status"] == "AWAITING_REVIEW"
 
 
 @pytest.mark.anyio

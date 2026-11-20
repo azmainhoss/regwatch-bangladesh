@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 from backend.app.database.base import Base, GUID
 
@@ -38,6 +38,24 @@ class AnalysisClaim(Base):
     claim_type = Column(String(64), nullable=False)  # SUMMARY_STATEMENT, OBLIGATION_ASSERTION, IMPACT_CLAIM
     statement = Column(Text, nullable=False)
     verification_status = Column(String(32), default="VERIFIED", nullable=False)
+    # Claim checks (docs/specs/CLAIM_CHECKS_SPEC.md): one claim per shown item, checked and hidden on its own.
+    kind = Column(String(32), default="PROVISION", server_default="PROVISION", nullable=False, index=True)
+    order_index = Column(Integer, default=0, server_default="0")
+    fields = Column(JSON, default=dict)
+    evidence = Column(JSON, default=dict)
+    checks = Column(JSON, default=list)
+    check_status = Column(String(32), default="CHECKING", server_default="CHECKING", nullable=False, index=True)
+    review_queue = Column(String(16), nullable=True, index=True)
+    is_high_stakes = Column(Boolean, default=False, server_default="0")
+    obligation_id = Column(GUID(), ForeignKey("obligations.id", ondelete="SET NULL"), nullable=True)
+    relationship_id = Column(GUID(), ForeignKey("document_relationships.id", ondelete="SET NULL"), nullable=True)
+    fingerprint = Column(String(64), nullable=True, index=True)
+    carried_from_claim_id = Column(GUID(), nullable=True)
+    original_fields = Column(JSON, nullable=True)
+    reviewed_by = Column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_note = Column(Text, nullable=True)
+    reject_reason = Column(String(64), nullable=True)
 
     analysis = relationship("DocumentAnalysis", back_populates="claims")
     citations = relationship("ClaimCitation", back_populates="claim", cascade="all, delete-orphan")

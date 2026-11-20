@@ -12,6 +12,7 @@ from backend.app.modules.provisions.models import Provision
 from backend.app.modules.relationships.models import DocumentRelationship
 from backend.app.modules.obligations.models import Obligation, ObligationApplicability
 from backend.app.modules.analysis.models import DocumentAnalysis, AnalysisClaim, ClaimCitation, AnalysisLease
+from backend.app.modules.claims.models import QuoteReadingCheck
 from backend.app.modules.identity.models import User, UserProfile
 from backend.app.modules.organizations.models import Organization, Department, OrganizationMember
 from backend.app.modules.compliance.models import ComplianceRegister, ComplianceItem, ComplianceItemReview, ComplianceTask, TaskEvidence, TaskReview, TaskEvent
@@ -38,6 +39,7 @@ __all__ = [
     "AnalysisClaim",
     "ClaimCitation",
     "AnalysisLease",
+    "QuoteReadingCheck",
     "User",
     "UserProfile",
     "Organization",

@@ -74,13 +74,13 @@ async def test_plain_language_provider_status_telemetry():
         data = res.json()
         assert "service_state" in data
         assert data["service_state"] in (
-            "AI Analysis Available",
-            "AI Analysis Not Connected",
-            "AI Usage Limit Reached",
-            "AI Analysis Temporarily Unavailable",
+            "Analysis Available",
+            "Analysis Not Connected",
+            "Analysis Limit Reached",
+            "Analysis Temporarily Unavailable",
             "Test Mode (Offline Rules)",
-            "AI Connection Not Checked Yet",
-            "AI Analysis Not Working",
+            "Analysis Connection Not Checked Yet",
+            "Analysis Not Working",
         )
         # No made-up figures: nothing is claimed before a real call has happened.
         assert "billing_policy" not in data

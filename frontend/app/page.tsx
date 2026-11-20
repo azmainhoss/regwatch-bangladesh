@@ -7,18 +7,12 @@ import { FileSearch, Search, X } from "lucide-react";
 import {
   AUTH_CHANGED_EVENT,
   AuthUser,
-  DocumentAnalysisData,
   DocumentItem,
   DocumentPage,
   Institution,
-  ObligationItem,
-  RelationshipItem,
   fetchCurrentUser,
   fetchDocument,
-  fetchDocumentAnalysis,
-  fetchDocumentObligations,
   fetchDocumentPages,
-  fetchDocumentRelationships,
   fetchDocuments,
   fetchInstitutions,
   getStoredUser,
@@ -26,6 +20,7 @@ import {
   fetchResearchMatches,
   type ResearchCitation,
 } from "@/services/api";
+import { pageCorrected } from "@/services/claimsStore";
 import AccountModal from "@/components/AccountModal";
 import MyCircularUpload from "@/components/MyCircularUpload";
 import CircularDetail, { QaResponse } from "@/components/CircularDetail";
@@ -74,16 +69,12 @@ function CircularsPageInner() {
   const [pageNumber, setPageNumber] = useState(1);
   const [pagePanelOpen, setPagePanelOpen] = useState(false);
   const [highlight, setHighlight] = useState<PageHighlight | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   // Set when a register item opened an older version of the circular: its pages are shown instead of the current ones.
   const [viewVersion, setViewVersion] = useState<string | null>(null);
   const viewVersionRef = useRef<string | null>(null);
   viewVersionRef.current = viewVersion;
 
-  const [analysis, setAnalysis] = useState<DocumentAnalysisData | null>(null);
-  const [obligations, setObligations] = useState<ObligationItem[]>([]);
-  const [relationships, setRelationships] = useState<RelationshipItem[]>([]);
 
   const [qaQuery, setQaQuery] = useState("");
   const [qaLoading, setQaLoading] = useState(false);
@@ -128,7 +119,6 @@ function CircularsPageInner() {
     setQaMatches(null);
     setQaError(null);
     setDetailError(null);
-    setDetailLoading(true);
     const older = version && version !== doc.current_version_id ? version : null;
     setViewVersion(older);
 
@@ -141,21 +131,7 @@ function CircularsPageInner() {
       setDocPages([]);
     }
 
-    try {
-      const [aiData, obls, rels] = await Promise.all([
-        fetchDocumentAnalysis(doc.id).catch(() => null),
-        fetchDocumentObligations(doc.id).catch(() => []),
-        fetchDocumentRelationships(doc.id).catch(() => []),
-      ]);
-      if (token !== selectionToken.current) return;
-      setAnalysis(aiData);
-      setObligations(obls);
-      setRelationships(rels);
-    } catch (err: any) {
-      if (token === selectionToken.current) setDetailError(err.message || "Could not load this circular's analysis.");
-    } finally {
-      if (token === selectionToken.current) setDetailLoading(false);
-    }
+    // The checked points are read and kept fresh by the circular page itself (services/claimsStore.ts).
   };
 
   const loadData = async () => {
@@ -327,11 +303,7 @@ function CircularsPageInner() {
       <CircularDetail
         doc={doc}
         viewingVersionId={viewVersion}
-        analysis={analysis}
-        obligations={obligations}
-        relationships={relationships}
         pages={docPages}
-        detailLoading={detailLoading}
         pageNumber={pageNumber}
         setPageNumber={setPageNumber}
         pagePanelOpen={pagePanelOpen}
@@ -348,7 +320,10 @@ function CircularsPageInner() {
         currentUser={currentUser}
         onSignIn={() => setAccountOpen(true)}
         onRefresh={() => refreshDocument(doc)}
-        onPageSaved={(saved) => setDocPages((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)))}
+        onPageSaved={(saved) => {
+          setDocPages((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
+          pageCorrected(doc.id, undefined, saved);
+        }}
       />
     </>
   );

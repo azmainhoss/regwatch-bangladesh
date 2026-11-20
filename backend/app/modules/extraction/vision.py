@@ -10,6 +10,7 @@ with empty text so a later job can try again. Nothing is ever filled in with pla
 """
 import asyncio
 import base64
+import itertools
 import json
 import re
 from dataclasses import dataclass, field
@@ -67,6 +68,10 @@ class VisionResult:
     # page keeps waiting and no failed try is counted.
     transient: bool = False
     quota_exhausted: bool = False
+    # The answer of a call made with `read_images_json`: the JSON the model returned.
+    data: Any = None
+    # True when no request was made at all (every key had used up its quota for the day already).
+    not_sent: bool = False
 
 
 _lock: Optional[asyncio.Lock] = None
@@ -88,15 +93,17 @@ def _next_quota_reset():
     return reset
 
 
-def mark_key_exhausted(api_key: str) -> None:
-    _exhausted_until[api_key] = _next_quota_reset()
+def mark_key_exhausted(api_key: str, model: Optional[str] = None) -> None:
+    """Free daily quotas are counted per key and per model, so the rest is noted for that pair only."""
+    _exhausted_until[(api_key, model or settings.VISION_MODEL)] = _next_quota_reset()
 
 
-def available_gemini_keys() -> list:
-    """The keys that still have quota today."""
+def available_gemini_keys(model: Optional[str] = None) -> list:
+    """The keys that still have quota today for this model (the page-reading model by default)."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
-    return [k for k in gemini_keys() if not (_exhausted_until.get(k) and _exhausted_until[k] > now)]
+    model = model or settings.VISION_MODEL
+    return [k for k in gemini_keys() if not (_exhausted_until.get((k, model)) and _exhausted_until[(k, model)] > now)]
 
 
 def _is_daily_quota(resp) -> bool:
@@ -184,6 +191,69 @@ def _retry_delay(resp: httpx.Response, attempt: int) -> float:
     return settings.VISION_RETRY_BASE_SECONDS * (2 ** attempt)
 
 
+async def _generate(
+    payload: Dict[str, Any],
+    api_key: str,
+    model: str,
+    client: Optional[httpx.AsyncClient],
+    sleep: Callable[[float], Awaitable[None]],
+):
+    """Posts one generateContent request with this key. Returns (reply JSON, None) on success or (None, failed VisionResult).
+
+    Takes the key's place at the gate, retries 429 and 503 with backoff, and rests the key for the day
+    on a daily-quota reply (for this model only).
+    """
+    url = f"{GEMINI_URL}/{model}:generateContent"
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    own_client = client is None
+    client = client or httpx.AsyncClient(timeout=settings.VISION_TIMEOUT_SECONDS)
+    try:
+        async with _call_lock(api_key):
+            last_error = "no reply"
+            busy = False
+            for attempt in range(settings.VISION_MAX_RETRIES + 1):
+                try:
+                    resp = await client.post(url, json=payload, headers=headers)
+                except httpx.HTTPError as e:
+                    last_error = f"network error: {type(e).__name__}: {e}"
+                    busy = True
+                    if attempt < settings.VISION_MAX_RETRIES:
+                        await sleep(settings.VISION_RETRY_BASE_SECONDS * (2 ** attempt))
+                        continue
+                    break
+
+                if _is_daily_quota(resp):
+                    mark_key_exhausted(api_key, model)
+                    logger.info("A Gemini key used up today's free quota; it rests until the daily reset.")
+                    return None, VisionResult(success=False, error="daily limit reached", model=model,
+                                              transient=True, quota_exhausted=True)
+                if resp.status_code in RETRY_STATUSES:
+                    last_error = f"HTTP {resp.status_code}"
+                    busy = True
+                    if attempt < settings.VISION_MAX_RETRIES:
+                        delay = _retry_delay(resp, attempt)
+                        logger.info(f"Gemini vision busy ({resp.status_code}); retrying in {delay:.0f} s.")
+                        await sleep(delay)
+                        continue
+                    break
+
+                if resp.status_code != 200:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
+                    busy = False
+                    break
+
+                try:
+                    return resp.json(), None
+                except ValueError as e:
+                    last_error = f"unusable answer: {e}"
+                    busy = False
+                    break
+            return None, VisionResult(success=False, error=last_error, model=model, transient=busy)
+    finally:
+        if own_client:
+            await client.aclose()
+
+
 async def read_page_image(
     png_bytes: bytes,
     api_key: Optional[str] = None,
@@ -211,55 +281,79 @@ async def read_page_image(
             "responseSchema": RESPONSE_SCHEMA,
         },
     }
-    url = f"{GEMINI_URL}/{model}:generateContent"
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-
-    own_client = client is None
-    client = client or httpx.AsyncClient(timeout=settings.VISION_TIMEOUT_SECONDS)
+    reply, failed = await _generate(payload, api_key, model, client, sleep)
+    if failed is not None:
+        return failed
     try:
-        async with _call_lock(api_key):
-            last_error = "no reply"
-            busy = False
-            for attempt in range(settings.VISION_MAX_RETRIES + 1):
-                try:
-                    resp = await client.post(url, json=payload, headers=headers)
-                except httpx.HTTPError as e:
-                    last_error = f"network error: {type(e).__name__}: {e}"
-                    busy = True
-                    if attempt < settings.VISION_MAX_RETRIES:
-                        await sleep(settings.VISION_RETRY_BASE_SECONDS * (2 ** attempt))
-                        continue
-                    break
+        lines = parse_vision_reply(reply)
+    except (ValueError, json.JSONDecodeError) as e:
+        return VisionResult(success=False, error=f"unusable answer: {e}", model=model, transient=False)
+    text = "\n".join(line["text"] for line in lines)
+    return VisionResult(success=True, text=text, line_boxes=lines, model=model)
 
-                if _is_daily_quota(resp):
-                    mark_key_exhausted(api_key)
-                    logger.info("A Gemini key used up today's free quota; it rests until the daily reset.")
-                    return VisionResult(success=False, error="daily limit reached", model=model,
-                                        transient=True, quota_exhausted=True)
-                if resp.status_code in RETRY_STATUSES:
-                    last_error = f"HTTP {resp.status_code}"
-                    busy = True
-                    if attempt < settings.VISION_MAX_RETRIES:
-                        delay = _retry_delay(resp, attempt)
-                        logger.info(f"Gemini vision busy ({resp.status_code}); retrying in {delay:.0f} s.")
-                        await sleep(delay)
-                        continue
-                    break
 
-                if resp.status_code != 200:
-                    last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
-                    busy = False
-                    break
+_key_turn = itertools.count()
 
-                try:
-                    lines = parse_vision_reply(resp.json())
-                except (ValueError, json.JSONDecodeError) as e:
-                    last_error = f"unusable answer: {e}"
-                    busy = False
-                    break
-                text = "\n".join(line["text"] for line in lines)
-                return VisionResult(success=True, text=text, line_boxes=lines, model=model)
-            return VisionResult(success=False, error=last_error, model=model, transient=busy)
-    finally:
-        if own_client:
-            await client.aclose()
+
+def parse_json_reply(reply: Dict[str, Any]) -> Any:
+    """The JSON a Gemini reply carries as text. Raises ValueError if there is none."""
+    candidates = reply.get("candidates") or []
+    if not candidates:
+        raise ValueError("Gemini returned no candidates.")
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    raw = "".join(p.get("text", "") for p in parts).strip()
+    if not raw:
+        raise ValueError(f"Gemini returned an empty answer (finishReason={candidates[0].get('finishReason')}).")
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw)
+    return json.loads(raw)
+
+
+async def read_images_json(
+    images: List[bytes],
+    prompt: str,
+    schema: Dict[str, Any],
+    model: str,
+    api_key: Optional[str] = None,
+    client: Optional[httpx.AsyncClient] = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> VisionResult:
+    """Sends several images and one instruction in a single call; the JSON answer comes back in `data`.
+
+    Uses the same key rotation, per-key gates, retry and daily-quota handling as page reading. Without
+    `api_key` it rotates over the keys that still have quota today for this model; a key that runs out
+    is rested (for this model only) and the next one is tried. Busy and out-of-quota answers are
+    `transient`: the caller counts no failed try.
+    """
+    if api_key is not None:
+        keys = [api_key] if api_key else []
+    else:
+        keys = available_gemini_keys(model)
+        if keys:
+            turn = next(_key_turn) % len(keys)
+            keys = keys[turn:] + keys[:turn]
+        elif gemini_keys():
+            return VisionResult(success=False, error="daily limit reached", model=model, transient=True,
+                                quota_exhausted=True, not_sent=True)
+    if not keys:
+        return VisionResult(success=False, error="GEMINI_API_KEY is not set.", model=model, no_key=True)
+
+    parts: List[Dict[str, Any]] = [
+        {"inlineData": {"mimeType": "image/png", "data": base64.b64encode(png).decode("ascii")}} for png in images
+    ]
+    parts.append({"text": prompt})
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {"temperature": 0.0, "responseMimeType": "application/json", "responseSchema": schema},
+    }
+    last = VisionResult(success=False, error="no reply", model=model, transient=True)
+    for key in keys:
+        reply, failed = await _generate(payload, key, model, client, sleep)
+        if failed is None:
+            try:
+                return VisionResult(success=True, data=parse_json_reply(reply), model=model)
+            except (ValueError, json.JSONDecodeError) as e:
+                return VisionResult(success=False, error=f"unusable answer: {e}", model=model, transient=False)
+        last = failed
+        if not failed.quota_exhausted:
+            return failed
+    return last

@@ -200,6 +200,16 @@ class VisionWorker:
                 if page_reader_running():
                     summary = {}
                 else:
+                    # The second reading of quoted sentences of the newest circulars goes first.
+                    try:
+                        from backend.app.modules.claims.reading_jobs import process_pending_quote_checks
+
+                        async with self._session_factory() as session:
+                            await process_pending_quote_checks(session, limit=10)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.warning(f"Second reading job skipped: {type(e).__name__}: {str(e)[:120]}")
                     async with self._session_factory() as session:
                         summary = await process_pending_vision_pages(session, limit=20)
                 # A backlog (such as the archive) is read batch after batch without waiting,

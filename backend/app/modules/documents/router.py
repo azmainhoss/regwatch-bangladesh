@@ -467,7 +467,7 @@ async def submit_human_correction(
             detail="Only platform administrators can correct regulatory document text."
         )
 
-    await get_visible_version(db, document_id, version_id, current_user)
+    visible_version = await get_visible_version(db, document_id, version_id, current_user)
 
     query = select(DocumentPage).where(
         DocumentPage.document_version_id == version_id,
@@ -484,6 +484,7 @@ async def submit_human_correction(
 
     reason = (payload.correction_notes or "").strip()[:1000] or None
     who = (current_user.full_name or current_user.email or "").strip() or None
+    text_before = page_record.cleaned_text or page_record.raw_text or ""
     db.add(PageCorrection(
         page_id=page_record.id,
         document_version_id=version_id,
@@ -506,6 +507,12 @@ async def submit_human_correction(
     page_record.quality_status = "SUCCESS_NORMALIZED"
     page_record.quality_score = 1.0
     page_record.vision_error = None
+    await db.flush()
+
+    # Every point that quotes this page is looked up in the new text and checked again (plain code, no reading).
+    from backend.app.modules.claims.corrections import reroute_after_page_correction
+
+    await reroute_after_page_correction(db, visible_version, page_record, text_before)
 
     await db.commit()
     await db.refresh(page_record)

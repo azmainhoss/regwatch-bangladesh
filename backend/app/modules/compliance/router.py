@@ -97,12 +97,14 @@ router.include_router(reports_router)
 def not_addable_reason(doc: Document, version_id, current_version_id, verification_status: str) -> Optional[str]:
     if doc.owner_user_id is not None:
         return "Private upload"
-    if not str(doc.publication_status or "").startswith("PUBLISHED"):
+    status = str(doc.publication_status or "")
+    # A circular waiting for a person to decide one point can still have other points that are shown.
+    if not (status.startswith("PUBLISHED") or status == "AWAITING_REVIEW"):
         return "Circular not published yet"
     if current_version_id is None or str(version_id) != str(current_version_id):
         return "Older version of this circular"
     if verification_status != "VERIFIED":
-        return "Awaiting quote check"
+        return "This requirement is waiting for a check."
     return None
 
 

@@ -33,9 +33,9 @@ const DOC_TYPES = [
 ];
 const STATUS_OPTIONS = [
   { value: "PUBLISHED", label: "Any published" },
-  { value: "PUBLISHED_HUMAN_REVIEWED", label: "Signed off" },
-  { value: "PUBLISHED_MACHINE_VERIFIED", label: "Machine verified" },
-  { value: "AWAITING_REVIEW", label: "Awaiting review" },
+  { value: "PUBLISHED_HUMAN_REVIEWED", label: "Checked by our team" },
+  { value: "PUBLISHED_MACHINE_VERIFIED", label: "Checked" },
+  { value: "AWAITING_REVIEW", label: "Points waiting" },
 ];
 
 interface Filters {

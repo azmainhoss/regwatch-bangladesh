@@ -21,6 +21,7 @@ from backend.app.modules.organizations.router import router as organizations_rou
 from backend.app.modules.compliance.router import router as compliance_router
 from backend.app.modules.compliance.service import ConflictError
 from backend.app.modules.relationships.router import router as relationships_router
+from backend.app.modules.claims.router import router as claims_router
 from backend.app.modules.alerts.router import router as alerts_router
 from backend.app.modules.alerts.worker import alerts_worker
 from backend.app.modules.alerts.mailer import email_configured
@@ -136,6 +137,7 @@ app.include_router(research_router, prefix=settings.API_V1_STR)
 app.include_router(organizations_router, prefix=settings.API_V1_STR)
 app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(relationships_router, prefix=settings.API_V1_STR)
+app.include_router(claims_router, prefix=settings.API_V1_STR)
 app.include_router(alerts_router, prefix=settings.API_V1_STR)
 
 

@@ -402,4 +402,75 @@ def apply_quote_ids(payload: Dict[str, Any], index: SentenceIndex) -> List[Dict[
                 problems.append({"item_type": section, "error": span.error, "unknown_ids": span.unknown_ids})
             kept.append(item)
         payload[section] = kept
+    apply_evidence_ids(payload, index)
     return problems
+
+
+# Extra evidence lists of an obligation (prompt v3): a field that is not stated in its sentences has none.
+OBLIGATION_EVIDENCE_FIELDS = ("who_ids", "deadline_ids", "effective_date_ids", "consequence_ids")
+
+
+def _resolve_evidence(item: Dict[str, Any], key: str, index: SentenceIndex, full: bool = False) -> None:
+    """Replaces item[key] with the known sentence IDs, or [] when any ID is unknown or none were given.
+
+    With `full`, the exact text, fragments and boxes of those sentences are added too.
+    """
+    span = index.resolve(item.get(key))
+    item[key] = span.sentence_ids if span.ok else []
+    if full:
+        item["quote"] = span.quote if span.ok else ""
+        item["quote_fragments"] = span.fragments if span.ok else []
+        item["quote_boxes"] = span.boxes if span.ok else []
+        item["needs_human_review"] = not span.ok
+        if span.ok:
+            item["page_number"] = span.page_number
+
+
+def _as_items(value: Any, text_key: str) -> List[Dict[str, Any]]:
+    """A list of {text-ish, evidence_ids} dicts. A bare string has no evidence."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(value, list):
+        return out
+    for item in value:
+        if isinstance(item, str):
+            item = {text_key: item, "evidence_ids": []}
+        if isinstance(item, dict):
+            out.append(item)
+    return out
+
+
+def apply_evidence_ids(payload: Dict[str, Any], index: SentenceIndex) -> None:
+    """Resolves every `*_ids` evidence list of prompt v3 against the sentence index, in place.
+
+    Unknown IDs empty that field's evidence, so the field fails the evidence check and is not shown.
+    """
+    summary = payload.get("executive_summary")
+    if isinstance(summary, dict):
+        for key in ("summary_points", "key_changes"):
+            items = _as_items(summary.get(key), "text")
+            for item in items:
+                _resolve_evidence(item, "evidence_ids", index, full=True)
+            if key in summary or items:
+                summary[key] = items
+
+    for obl in payload.get("obligations") or []:
+        if isinstance(obl, dict):
+            for key in OBLIGATION_EVIDENCE_FIELDS:
+                if key in obl:
+                    _resolve_evidence(obl, key, index)
+
+    applicability = payload.get("applicability")
+    if isinstance(applicability, dict):
+        for key, text_key in (("covered", "entity"), ("exemptions", "text")):
+            items = _as_items(applicability.get(key), text_key)
+            for item in items:
+                _resolve_evidence(item, "evidence_ids", index, full=True)
+            if key in applicability or items:
+                applicability[key] = items
+
+    deadlines = payload.get("deadlines")
+    if isinstance(deadlines, dict):
+        for key in ("effective_date", "compliance_deadline", "reporting_deadline"):
+            item = deadlines.get(key)
+            if isinstance(item, dict):
+                _resolve_evidence(item, "evidence_ids", index, full=True)

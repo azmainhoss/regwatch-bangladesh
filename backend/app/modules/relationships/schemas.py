@@ -34,6 +34,8 @@ class LinkRead(BaseModel):
     target: Optional[DocumentRef] = None
     target_reference_hint: Optional[str] = None
     reviewed_at: Optional[datetime] = None
+    # Administrators only: the checked point this link is decided through.
+    claim_id: Optional[UUID] = None
 
 
 class StatusRead(BaseModel):

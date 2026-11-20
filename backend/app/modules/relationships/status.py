@@ -5,7 +5,7 @@ Only links whose quote was checked (VERIFIED) change the status. Links awaiting 
 are ignored everywhere. A link only counts for a caller who may read the circular that states it.
 """
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -15,6 +15,7 @@ from sqlalchemy.orm import aliased
 from backend.app.modules.documents.models import Document, DocumentPage
 from backend.app.modules.identity.models import User
 from backend.app.modules.relationships.models import DocumentRelationship
+from backend.app.modules.relationships.customer import LinkView, link_view
 from backend.app.modules.relationships.schemas import DocumentRef, LinkRead
 
 IN_FORCE = "IN_FORCE"
@@ -123,15 +124,38 @@ async def build_links(
     rels: Sequence[DocumentRelationship],
     docs: Dict[str, Document],
     statuses: Optional[Dict[str, InForce]] = None,
+    view: Optional[LinkView] = None,
 ) -> List[LinkRead]:
     """Turns relationship rows into API links. `docs` holds the circulars the caller may read, by id;
     a link whose source is missing from it is dropped, and a target missing from it is shown as not in the library."""
     pages = await _page_info(db, [r.source_page_id for r in rels])
+    claim_ids: Dict[str, Any] = {}
+    if view is None and rels:
+        # Administrators decide a link through its point, so the link carries the point's id.
+        from backend.app.modules.analysis.models import AnalysisClaim
+
+        found = (
+            await db.execute(
+                select(AnalysisClaim.relationship_id, AnalysisClaim.id, AnalysisClaim.check_status).where(
+                    AnalysisClaim.kind == "LINK", AnalysisClaim.relationship_id.in_([r.id for r in rels])
+                )
+            )
+        ).all()
+        # Only a point that is still open can be decided through its point; the others use the older link review.
+        claim_ids = {str(rid): cid for rid, cid, state in found if state in ("CHECKING", "WAITING_FOR_PERSON", "NOT_SHOWN")}
     out: List[LinkRead] = []
     for rel in rels:
         source = docs.get(str(rel.source_document_id))
         if source is None:
             continue
+        shown_type = rel.relationship_type
+        status_text = rel.verification_status
+        if view is not None:
+            # A reader sees the type the point may carry, and a shown link is never "awaiting review".
+            seen = view.type_of(rel)
+            if seen is None:
+                continue
+            shown_type, status_text = seen, "VERIFIED"
         target = docs.get(str(rel.target_document_id)) if rel.target_document_id else None
         version_id, page_number = pages.get(str(rel.source_page_id), (None, None))
         if page_number is None:
@@ -143,8 +167,8 @@ async def build_links(
         out.append(
             LinkRead(
                 id=rel.id,
-                relationship_type=rel.relationship_type,
-                verification_status=rel.verification_status,
+                relationship_type=shown_type,
+                verification_status=status_text,
                 confidence=rel.confidence if rel.confidence is not None else 1.0,
                 detection_method=rel.detection_method,
                 supporting_quote=rel.supporting_quote,
@@ -156,6 +180,7 @@ async def build_links(
                 target=doc_ref(target, (statuses or {}).get(str(target.id))) if target else None,
                 target_reference_hint=rel.target_reference_hint,
                 reviewed_at=rel.reviewed_at,
+                claim_id=claim_ids.get(str(rel.id)),
             )
         )
     return out
@@ -200,8 +225,11 @@ async def follow_current(db: AsyncSession, doc: Document, user: Optional[User]) 
 
 async def document_links(
     db: AsyncSession, doc: Document, user: Optional[User]
-) -> Tuple[List[DocumentRelationship], List[DocumentRelationship], List[DocumentRelationship], Dict[str, Document]]:
-    """(verified incoming, unconfirmed incoming, outgoing not rejected, readable circulars by id)."""
+) -> Tuple[List[DocumentRelationship], List[DocumentRelationship], List[DocumentRelationship], Dict[str, Document], Optional[LinkView]]:
+    """(verified incoming, unconfirmed incoming, outgoing not rejected, readable circulars by id, what a reader may see).
+
+    For a reader the last item says which links show and as what; the unconfirmed list is then empty
+    (held-back links are not shown at all, and shown ones are plain mentions or confirmed changes)."""
     source_alias = aliased(Document)
     incoming = (
         await db.execute(
@@ -225,6 +253,10 @@ async def document_links(
             .order_by(DocumentRelationship.confidence.desc(), DocumentRelationship.created_at)
         )
     ).scalars().all()
+    view = await link_view(db, [*incoming, *outgoing], user)
+    if view is not None:
+        incoming = [r for r in incoming if view.keeps(r)]
+        outgoing = [r for r in outgoing if view.keeps(r)]
     ids = [doc.id]
     for r in incoming:
         ids.append(r.source_document_id)
@@ -232,6 +264,8 @@ async def document_links(
         ids.append(r.target_document_id)
     docs = await load_visible_docs(db, ids, user)
     docs[str(doc.id)] = doc
+    if view is not None:
+        return list(incoming), [], list(outgoing), docs, view
     verified = [r for r in incoming if r.verification_status == "VERIFIED"]
     pending = [r for r in incoming if r.verification_status == "PENDING_REVIEW"]
-    return verified, pending, list(outgoing), docs
+    return verified, pending, list(outgoing), docs, None

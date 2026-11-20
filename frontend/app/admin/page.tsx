@@ -39,10 +39,12 @@ import GeminiSetupModal from "@/components/GeminiSetupModal";
 import AccountModal from "@/components/AccountModal";
 import StatusBadge, { InForceBadge, PrivateTag, Tag } from "@/components/StatusBadge";
 import AdminLinksPanel from "@/components/AdminLinksPanel";
+import ClaimReview from "@/components/ClaimReview";
+import { useClaimsState, useReviewPolling } from "@/services/claimsStore";
 import { inForceOf, loadPending, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
-type TabId = "queue" | "collection" | "upload" | "library" | "links" | "engine";
+type TabId = "queue" | "collection" | "upload" | "library" | "links" | "checks" | "engine";
 type NoticeState = { type: "success" | "warning" | "error" | "info"; text: string; status?: string } | null;
 
 /** Server times without a zone are UTC; read them that way so they show in local (Dhaka) time. */
@@ -79,7 +81,7 @@ function PanelHeading({ title, children, actions }: { title: string; children?: 
   );
 }
 
-const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "engine"];
+const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "checks", "engine"];
 const asTab = (v: string | null): TabId | null => (v && (TAB_IDS as string[]).includes(v) ? (v as TabId) : null);
 
 export default function AdminConsolePage() {
@@ -115,6 +117,11 @@ function AdminConsole() {
     router.replace(`${pathname}?tab=${id}`, { scroll: false });
   };
   const rel = useRelState();
+  // The number of points waiting for a decision (the tab badge). It is read again every 15 seconds while
+  // the "Points to check" tab is open and every minute otherwise, and changes at once with every decision.
+  const claimsState = useClaimsState();
+  const pointId = searchParams.get("point");
+  useReviewPolling(!!currentUser?.is_superuser, tab === "checks" ? 15000 : 60000);
   const [queueFilter, setQueueFilter] = useState<"open" | "all">("open");
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
@@ -145,7 +152,7 @@ function AdminConsole() {
   const [backfillResultNotice, setBackfillResultNotice] = useState<string | null>(null);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
 
-  // AI provider
+  // Analysis provider
   const [isGeminiModalOpen, setIsGeminiModalOpen] = useState(false);
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [activeModel, setActiveModel] = useState("gemini-flash-lite-latest");
@@ -231,7 +238,7 @@ function AdminConsole() {
         success: ok,
         message:
           res.test_result?.message ||
-          (ok ? "Connection works." : "The AI service did not answer. Try again later."),
+          (ok ? "Connection works." : "The analysis service did not answer. Try again later."),
       });
     } catch (err: any) {
       setConnectionTestFeedback({ success: false, message: "Could not reach the server. Try again." });
@@ -533,7 +540,8 @@ function AdminConsole() {
     { id: "upload", label: "Upload" },
     { id: "library", label: "Library", count: documents.length },
     { id: "links", label: "Links", count: rel.pending?.total },
-    { id: "engine", label: "AI engine" },
+    { id: "checks", label: "Points to check", count: claimsState.counts?.required },
+    { id: "engine", label: "Analysis engine" },
   ];
 
   return (
@@ -545,7 +553,7 @@ function AdminConsole() {
         </div>
         <button type="button" onClick={() => setIsGeminiModalOpen(true)} className="btn-secondary self-start sm:self-auto">
           <Sparkles className="h-4 w-4" strokeWidth={1.75} />
-          AI setup guide
+          Setup guide
         </button>
       </div>
 
@@ -1087,10 +1095,12 @@ function AdminConsole() {
 
         {tab === "links" && <AdminLinksPanel />}
 
+        {tab === "checks" && <ClaimReview initialPointId={pointId} />}
+
         {tab === "engine" && (
           <section className="panel">
             <PanelHeading
-              title="AI engine"
+              title="Analysis engine"
               actions={
                 <button type="button" onClick={handleTestProviderConnection} disabled={testingConnection} className="btn-primary">
                   <RefreshCw className={`h-4 w-4 ${testingConnection ? "animate-spin" : ""}`} />

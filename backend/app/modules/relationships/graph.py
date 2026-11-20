@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.modules.documents.models import Document
 from backend.app.modules.identity.models import User
 from backend.app.modules.relationships.linking import normalize_reference
+from backend.app.modules.relationships.customer import LinkView, link_view
 from backend.app.modules.relationships.models import DocumentRelationship
 from backend.app.modules.relationships.schemas import (
     GraphEdge,
@@ -40,7 +41,7 @@ def _newest(rels, docs: Dict[str, Document]) -> Optional[Document]:
 
 
 async def build_status(db: AsyncSession, doc: Document, user: Optional[User]) -> StatusRead:
-    verified, pending, outgoing, docs = await document_links(db, doc, user)
+    verified, pending, outgoing, docs, view = await document_links(db, doc, user)
     statuses = await bulk_in_force(db, [d.id for d in docs.values()], user)
     own = statuses[str(doc.id)]
     current, cycle = await follow_current(db, doc, user)
@@ -52,9 +53,9 @@ async def build_status(db: AsyncSession, doc: Document, user: Optional[User]) ->
         in_force_by=doc_ref(own.by, statuses.get(str(own.by.id))) if own.by is not None else None,
         current_version=doc_ref(current, statuses.get(str(current.id))),
         chain_has_cycle=cycle,
-        verified_incoming=await build_links(db, verified, docs, statuses),
-        unconfirmed_incoming=await build_links(db, pending, docs, statuses),
-        outgoing=await build_links(db, outgoing, docs, statuses),
+        verified_incoming=await build_links(db, verified, docs, statuses, view),
+        unconfirmed_incoming=await build_links(db, pending, docs, statuses, view),
+        outgoing=await build_links(db, outgoing, docs, statuses, view),
     )
 
 
@@ -68,6 +69,7 @@ async def build_graph(db: AsyncSession, doc: Document, user: Optional[User], dep
     seen: Dict[str, Document] = {str(doc.id): doc}
     frontier: Set[str] = {str(doc.id)}
     rels_by_id: Dict[str, DocumentRelationship] = {}
+    views: List[LinkView] = []
     truncated = False
 
     for _ in range(depth):
@@ -82,6 +84,10 @@ async def build_graph(db: AsyncSession, doc: Document, user: Optional[User], dep
                 )
             )
         ).scalars().all()
+        graph_view = await link_view(db, rows, user)
+        if graph_view is not None:
+            views.append(graph_view)
+            rows = [r for r in rows if graph_view.keeps(r)]
         other_ids = set()
         for rel in rows:
             other_ids.add(str(rel.source_document_id))
@@ -107,7 +113,8 @@ async def build_graph(db: AsyncSession, doc: Document, user: Optional[User], dep
         frontier = next_frontier
 
     statuses = await bulk_in_force(db, [d.id for d in seen.values()], user)
-    links = await build_links(db, list(rels_by_id.values()), seen, statuses)
+    merged = LinkView(types={k: v for one in views for k, v in one.types.items()}) if views else None
+    links = await build_links(db, list(rels_by_id.values()), seen, statuses, merged)
     link_by_id = {str(link.id): link for link in links}
 
     nodes: Dict[str, GraphNode] = {}
@@ -145,8 +152,8 @@ async def build_graph(db: AsyncSession, doc: Document, user: Optional[User], dep
                 id=rel.id,
                 source=str(rel.source_document_id),
                 target=target_key,
-                relationship_type=rel.relationship_type,
-                verification_status=rel.verification_status,
+                relationship_type=link.relationship_type,
+                verification_status=link.verification_status,
                 supporting_quote=rel.supporting_quote,
                 page_number=link.page_number,
                 source_version_id=link.source_version_id,
@@ -163,6 +170,7 @@ async def build_timeline(db: AsyncSession, doc: Document, user: Optional[User]) 
     """Every circular that changed, or was changed by, the rule in this one, oldest first, with the quote and page of each change."""
     family: Dict[str, Document] = {str(doc.id): doc}
     rels: Dict[str, DocumentRelationship] = {}
+    tl_views: List[LinkView] = []
     frontier = {str(doc.id)}
     for _ in range(MAX_TIMELINE_DEPTH):
         if not frontier or len(family) >= MAX_TIMELINE_DOCS:
@@ -177,6 +185,11 @@ async def build_timeline(db: AsyncSession, doc: Document, user: Optional[User]) 
                 )
             )
         ).scalars().all()
+        tl_view = await link_view(db, rows, user)
+        if tl_view is not None:
+            tl_views.append(tl_view)
+            # For a reader only a change a person confirmed is part of the history; mentions are not.
+            rows = [r for r in rows if tl_view.type_of(r) in CHAIN_TYPES]
         wanted = set()
         for rel in rows:
             wanted.add(str(rel.source_document_id))
@@ -204,7 +217,8 @@ async def build_timeline(db: AsyncSession, doc: Document, user: Optional[User]) 
         statuses.update(await bulk_in_force(db, [current.id], user))
     # Hide changes whose source fell outside the family cap.
     kept = [r for r in rels.values() if str(r.source_document_id) in family]
-    links = await build_links(db, kept, family, statuses)
+    tl_merged = LinkView(types={k: v for one in tl_views for k, v in one.types.items()}) if tl_views else None
+    links = await build_links(db, kept, family, statuses, tl_merged)
     by_source: Dict[str, List] = {}
     for link in links:
         by_source.setdefault(str(link.source.id), []).append(link)

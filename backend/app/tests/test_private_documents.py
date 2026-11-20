@@ -51,7 +51,7 @@ async def _upload(client, token, institution_id, title, body, visibility=None, r
 
 
 class _EchoProvider:
-    """Stands in for the AI provider; the research service still returns the citations it searched."""
+    """Stands in for the Analysis provider; the research service still returns the citations it searched."""
 
     async def generate_structured_json(self, **kwargs):
         return LLMResponse(raw_content="", model_name="x", success=False, error="offline")

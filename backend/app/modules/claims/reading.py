@@ -1,0 +1,541 @@
+"""Second reading of quoted sentences on pages that were read from their image (spec section 7).
+
+`ensure_reading_checks` records what must be checked: one row per evidence sentence, `WAITING` when the
+sentence is on a page read from its image, `NOT_NEEDED` for text-layer pages and pages a person
+corrected. Claims on image-read pages stay `CHECKING` (hidden) until the rows have an answer.
+
+`check_page` gives the answer, one page at a time: the lines of each quoted sentence are cut out of the
+page image and read again, copied strictly; the two readings are compared with `same_reading`; a
+disagreement gets a third, sharper reading. It runs only in the background job
+(`claims/reading_jobs.py`), never inside a web request.
+"""
+import asyncio
+import difflib
+import hashlib
+import io
+import re
+import unicodedata
+from collections import Counter
+from datetime import date, datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from backend.app.core.config import settings
+from backend.app.modules.claims import wording as W
+
+from sqlalchemy import select
+
+from backend.app.modules.analysis.sentences import SentenceIndex
+from backend.app.modules.claims.checks import IMAGE_READ_METHODS, all_evidence_ids, CheckContext, PageInfo, _page_of
+from backend.app.modules.claims.models import QuoteReadingCheck
+
+
+def page_text_sha(text: str) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def needs_reading(page: Any) -> bool:
+    return (page.extraction_method or "") in IMAGE_READ_METHODS and not page.is_human_corrected
+
+
+def _our_text(page: Any, sentence: Any) -> str:
+    lines = page.line_boxes if isinstance(page.line_boxes, list) else []
+    picked: List[str] = []
+    for i in sentence.line_indexes:
+        if 0 <= i < len(lines) and isinstance(lines[i], dict) and lines[i].get("text"):
+            picked.append(str(lines[i]["text"]))
+    return "\n".join(picked) if picked else sentence.text
+
+
+async def ensure_reading_checks(db, claims: Iterable[Any], index: SentenceIndex, pages: Iterable[Any]) -> Dict[str, str]:
+    """Adds a row for every evidence sentence that has none yet. Returns sentence ID -> status."""
+    by_number = {p.page_number: p for p in pages}
+    wanted: Dict[Tuple[Any, str, str], Any] = {}
+    for claim in claims:
+        for sid in all_evidence_ids(claim, CheckContext(index=index)):
+            page = by_number.get(_page_of(sid))
+            sentence = index.sentences.get(sid)
+            if page is None or sentence is None:
+                continue
+            sha = page_text_sha(index.pages.get(page.page_number, ""))
+            wanted.setdefault((page.id, sid, sha), (page, sentence))
+    if not wanted:
+        return {}
+
+    page_ids = {key[0] for key in wanted}
+    existing = (
+        await db.execute(select(QuoteReadingCheck).where(QuoteReadingCheck.page_id.in_(page_ids)))
+    ).scalars().all()
+    rows = {(r.page_id, r.sentence_id, r.page_text_sha): r for r in existing}
+
+    statuses: Dict[str, str] = {}
+    for key, (page, sentence) in wanted.items():
+        row = rows.get(key)
+        if row is None:
+            row = QuoteReadingCheck(
+                page_id=page.id,
+                sentence_id=sentence.id,
+                line_indexes=list(sentence.line_indexes),
+                page_text_sha=key[2],
+                status="WAITING" if needs_reading(page) else "NOT_NEEDED",
+                our_text=_our_text(page, sentence),
+                reads=[],
+                numbers_confirmed=[],
+                attempts=0,
+            )
+            db.add(row)
+            rows[key] = row
+        elif row.status == "WAITING" and not needs_reading(page):
+            row.status = "NOT_NEEDED"
+        statuses[sentence.id] = row.status
+    await db.flush()
+    return statuses
+
+
+# ---------------------------------------------------------------------------
+# Second reading (spec section 7)
+# ---------------------------------------------------------------------------
+ILLEGIBLE = "[illegible]"
+
+STRICT_PROMPT = (
+    "You are given {n} image(s), numbered 1 to {n} in the order sent. Each one shows some printed lines "
+    "of a Bangladesh Bank document.\n"
+    "- Copy every line exactly as printed, in its original script (Bangla or English), one entry per "
+    "printed line, from top to bottom.\n"
+    "- Do not correct spelling, grammar or numbers. Do not translate, summarise or add anything.\n"
+    "- Keep Bangla digits as Bangla digits.\n"
+    "- Write [illegible] for anything you cannot read.\n"
+    'Answer only with JSON: {{"crops": [{{"index": 1, "lines": ["..."]}}]}} with one entry per image, '
+    "numbered as above."
+)
+
+READING_SCHEMA: Dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "crops": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "index": {"type": "INTEGER"},
+                    "lines": {"type": "ARRAY", "items": {"type": "STRING"}},
+                },
+                "required": ["index", "lines"],
+            },
+        }
+    },
+    "required": ["crops"],
+}
+
+CROP_PADDING = 15  # 1.5% of the page height above and below the lines (0-1000 scale)
+SENTENCE_MATCH_FLOOR = 0.6  # the least text likeness for finding a sentence in a whole-page reading
+
+
+def _strip_punctuation(text: str) -> str:
+    kept = "".join(ch for ch in text if not unicodedata.category(ch).startswith(("P", "S")))
+    return re.sub(r"\s+", " ", kept).strip()
+
+
+def levenshtein(a: str, b: str) -> int:
+    """Character edit distance (insert, delete, replace), two rows of memory."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    if len(a) < len(b):
+        a, b = b, a
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        current = [i]
+        for j, cb in enumerate(b, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        previous = current
+    return previous[-1]
+
+
+_REFERENCE_NUMBER = re.compile(r"(?:\bno\b\.?|নং)\s*[-:]?\s*(\d[\d/.\-]*\d|\d)")
+
+
+def _reference_codes(text: str, codes: Iterable[str]) -> Counter:
+    t = W.norm(text)
+    out: Counter = Counter()
+    for m in _REFERENCE_NUMBER.finditer(t):
+        out["no:" + m.group(1).strip("./-")] += 1
+    for code in codes:
+        c = W.norm(code)
+        if not c:
+            continue
+        n = len(re.findall(rf"(?<![\w]){re.escape(c)}(?![\w])", t))
+        if n:
+            out["code:" + c] += n
+    return out
+
+
+def _figures(text: str) -> Counter:
+    """Numbers and dates written in a line, as one multiset (dates are kept apart from plain numbers)."""
+    t = W.norm(text)
+    out: Counter = Counter(W.numbers_in(t))
+    for _s, _e, d in W.date_matches(t):
+        out["date:" + d.isoformat()] += 1
+    return out
+
+
+def confirmed_figures(our_text: str, native_text: Optional[str]) -> List[str]:
+    """Numbers (2 or more digits) and dates of our reading that also stand in the page's text layer.
+
+    Legacy-font PDFs keep their digits as plain digits in the text layer, so these are certain.
+    """
+    if not native_text or not our_text:
+        return []
+    native_numbers = W.numbers_in(native_text)
+    native_runs = set(re.findall(r"\d+", W.norm(native_text)))
+    native_dates = {d for _s, _e, d in W.date_matches(W.norm(native_text))}
+    found: List[str] = []
+    for key in _figures(our_text):
+        if key.startswith("date:"):
+            if date.fromisoformat(key[5:]) in native_dates:
+                found.append(key)
+            continue
+        digits = re.sub(r"\D", "", key)
+        if len(digits) < 2:
+            continue
+        if key in native_numbers or digits in native_runs:
+            found.append(key)
+    return found
+
+
+def same_reading(
+    a: str,
+    b: str,
+    confirmed: Iterable[str] = (),
+    codes: Iterable[str] = (),
+    max_share: Optional[float] = None,
+) -> bool:
+    """True when two readings of the same printed lines agree (spec 7.4). `a` is the reading being judged.
+
+    Both must be free of "[illegible]", and carry the same numbers, dates, "no" words and reference codes.
+    A figure of `a` that the text layer confirms counts as present in `b`: if `b` shows something else
+    there, `b` is the one that is wrong. The rest must be within the allowed share of character edits.
+    """
+    if ILLEGIBLE in (a or "").lower() or ILLEGIBLE in (b or "").lower():
+        return False
+    share = settings.QUOTE_CHECK_MAX_EDIT_SHARE if max_share is None else max_share
+
+    fa, fb = _figures(a), _figures(b)
+    sure = [k for k in set(confirmed) if k in fa]
+    # Figures of `a` the text layer confirms: if `b` shows something else in their place, `b` is the one that is wrong.
+    budget = sum(fa[k] - min(fa[k], fb[k]) for k in sure)
+    for k in sure:
+        fb[k] = 0
+        fa[k] = 0
+    fa, fb = +fa, +fb
+    matched_in_b = Counter({k: min(fa[k], fb[k]) for k in fa})
+    if sum((fb - matched_in_b).values()) > budget:
+        return False  # `b` has figures that `a` does not
+    if fa - matched_in_b:
+        return False  # `a` has figures that `b` lacks, and the text layer does not confirm them
+
+    if W.count_words(a, W.NEGATION) != W.count_words(b, W.NEGATION):
+        return False
+    codes = list(codes)
+    if _reference_codes(a, codes) != _reference_codes(b, codes):
+        return False
+
+    ca, cb = _strip_punctuation(W.norm(a)), _strip_punctuation(W.norm(b))
+    if not ca:
+        return not cb
+    return levenshtein(ca, cb) / len(ca) <= share
+
+
+# ----- cropping and the call -------------------------------------------------
+def union_box(page: Any, line_indexes: List[int]) -> Optional[List[int]]:
+    """The union of the lines' boxes ([ymin, xmin, ymax, xmax], 0-1000), or None when a line has no box."""
+    lines = page.line_boxes if isinstance(page.line_boxes, list) else []
+    boxes: List[List[int]] = []
+    for i in line_indexes or []:
+        box = lines[i].get("box_2d") if 0 <= i < len(lines) and isinstance(lines[i], dict) else None
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            return None
+        try:
+            boxes.append([int(v) for v in box])
+        except (TypeError, ValueError):
+            return None
+    if not boxes:
+        return None
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes)]
+
+
+def crop_png(page_png: bytes, box: List[int], pad: int = 0) -> bytes:
+    """A strip of the page image: the box's lines plus `pad` above and below, over the full page width."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(page_png)) as img:
+        w, h = img.size
+        top = max(0, box[0] - pad)
+        bottom = min(1000, box[2] + pad)
+        y0 = int(h * top / 1000)
+        y1 = max(y0 + 1, int(round(h * bottom / 1000)))
+        out = io.BytesIO()
+        img.crop((0, y0, w, min(h, y1))).save(out, format="PNG")
+        return out.getvalue()
+
+
+async def send_images(images: List[bytes], model: str, prompt: Optional[str] = None):
+    """One call that reads several strips at once (reuses the key rotation, gates and quota marks of the page reader)."""
+    from backend.app.modules.extraction import vision
+
+    return await vision.read_images_json(
+        images, (prompt or STRICT_PROMPT).format(n=len(images)), READING_SCHEMA, model=model
+    )
+
+
+def _texts_from_reply(data: Any, count: int) -> List[Optional[str]]:
+    """The text of each crop, by its number; None for any crop the answer left out."""
+    out: List[Optional[str]] = [None] * count
+    crops = data.get("crops") if isinstance(data, dict) else None
+    if not isinstance(crops, list):
+        return out
+    positional = len(crops) == count
+    for pos, item in enumerate(crops):
+        if not isinstance(item, dict) or not isinstance(item.get("lines"), list):
+            continue
+        n = item.get("index")
+        slot = n - 1 if isinstance(n, int) and 1 <= n <= count else (pos if positional else None)
+        if slot is None or out[slot] is not None:
+            continue
+        lines = [str(x).rstrip() for x in item["lines"] if str(x).strip()]
+        out[slot] = "\n".join(lines)
+    return out
+
+
+def locate_in_page_reading(our_text: str, page_reading: str) -> Optional[str]:
+    """The lines of a whole-page reading that best match our lines (a window of about the same length), or None."""
+    ours = W.norm(our_text)
+    lines = [ln for ln in page_reading.split("\n") if ln.strip()]
+    if not ours or not lines:
+        return None
+    best, best_score = None, 0.0
+    low, high = len(ours) * 0.8, len(ours) * 1.2
+    for i in range(len(lines)):
+        joined = ""
+        for j in range(i, len(lines)):
+            joined = lines[j] if j == i else joined + "\n" + lines[j]
+            size = len(W.norm(joined))
+            if size > high and j > i:
+                break
+            if size < low:
+                continue
+            matcher = difflib.SequenceMatcher(None, ours, W.norm(joined), autojunk=False)
+            if matcher.real_quick_ratio() < best_score or matcher.quick_ratio() < best_score:
+                continue
+            score = matcher.ratio()
+            if score > best_score:
+                best, best_score = joined, score
+    return best if best is not None and best_score >= SENTENCE_MATCH_FLOOR else None
+
+
+def _real_failure(row: Any, error: str, summary: Dict[str, int]) -> None:
+    row.attempts = (row.attempts or 0) + 1
+    row.last_error = (error or "no answer")[:500]
+    summary["failed"] += 1
+    if row.attempts >= settings.QUOTE_CHECK_MAX_ATTEMPTS:
+        _finish(row, "UNCLEAR", summary)
+
+
+def _finish(row: Any, status: str, summary: Dict[str, int]) -> None:
+    row.status = status
+    row.checked_at = datetime.now(timezone.utc)
+    if status != "UNCLEAR":
+        row.last_error = None
+    summary["checked"] += 1
+    summary[status.lower()] += 1
+
+
+def focus_reading(our_text: str, text: str) -> str:
+    """The lines of a strip reading that answer to our lines.
+
+    A strip is cut with some space above and below, and a box can touch a neighbouring line, so the
+    second reading may carry a line or two that were never ours. Those are cut off before the two
+    readings are compared. When no run of lines looks like ours, the whole reading is kept (and then
+    disagrees, which is the safe answer).
+    """
+    found = locate_in_page_reading(our_text, text)
+    return found if found is not None else text
+
+
+def _add_read(row: Any, kind: str, text: str, model: str) -> str:
+    """Stores a reading and returns the part of it that is compared with ours."""
+    focused = focus_reading(row.our_text or "", text) if kind != "PAGE" else text
+    item: Dict[str, Any] = {"kind": kind, "text": focused, "model": model}
+    if focused != text:
+        item["full"] = text
+    row.reads = list(row.reads or []) + [item]
+    return focused
+
+
+def _chunks(items: List[Any], size: int) -> List[List[Any]]:
+    size = max(1, size)
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+async def _call(send: Any, images: List[bytes], model: str, summary: Dict[str, Any]):
+    result = await send(images, model)
+    if not getattr(result, "not_sent", False):
+        summary["calls"] += 1
+    return result
+
+
+def _stop_reason(result: Any, summary: Dict[str, Any]) -> bool:
+    """True when the whole job should stop: no key, out of quota or the service is busy (nothing is counted)."""
+    if getattr(result, "no_key", False):
+        summary["no_key"] = True
+        summary["stop"] = True
+        return True
+    if getattr(result, "quota_exhausted", False):
+        summary["out_of_quota"] = True
+        summary["stop"] = True
+        return True
+    if getattr(result, "transient", False):
+        summary["waiting_busy"] += 1
+        summary["stop"] = True
+        return True
+    return False
+
+
+async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, codes: Iterable[str] = ()) -> Dict[str, Any]:
+    """Judges every waiting row of one page. Returns counts; also `out_of_quota`, `no_key`, `stop` when the job should stop."""
+    summary: Dict[str, Any] = {
+        "checked": 0, "clean": 0, "misread": 0, "unclear": 0, "not_needed": 0, "failed": 0, "calls": 0,
+        "waiting_busy": 0,
+    }
+    current_sha = page_text_sha(page.cleaned_text or page.raw_text or "")
+    todo: List[Any] = []
+    for row in rows:
+        if row.status != "WAITING":
+            continue
+        if not needs_reading(page):
+            row.status = "NOT_NEEDED"
+            summary["not_needed"] += 1
+        elif row.page_text_sha != current_sha:
+            row.status = "NOT_NEEDED"  # the page text changed; the sentence has new rows
+            summary["not_needed"] += 1
+        else:
+            todo.append(row)
+    if not todo:
+        return summary
+
+    if not pdf_bytes:
+        for row in todo:
+            _real_failure(row, "The page file could not be opened.", summary)
+        return summary
+
+    from backend.app.modules.extraction import vision
+
+    confirmed = {id(r): confirmed_figures(r.our_text or "", page.native_text) for r in todo}
+    for r in todo:
+        r.numbers_confirmed = list(confirmed[id(r)])
+    boxed: List[Tuple[Any, List[int]]] = []
+    unboxed: List[Any] = []
+    for row in todo:
+        box = union_box(page, list(row.line_indexes or []))
+        (boxed.append((row, box)) if box else unboxed.append(row))
+
+    pngs: Dict[int, bytes] = {}
+
+    def page_png(dpi: int) -> bytes:
+        if dpi not in pngs:
+            pngs[dpi] = vision.render_page_png(pdf_bytes, page.page_number, dpi=dpi)
+        return pngs[dpi]
+
+    def judge(row: Any, text: str) -> bool:
+        return same_reading(row.our_text or "", text, confirmed[id(row)], codes)
+
+    # --- first reading: crops of the lines, then whole page for rows without boxes -------------
+    first = [(r, b) for r, b in boxed if not (r.reads or [])]
+    for group in _chunks(first, settings.QUOTE_CHECK_CROPS_PER_CALL):
+        try:
+            images = await asyncio.to_thread(
+                lambda g=group: [crop_png(page_png(settings.QUOTE_CHECK_DPI), b, CROP_PADDING) for _r, b in g]
+            )
+        except Exception as e:
+            for r, _b in group:
+                _real_failure(r, f"crop failed: {type(e).__name__}", summary)
+            continue
+        result = await _call(send, images, settings.QUOTE_CHECK_MODEL, summary)
+        if not result.success:
+            if _stop_reason(result, summary):
+                return summary
+            for r, _b in group:
+                _real_failure(r, result.error or "no answer", summary)
+            continue
+        for (r, _b), text in zip(group, _texts_from_reply(result.data, len(group))):
+            if text is None:
+                _real_failure(r, "The reading of this strip was left out of the answer.", summary)
+                continue
+            if judge(r, _add_read(r, "CROP", text, result.model or settings.QUOTE_CHECK_MODEL)):
+                _finish(r, "CLEAN", summary)
+
+    whole = [r for r in unboxed if not (r.reads or [])]
+    if whole:
+        try:
+            image = await asyncio.to_thread(page_png, settings.QUOTE_CHECK_DPI)
+        except Exception as e:
+            for r in whole:
+                _real_failure(r, f"render failed: {type(e).__name__}", summary)
+            whole = []
+    if whole:
+        result = await _call(send, [image], settings.QUOTE_CHECK_MODEL, summary)
+        if not result.success:
+            if _stop_reason(result, summary):
+                return summary
+            for r in whole:
+                _real_failure(r, result.error or "no answer", summary)
+        else:
+            reading = (_texts_from_reply(result.data, 1) or [None])[0]
+            for r in whole:
+                if reading is None:
+                    _real_failure(r, "The whole-page reading was left out of the answer.", summary)
+                    continue
+                found = locate_in_page_reading(r.our_text or "", reading)
+                if found is None:
+                    _add_read(r, "PAGE", "", result.model or settings.QUOTE_CHECK_MODEL)
+                    _finish(r, "UNCLEAR", summary)
+                    continue
+                _add_read(r, "PAGE", found, result.model or settings.QUOTE_CHECK_MODEL)
+                _finish(r, "CLEAN" if judge(r, found) else "UNCLEAR", summary)
+
+    # --- tie-break for the rows whose first reading disagreed ---------------------------------
+    second = [
+        (r, b) for r, b in boxed
+        if r.status == "WAITING" and len(r.reads or []) == 1 and (r.reads[0] or {}).get("kind") == "CROP"
+    ]
+    for group in _chunks(second, settings.QUOTE_CHECK_CROPS_PER_CALL):
+        try:
+            images = await asyncio.to_thread(
+                lambda g=group: [crop_png(page_png(settings.QUOTE_TIEBREAK_DPI), b, 0) for _r, b in g]
+            )
+        except Exception as e:
+            for r, _b in group:
+                _real_failure(r, f"crop failed: {type(e).__name__}", summary)
+            continue
+        result = await _call(send, images, settings.QUOTE_TIEBREAK_MODEL, summary)
+        if not result.success:
+            if _stop_reason(result, summary):
+                return summary
+            for r, _b in group:
+                _real_failure(r, result.error or "no answer", summary)
+            continue
+        for (r, _b), text in zip(group, _texts_from_reply(result.data, len(group))):
+            if text is None:
+                _real_failure(r, "The reading of this strip was left out of the answer.", summary)
+                continue
+            text = _add_read(r, "SHARP_CROP", text, result.model or settings.QUOTE_TIEBREAK_MODEL)
+            first_text = (r.reads[0] or {}).get("text", "")
+            if judge(r, text):
+                _finish(r, "CLEAN", summary)
+            elif same_reading(first_text, text, (), codes):
+                _finish(r, "MISREAD", summary)
+            else:
+                _finish(r, "UNCLEAR", summary)
+    return summary

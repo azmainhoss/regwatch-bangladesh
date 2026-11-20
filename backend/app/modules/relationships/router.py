@@ -138,7 +138,21 @@ async def review_relationship(
     await get_visible_document(db, rel.source_document_id, current_user)
 
     before = rel.verification_status
-    rel.verification_status = payload.decision
+    from backend.app.modules.analysis.models import AnalysisClaim
+    from backend.app.modules.claims import decide as claim_decide
+
+    claim = (
+        await db.execute(select(AnalysisClaim).where(AnalysisClaim.kind == "LINK", AnalysisClaim.relationship_id == rel.id))
+    ).scalars().first()
+    if claim is not None:
+        # The same decision the review screen makes, so both screens end in the same state.
+        if payload.decision == "VERIFIED":
+            await claim_decide.approve(db, claim, current_user, allow_decided=True)
+        else:
+            await claim_decide.reject(db, claim, current_user, allow_decided=True)
+        await db.refresh(rel)
+    else:
+        rel.verification_status = payload.decision
     rel.reviewed_by = current_user.id
     rel.reviewed_at = datetime.now(timezone.utc)
     db.add(
@@ -149,7 +163,7 @@ async def review_relationship(
             entity_id=rel.id,
             before_state={"verification_status": before},
             after_state={
-                "verification_status": payload.decision,
+                "verification_status": rel.verification_status,
                 "relationship_type": rel.relationship_type,
                 "source_document_id": str(rel.source_document_id),
                 "target_document_id": str(rel.target_document_id) if rel.target_document_id else None,

@@ -382,7 +382,27 @@ async def test_publication_gate_enforcement():
         reference_hint="BRPD 01/2026",
         force_human_review=False
     )
-    assert res.publication_status == "AWAITING_REVIEW"
+    # The pipeline no longer holds whole documents back. Safety intent, now at claim level: a link that says
+    # "amends" is never shown as an amendment before a person confirms it, and its row is not VERIFIED.
+    from datetime import date
+    from backend.app.modules.analysis.sentences import SentenceIndex
+    from backend.app.modules.claims import checks as claim_checks
+    from backend.app.modules.claims import status as claim_status
+    from backend.app.modules.claims.build import build_claims
+
+    assert res.publication_status == "PUBLISHED_MACHINE_VERIFIED"  # placeholder: the real status comes from the claims
+    index = SentenceIndex.build(pages)
+    drafts = build_claims(res.structured_payload, index)
+    links = [d for d in drafts if d.kind == "LINK"]
+    assert links and links[0].fields["claimed_type"] == "AMENDS"
+    ctx = claim_checks.CheckContext(index=index, pages={1: claim_checks.PageInfo(1)}, issue_date=date(2026, 1, 1))
+    doc = type("Doc", (), {"publication_date": date(2026, 1, 1)})()
+    for d in drafts:
+        claim_checks.apply_checks(d, ctx)
+        claim_status.route(d, doc, today=date(2026, 11, 13))
+    assert links[0].fields["shown_type"] == "REFERENCES"
+    assert claim_status.shown_link_type(links[0]) == "REFERENCES"
+    assert claim_status.link_row_status(links[0]) != "VERIFIED"
 
 
 # 16. Unauthorized review rejection
@@ -412,16 +432,16 @@ async def test_authorized_review_and_state_machine_transitions(client: AsyncClie
     assert resp_invalid.status_code == 400
     assert "Invalid review decision" in resp_invalid.json()["detail"]
 
-    # 2. Publishing is refused while the document has no analysis at all
+    # 2. Signing off a whole circular is refused while the document has no analysis at all
     resp_no_analysis = await client.post(
         f"/api/v1/documents/{sample_document.id}/publish",
         headers={"Authorization": f"Bearer {token}"},
         json={"decision": "PUBLISHED_HUMAN_REVIEWED", "review_notes": "Approved by compliance lead"}
     )
     assert resp_no_analysis.status_code == 400
-    assert "no analysis" in resp_no_analysis.json()["detail"]
+    assert resp_no_analysis.json()["detail"] == "Decide each point on the Points to check screen."
 
-    # 3. Legitimate transition by superuser once a fully verified analysis exists
+    # 3. It stays refused once a fully verified analysis exists: people decide each point, not the circular
     from backend.app.modules.analysis.models import DocumentAnalysis
     async with AsyncSessionLocal() as db:
         db.add(DocumentAnalysis(
@@ -433,13 +453,21 @@ async def test_authorized_review_and_state_machine_transitions(client: AsyncClie
         ))
         await db.commit()
 
-    resp_valid = await client.post(
+    resp_still_refused = await client.post(
         f"/api/v1/documents/{sample_document.id}/publish",
         headers={"Authorization": f"Bearer {token}"},
         json={"decision": "PUBLISHED_HUMAN_REVIEWED", "review_notes": "Approved by compliance lead"}
     )
+    assert resp_still_refused.status_code == 400
+
+    # 4. A superuser can still take a circular off the library
+    resp_valid = await client.post(
+        f"/api/v1/documents/{sample_document.id}/publish",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"decision": "WITHDRAWN", "review_notes": "Withdrawn by compliance lead"}
+    )
     assert resp_valid.status_code == 200
-    assert resp_valid.json()["publication_status"] == "PUBLISHED_HUMAN_REVIEWED"
+    assert resp_valid.json()["publication_status"] == "WITHDRAWN"
 
 
 # 18. Prompt injection regression in research assistant

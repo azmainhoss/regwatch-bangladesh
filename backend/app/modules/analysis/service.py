@@ -11,8 +11,15 @@ from sqlalchemy.orm import selectinload
 from backend.app.core.logging import logger
 from backend.app.core.storage import storage_service
 from backend.app.modules.analysis.leases import AnalysisLeaseManager
+from backend.app.modules.analysis import prompts as _prompts
 from backend.app.modules.analysis.models import AnalysisClaim, ClaimCitation, DocumentAnalysis
 from backend.app.modules.analysis.pipeline import RegulatoryIntelligencePipeline, PipelineExecutionResult
+from backend.app.modules.analysis.sentences import SentenceIndex
+from backend.app.modules.claims import decide as claim_decide
+from backend.app.modules.claims import checks as claim_checks
+from backend.app.modules.claims import reading as claim_reading
+from backend.app.modules.claims import status as claim_status
+from backend.app.modules.claims.build import build_claims, save_claims
 from backend.app.modules.analysis.providers.factory import get_ai_provider
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.extraction.page_router import has_word_boxes, text_layer_lines_by_page
@@ -42,8 +49,9 @@ async def _announce_library_change(db, doc_ids) -> None:
 
 
 def input_fingerprint(model_name: str, pages: List[Dict[str, Any]]) -> str:
-    """Hash of what the model would be sent: same model + same page texts = same fingerprint."""
+    """Hash of what the model would be sent: same model + same prompt version + same page texts = same fingerprint."""
     h = hashlib.sha256((model_name or "").encode("utf-8"))
+    h.update(f"\n#prompt {_prompts.PROMPT_VERSION}\n".encode("utf-8"))
     for p in sorted(pages, key=lambda x: x["page_number"]):
         h.update(f"\n#page {p['page_number']}\n".encode("utf-8"))
         h.update((p.get("cleaned_text") or "").encode("utf-8"))
@@ -94,7 +102,8 @@ class AnalysisService:
         document_id: UUID,
         version_id: Optional[UUID] = None,
         provider_name: Optional[str] = None,
-        force_human_review: bool = False
+        force_human_review: bool = False,
+        provider: Optional[Any] = None,
     ) -> DocumentAnalysis:
         """
         Executes end-to-end regulatory intelligence extraction on a document version.
@@ -159,7 +168,9 @@ class AnalysisService:
         pages_payload = pages_payload_for(version)
 
         try:
-            provider = get_ai_provider(provider_name)
+            # A ready-made provider (e.g. answers written outside the app, scripts/manual_analysis.py)
+            # goes through exactly the same checks as a live model.
+            provider = provider or get_ai_provider(provider_name)
             pipeline = RegulatoryIntelligencePipeline(provider)
 
             result: PipelineExecutionResult = await pipeline.execute_document_analysis(
@@ -170,7 +181,7 @@ class AnalysisService:
             )
         except Exception as e:
             await _fail(str(e))
-            raise RuntimeError(f"AI analysis pipeline failed: {e}") from e
+            raise RuntimeError(f"Analysis pipeline failed: {e}") from e
         try:
             result.structured_payload["input_sha256"] = input_fingerprint(provider.model_name, pages_payload)
         except Exception:
@@ -178,7 +189,7 @@ class AnalysisService:
 
         if not result.success:
             await _fail(str(result.error))
-            raise RuntimeError(f"AI analysis pipeline failed: {result.error}")
+            raise RuntimeError(f"Analysis pipeline failed: {result.error}")
 
         try:
             analysis = await AnalysisService._replace_analysis_results(
@@ -188,6 +199,8 @@ class AnalysisService:
                 result=result,
                 prior_status=prior_status,
                 lease_token=lease_token,
+                pages_payload=pages_payload,
+                force_human_review=force_human_review,
             )
         except Exception as e:
             await _fail(str(e))
@@ -204,32 +217,31 @@ class AnalysisService:
         result: PipelineExecutionResult,
         prior_status: Optional[str],
         lease_token: str,
+        pages_payload: Optional[List[Dict[str, Any]]] = None,
+        force_human_review: bool = False,
     ) -> DocumentAnalysis:
-        """Swaps the old provisions/obligations/relationships for the new ones in a single commit."""
+        """Swaps the old provisions/obligations/relationships for the new ones, builds and checks one claim
+        per shown item, and sets each row and the circular's status from the claims, in a single commit."""
         await db.execute(delete(Obligation).where(Obligation.document_version_id == version.id))
         await db.execute(delete(Provision).where(Provision.document_version_id == version.id))
         await db.execute(delete(DocumentRelationship).where(DocumentRelationship.source_document_id == doc.id))
         await db.flush()
 
-        # A document a person already reviewed and published must go back to review
-        # when its analysis changes, rather than silently showing unreviewed content.
-        needs_re_review = prior_status == "PUBLISHED_HUMAN_REVIEWED"
-
         payload = result.structured_payload
-        exec_summary = payload.get("executive_summary", {})
+        index = SentenceIndex.build(pages_payload if pages_payload is not None else pages_payload_for(version))
 
         # Map page numbers to DocumentPage IDs
         page_id_map = {p.page_number: p.id for p in version.pages}
         default_page_id = version.pages[0].id if version.pages else None
 
-        # 1. Create DocumentAnalysis record
+        # 1. Create DocumentAnalysis record. Its summary text is filled in below from the points that are shown.
         analysis = DocumentAnalysis(
             document_version_id=version.id,
-            executive_summary=exec_summary.get("short_summary", "Summary pending"),
-            purpose=exec_summary.get("purpose"),
-            background=exec_summary.get("background"),
-            key_changes=exec_summary.get("key_changes", []),
-            impact_summary=payload.get("impact_assessment", {}),
+            executive_summary="",
+            purpose=None,
+            background=None,
+            key_changes=[],
+            impact_summary={},
             model_name=result.model_name,
             prompt_version=result.prompt_version,
             structured_payload=payload,
@@ -239,7 +251,7 @@ class AnalysisService:
             tokens_used=result.token_usage.total_tokens,
             estimated_cost_usd=result.token_usage.estimated_cost_usd,
             processing_time_ms=result.latency_ms,
-            publication_decision="AWAITING_REVIEW" if (needs_re_review or result.publication_status == "AWAITING_REVIEW") else "APPROVED"
+            publication_decision="AWAITING_REVIEW",
         )
         db.add(analysis)
         await db.flush()
@@ -264,7 +276,8 @@ class AnalysisService:
             if prov_data.get("provision_number"):
                 provision_map[prov_data["provision_number"]] = prov_record
 
-        # 3. Persist Obligations
+        # 3. Persist Obligations. Their status follows their claim (claims/status.py::sync_rows).
+        obligation_rows: List[Obligation] = []
         for obl_data in payload.get("obligations", []):
             p_no = obl_data.get("page_number", 1)
             target_page_id = page_id_map.get(p_no, default_page_id)
@@ -283,65 +296,75 @@ class AnalysisService:
                 document_version_id=version.id,
                 provision_id=prov.id if prov else None,
                 page_id=target_page_id,
-                obligation_type=obl_data.get("obligation_type", "MANDATORY"),
-                title=obl_data.get("title", "Regulatory Obligation"),
-                requirement_description=obl_data.get("requirement_description", ""),
-                supporting_text=obl_data.get("verbatim_quote", ""),
+                obligation_type=obl_data.get("obligation_type") or "MANDATORY",
+                title=obl_data.get("title") or "Regulatory Obligation",
+                requirement_description=obl_data.get("requirement_description") or "",
+                supporting_text=obl_data.get("verbatim_quote") or "",
                 quote_span_ids=obl_data.get("quote_span_ids") or [],
                 quote_boxes=obl_data.get("quote_boxes") or [],
-                applicability_summary=obl_data.get("responsible_entity", "Scheduled Commercial Banks"),
+                applicability_summary=obl_data.get("responsible_entity") or "",
                 explicit_deadline=explicit_date,
                 deadline_description=obl_data.get("explicit_deadline"),
-                frequency=obl_data.get("reporting_frequency", "ONE_TIME"),
-                verification_status="VERIFIED" if obl_data.get("verification_status") in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED") else "PENDING_REVIEW"
+                frequency=obl_data.get("reporting_frequency") or "ONE_TIME",
+                verification_status="PENDING_REVIEW",
             )
             db.add(obl_record)
+            obligation_rows.append(obl_record)
 
-        # 4. Persist Relationships
+        # 4. Persist Relationships. A change-the-law link is not VERIFIED until a person confirms it.
+        relationship_rows: List[DocumentRelationship] = []
         for rel_data in payload.get("relationships", []):
             p_no = rel_data.get("page_number", 1)
             target_page_id = page_id_map.get(p_no, default_page_id)
+            hint = rel_data.get("target_reference_hint")
             rel_record = DocumentRelationship(
                 source_document_id=doc.id,
                 target_document_id=None,  # Filled in by link_relationship_targets once the cited circular is found
-                target_reference_hint=rel_data.get("target_reference_hint"),
-                relationship_type=rel_data.get("relationship_type", "REFERENCES"),
+                target_reference_hint=str(hint)[:255] if hint else None,
+                relationship_type=rel_data.get("relationship_type") or "REFERENCES",
                 source_page_id=target_page_id,
-                supporting_quote=rel_data.get("supporting_quote", ""),
+                supporting_quote=rel_data.get("supporting_quote") or "",
                 quote_span_ids=rel_data.get("quote_span_ids") or [],
                 quote_boxes=rel_data.get("quote_boxes") or [],
-                confidence=float(rel_data.get("confidence", 0.9)),
+                confidence=float(rel_data.get("confidence") or 0.9),
                 detection_method="AI_INFERRED",
-                verification_status="VERIFIED" if rel_data.get("verification_status") in ("VERIFIED", "VERIFIED_EXACT", "VERIFIED_NORMALIZED") else "PENDING_REVIEW"
+                verification_status="PENDING_REVIEW",
             )
             db.add(rel_record)
+            relationship_rows.append(rel_record)
+        await db.flush()
 
-        # 5. Persist Claims & Citations
-        for prov_data in payload.get("provisions", []):
-            claim = AnalysisClaim(
-                analysis_id=analysis.id,
-                claim_type="PROVISION_ASSERTION",
-                statement=prov_data.get("normalized_explanation") or prov_data.get("heading") or "Provision claim",
-                verification_status=prov_data.get("verification_status", "UNVERIFIED")
-            )
-            db.add(claim)
-            await db.flush()
+        # 5. Claims: build one per shown item, keep a person's earlier decisions, check, route, save.
+        drafts = build_claims(payload, index, doc)
+        for d in drafts:
+            if d.kind == "OBLIGATION" and d.source_index is not None and d.source_index < len(obligation_rows):
+                d.obligation_id = obligation_rows[d.source_index].id
+            elif d.kind == "LINK" and d.source_index is not None and d.source_index < len(relationship_rows):
+                d.relationship_id = relationship_rows[d.source_index].id
+        await claim_status.carry_over(db, version.id, analysis.id, drafts)
+        reading = await claim_reading.ensure_reading_checks(db, drafts, index, version.pages)
+        await claim_checks.run_code_checks(db, drafts, index, doc, version.pages, reading)
+        for d in drafts:
+            claim_status.route(d, doc, force_review=force_human_review)
+        claim_rows = await save_claims(db, analysis, drafts, index, page_id_map)
+        await claim_status.sync_rows(db, claim_rows)
 
-            p_no = prov_data.get("page_number", 1)
-            target_page_id = page_id_map.get(p_no, default_page_id)
-            citation = ClaimCitation(
-                claim_id=claim.id,
-                page_id=target_page_id,
-                quoted_text=prov_data.get("verbatim_text", ""),
-                quote_span_ids=prov_data.get("quote_span_ids") or [],
-                quote_boxes=prov_data.get("quote_boxes") or [],
-                match_score=float(prov_data.get("citation_match_score", 1.0))
-            )
-            db.add(citation)
+        analysis.executive_summary = claim_status.shown_text_for_summary(claim_rows)
+        analysis.key_changes = [
+            (c.fields or {}).get("text")
+            for c in sorted(claim_rows, key=lambda c: c.order_index or 0)
+            if c.kind == "KEY_CHANGE" and claim_status.is_shown(c) and (c.fields or {}).get("text")
+        ]
 
-        # Update Document publication status and release durable lease
-        doc.publication_status = "AWAITING_REVIEW" if needs_re_review else result.publication_status
-        await _announce_circular(db, doc)
+        # Update the circular's status from its claims and release the durable lease.
+        claim_status.apply_document_status(doc, claim_rows)
+        analysis.publication_decision = "AWAITING_REVIEW" if doc.publication_status == "AWAITING_REVIEW" else "APPROVED"
+        # An archive circular analysed on request never sends a "new circular" alert, now or when a person
+        # later releases it. It is marked so a later decision knows it came from the archive.
+        if prior_status == "EXTRACTED":
+            claim_decide.mark_archive_run(db, doc)
+        elif not await claim_decide.was_archive_circular(db, doc):
+            await _announce_circular(db, doc)
         await AnalysisLeaseManager.release_lease(db, doc.id, lease_token, status="RELEASED")
         await db.commit()
         # Fill in which stored circular each cited reference names (never guessed; see relationships/linking.py).

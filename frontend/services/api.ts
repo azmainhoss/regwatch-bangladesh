@@ -952,6 +952,8 @@ export interface RelLink {
   target?: DocumentRef | null;
   target_reference_hint?: string | null;
   reviewed_at?: string | null;
+  /** Administrators only: the checked point this link is decided through. */
+  claim_id?: string | null;
 }
 
 export interface RelStatus {
@@ -1110,5 +1112,176 @@ export interface CompareResult {
 export async function compareVersions(leftVersionId: string, rightVersionId: string, signal?: AbortSignal): Promise<CompareResult> {
   const res = await apiFetch(`/documents/compare?left=${leftVersionId}&right=${rightVersionId}`, { cache: "no-store", signal });
   if (!res.ok) await throwApiError(res, "Could not compare these files");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The checked view of a circular: the points that passed their checks, and a line for each held back
+// ---------------------------------------------------------------------------------------------
+export type ClaimSection = "summary" | "changes" | "requirements" | "applies_to" | "exemptions" | "dates" | "links" | "clauses";
+export type ClaimKind = "SUMMARY_POINT" | "KEY_CHANGE" | "OBLIGATION" | "APPLIES_TO" | "EXEMPTION" | "DATE" | "LINK" | "PROVISION";
+
+export interface ClaimItem {
+  id: string;
+  kind: ClaimKind;
+  fields: Record<string, any>;
+  quote: string;
+  page_number: number | null;
+  quote_boxes: QuoteBox[];
+  /** Who checked it: the checks (CHECKS) or a person (TEAM). */
+  checked_by: "CHECKS" | "TEAM";
+  obligation_id?: string;
+  link?: { target_document_id: string | null; target_reference: string | null; shown_type: string };
+  /** Administrators only. */
+  status?: string;
+  shown?: boolean;
+  review_queue?: string | null;
+  is_high_stakes?: boolean;
+  checks?: Array<{ name: string; result: string; message: string }>;
+  why?: string[];
+  /** Administrators only: the sentences the quote is made of, and the link row of a link point. */
+  quote_sentence_ids?: string[];
+  relationship_id?: string;
+}
+
+export type HiddenState = "checking" | "waiting_for_team" | "not_shown";
+
+export interface HiddenPoint {
+  section: ClaimSection;
+  page_number: number | null;
+  state: HiddenState;
+  /** Only filled when the quoted lines really are on the page. */
+  quote_boxes: QuoteBox[];
+}
+
+export interface ClaimCounts {
+  total: number;
+  shown: number;
+  checking: number;
+  waiting_for_team: number;
+  not_shown: number;
+}
+
+export interface CheckedView {
+  document_id: string;
+  state: "NO_ANALYSIS" | "ANALYSING" | "READY";
+  counts: ClaimCounts;
+  checking: { minutes_left: number; paused_until: string | null };
+  sections: Record<ClaimSection, ClaimItem[]>;
+  hidden: HiddenPoint[];
+}
+
+export async function fetchClaims(documentId: string, all = false): Promise<CheckedView> {
+  const res = await apiFetch(`/documents/${documentId}/claims${all ? "?all=1" : ""}`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the points of this circular");
+  return res.json();
+}
+
+export interface ClaimDecisionResult {
+  claim: ClaimItem;
+  counts: ClaimCounts;
+  document_status: string | null;
+}
+
+export async function askReviewClaim(claimId: string): Promise<ClaimDecisionResult> {
+  const res = await apiFetch(`/claims/${claimId}/ask-review`, { method: "POST", headers: getAuthHeaders() });
+  if (!res.ok) await throwApiError(res, "Could not hide that point");
+  return res.json();
+}
+
+export async function askReviewAllClaims(documentId: string): Promise<{ hidden: number; document_status: string }> {
+  const res = await apiFetch(`/documents/${documentId}/claims/ask-review`, { method: "POST", headers: getAuthHeaders() });
+  if (!res.ok) await throwApiError(res, "Could not hide the points");
+  return res.json();
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// The review screen: held points waiting for a person
+// ---------------------------------------------------------------------------------------------
+export type ReviewQueue = "REQUIRED" | "OPTIONAL";
+
+export interface ReviewRow {
+  claim: ClaimItem;
+  circular: { id: string; reference_number: string | null; title: string };
+  page: { id: string; page_number: number } | null;
+  version_id: string | null;
+  /** What the second reading of a misread sentence said. */
+  second_reading: string | null;
+  /** The sentences of the cited page(s), for the fix form's sentence picker. */
+  sentences: Array<{ sentence_id: string; page_number: number; text: string }>;
+  cursor: string;
+}
+
+export interface ReviewList {
+  queue: ReviewQueue | null;
+  items: ReviewRow[];
+  next: string | null;
+  total: number;
+}
+
+export interface ReviewCounts {
+  required: number;
+  optional: number;
+  checking: number;
+  empty_circulars: Array<{ id: string; reference_number: string | null; title: string }>;
+}
+
+export async function fetchReviewQueue(queue: ReviewQueue, after?: string | null, limit = 20): Promise<ReviewList> {
+  const q = `queue=${queue}&limit=${limit}${after ? `&after=${encodeURIComponent(after)}` : ""}`;
+  const res = await apiFetch(`/claims/review?${q}`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the points to check");
+  return res.json();
+}
+
+/** One point by its id, even if it was decided already. */
+export async function fetchReviewPoint(claimId: string): Promise<ReviewList> {
+  const res = await apiFetch(`/claims/review?point=${claimId}`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load that point");
+  return res.json();
+}
+
+export async function fetchReviewCounts(): Promise<ReviewCounts> {
+  const res = await apiFetch(`/claims/review/counts`, { headers: { ...getAuthHeaders() }, cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the counts");
+  return res.json();
+}
+
+export type ClaimAction = "approve" | "fix" | "reject";
+
+export interface ClaimDecisionBody {
+  note?: string;
+  reason?: string;
+  fields?: Record<string, any>;
+  evidence_ids?: string[];
+  confirm_checked?: boolean;
+}
+
+/** A decision the server did not take. `problems` are plain sentences; `claim` is the point as it is now. */
+export class ClaimDecisionError extends ApiError {
+  problems: string[];
+  claim: ClaimItem | null;
+  constructor(status: number, message: string, problems: string[] = [], claim: ClaimItem | null = null) {
+    super(status, message);
+    this.name = "ClaimDecisionError";
+    this.problems = problems;
+    this.claim = claim;
+  }
+}
+
+export async function decideClaim(claimId: string, action: ClaimAction, body: ClaimDecisionBody = {}): Promise<ClaimDecisionResult & { document_id?: string | null }> {
+  const res = await apiFetch(`/claims/${claimId}/${action}`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    const detail = data?.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      throw new ClaimDecisionError(res.status, String(detail.message ?? ""), Array.isArray(detail.problems) ? detail.problems.map(String) : [], detail.claim ?? null);
+    }
+    throw new ClaimDecisionError(res.status, typeof detail === "string" ? detail : "");
+  }
   return res.json();
 }

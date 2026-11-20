@@ -460,17 +460,24 @@ async def test_failed_reanalysis_keeps_previous_results(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_successful_reanalysis_sends_reviewed_document_back_to_review():
+async def test_successful_reanalysis_does_not_keep_a_reviewed_status_without_reviewed_points():
+    """Safety intent: a new analysis never shows content as reviewed that no person decided. The status now
+    follows the points: with no earlier decision to carry over, no point of the new analysis is reviewed."""
     doc, version, pages = await make_document(status="PUBLISHED_HUMAN_REVIEWED")
     await _seed_old_results(version, pages[0])
 
     async with AsyncSessionLocal() as db:
         analysis = await AnalysisService.analyze_document_version(db=db, document_id=doc.id, provider_name="mock")
-        assert analysis.publication_decision == "AWAITING_REVIEW"
+        analysis_id = analysis.id
 
     async with AsyncSessionLocal() as db:
+        from backend.app.modules.analysis.models import AnalysisClaim
+        claims = (await db.execute(select(AnalysisClaim).where(AnalysisClaim.analysis_id == analysis_id))).scalars().all()
+        assert claims
+        assert not [c for c in claims if c.check_status in ("APPROVED", "FIXED", "REJECTED")]
+        assert all(c.check_status in ("PASSED", "NOT_SHOWN", "CHECKING", "WAITING_FOR_PERSON") for c in claims)
         refreshed = await db.get(Document, doc.id)
-        assert refreshed.publication_status == "AWAITING_REVIEW"
+        assert refreshed.publication_status in ("PUBLISHED_MACHINE_VERIFIED", "AWAITING_REVIEW")
         provs = (await db.execute(select(Provision).where(Provision.document_version_id == version.id))).scalars().all()
         assert "Old provision" not in [p.verbatim_text for p in provs]
 
@@ -484,8 +491,10 @@ async def test_publish_refused_without_analysis(client):
         headers=_auth(token),
         json={"decision": "PUBLISHED_HUMAN_REVIEWED", "review_notes": "Looks fine"},
     )
+    # A circular is never signed off as a whole any more: people decide each point (a document with no
+    # analysis has no points to decide either).
     assert resp.status_code == 400
-    assert "no analysis" in resp.json()["detail"]
+    assert resp.json()["detail"] == "Decide each point on the Points to check screen."
     async with AsyncSessionLocal() as db:
         assert (await db.get(Document, doc.id)).publication_status == "AWAITING_REVIEW"
         assert (await db.execute(select(DocumentAnalysis).where(

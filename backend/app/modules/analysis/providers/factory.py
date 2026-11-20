@@ -34,7 +34,7 @@ def configured_model(provider: str) -> str:
 
 def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
     """
-    Returns the configured AI provider (ANALYSIS_PROVIDER, or the name passed in).
+    Returns the configured Analysis provider (ANALYSIS_PROVIDER, or the name passed in).
     Rejects silent fallback: a real provider that is missing its settings raises ValueError
     rather than quietly using the mock.
     """
@@ -43,7 +43,7 @@ def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
     if selected == "gemini":
         if not settings.GEMINI_API_KEY:
             raise ValueError(
-                "Configured AI provider is 'gemini', but GEMINI_API_KEY is not set in environment or settings. "
+                "Configured Analysis provider is 'gemini', but GEMINI_API_KEY is not set in environment or settings. "
                 "Silent fallback to mock is forbidden in production/pilot. "
                 "Please configure GEMINI_API_KEY or set ANALYSIS_PROVIDER='mock' explicitly for local testing."
             )
@@ -56,7 +56,7 @@ def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
         ) if not value]
         if missing:
             raise ValueError(
-                f"Configured AI provider is 'openai_compat', but {', '.join(missing)} is not set. "
+                f"Configured Analysis provider is 'openai_compat', but {', '.join(missing)} is not set. "
                 "Silent fallback to mock is forbidden."
             )
         return OpenAICompatibleProvider(model_name=settings.ANALYSIS_MODEL)
@@ -65,7 +65,7 @@ def get_ai_provider(provider_type: Optional[str] = None) -> BaseAIProvider:
         return MockAIProvider()
 
     raise ValueError(
-        f"Unknown AI provider '{selected}'. Supported providers are: {', '.join(SUPPORTED_PROVIDERS)}."
+        f"Unknown Analysis provider '{selected}'. Supported providers are: {', '.join(SUPPORTED_PROVIDERS)}."
     )
 
 
@@ -108,10 +108,10 @@ def get_answer_provider() -> BaseAIProvider:
 
 
 _PROBE_MESSAGES = {
-    health.QUOTA_EXCEEDED: "The AI service is busy or today's free limit is used up. Try again later.",
-    health.TEMPORARILY_UNAVAILABLE: "The AI service is busy right now. Try again in a few minutes.",
+    health.QUOTA_EXCEEDED: "The analysis service is busy or today's free limit is used up. Try again later.",
+    health.TEMPORARILY_UNAVAILABLE: "The analysis service is busy right now. Try again in a few minutes.",
     health.AUTH_FAILED: "The AI key was refused. Check the key in the server settings.",
-    health.CALL_FAILED: "The AI service did not give a usable answer. Try again later.",
+    health.CALL_FAILED: "The analysis service did not give a usable answer. Try again later.",
 }
 
 
@@ -119,7 +119,7 @@ def probe_message(status: str, success: bool, latency_ms: Optional[int]) -> str:
     if success:
         secs = (latency_ms or 0) / 1000
         return f"Connection works. It answered in {secs:.1f} s."
-    return _PROBE_MESSAGES.get(status, "The AI service did not answer. Try again later.")
+    return _PROBE_MESSAGES.get(status, "The analysis service did not answer. Try again later.")
 
 
 def update_provider_health(status: str, latency_ms: Optional[int] = None, status_code: Optional[int] = None,
@@ -141,12 +141,12 @@ def _is_configured(provider: str) -> bool:
 
 
 _USER_FACING = {
-    health.CONNECTED_TESTED: "AI Analysis Available",
-    health.QUOTA_EXCEEDED: "AI Usage Limit Reached",
-    health.TEMPORARILY_UNAVAILABLE: "AI Analysis Temporarily Unavailable",
-    health.AUTH_FAILED: "AI Analysis Not Connected",
-    health.CALL_FAILED: "AI Analysis Not Working",
-    health.NOT_TESTED: "AI Connection Not Checked Yet",
+    health.CONNECTED_TESTED: "Analysis Available",
+    health.QUOTA_EXCEEDED: "Analysis Limit Reached",
+    health.TEMPORARILY_UNAVAILABLE: "Analysis Temporarily Unavailable",
+    health.AUTH_FAILED: "Analysis Not Connected",
+    health.CALL_FAILED: "Analysis Not Working",
+    health.NOT_TESTED: "Analysis Connection Not Checked Yet",
 }
 
 
@@ -164,10 +164,10 @@ def get_active_provider_info() -> dict:
         user_facing_status = "Test Mode (Offline Rules)"
     elif selected not in SUPPORTED_PROVIDERS or not _is_configured(selected):
         raw_status = "NOT_CONFIGURED"
-        user_facing_status = "AI Analysis Not Connected"
+        user_facing_status = "Analysis Not Connected"
     else:
         raw_status = last["status"]
-        user_facing_status = _USER_FACING.get(raw_status, "AI Analysis Not Connected")
+        user_facing_status = _USER_FACING.get(raw_status, "Analysis Not Connected")
 
     provider_names = {
         "gemini": "Google Gemini",

@@ -147,6 +147,17 @@ class Settings(BaseSettings):
     ALERTS_PUBLISH_SWEEP_HOURS: int = 48
     ALERTS_RETENTION_DAYS: int = 180
 
+    # Claim checks (docs/specs/CLAIM_CHECKS_SPEC.md). A circular is "new" when published within this many days.
+    CLAIM_NEW_CIRCULAR_DAYS: int = 365
+    # Second reading of quoted sentences on image-read pages.
+    QUOTE_CHECK_MODEL: str = "gemini-3.5-flash"
+    QUOTE_TIEBREAK_MODEL: str = "gemini-3.5-flash-lite"
+    QUOTE_CHECK_DPI: int = 200
+    QUOTE_TIEBREAK_DPI: int = 300
+    QUOTE_CHECK_MAX_EDIT_SHARE: float = 0.03
+    QUOTE_CHECK_CROPS_PER_CALL: int = 12
+    QUOTE_CHECK_MAX_ATTEMPTS: int = 3
+
     # CORS: comma separated list (or JSON list) of exact origins allowed to call the API.
     ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

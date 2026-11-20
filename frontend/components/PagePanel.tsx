@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { AlignLeft, ChevronLeft, ChevronRight, FileImage, PenLine, Pencil, X, ZoomIn, ZoomOut } from "lucide-react";
-import { fetchPageImage, submitPageCorrection, type Box2D, type DocumentPage, type QuoteBox } from "@/services/api";
+import { submitPageCorrection, type Box2D, type DocumentPage, type QuoteBox } from "@/services/api";
+import { loadPageImage, peekPageImage } from "@/services/pageImages";
 import StatusBadge, { Tag } from "./StatusBadge";
 import { EASE_OUT, Notice, hasBangla } from "./ui";
 
@@ -27,6 +28,8 @@ interface Props {
   canEdit?: boolean;
   /** Called with the saved page so every screen showing it redraws at once. */
   onPageSaved?: (page: DocumentPage) => void;
+  /** A number that goes up each time a screen asks for the text editor to open on this page. */
+  editRequest?: number;
 }
 
 /** The text a reader sees: a person's correction when there is one, else the extracted text. */
@@ -131,44 +134,23 @@ function boxesFromLines(page: DocumentPage, quote: string): Box2D[] {
   return out;
 }
 
-// Page images already fetched, as object URLs. Kept small; the oldest is released first.
-const imageCache = new Map<string, Promise<string>>();
-const IMAGE_CACHE_LIMIT = 24;
-
-function loadImage(documentId: string, versionId: string, pageNo: number, dpi: number): Promise<string> {
-  const key = `${documentId}:${versionId}:${pageNo}:${dpi}`;
-  const hit = imageCache.get(key);
-  if (hit) {
-    imageCache.delete(key);
-    imageCache.set(key, hit);
-    return hit;
-  }
-  const p = fetchPageImage(documentId, versionId, pageNo, dpi);
-  p.catch(() => imageCache.delete(key));
-  imageCache.set(key, p);
-  while (imageCache.size > IMAGE_CACHE_LIMIT) {
-    const oldest = imageCache.keys().next().value as string;
-    imageCache.get(oldest)?.then((url) => URL.revokeObjectURL(url)).catch(() => undefined);
-    imageCache.delete(oldest);
-  }
-  return p;
-}
-
 function usePageImage(documentId: string, versionId: string | undefined, pageNo: number | undefined, dpi: number) {
   const [state, setState] = useState<{ key: string; src: string | null; failed: boolean }>({ key: "", src: null, failed: false });
   const pageKey = `${documentId}:${versionId}:${pageNo}`;
   useEffect(() => {
     if (!versionId || !pageNo) return;
     let live = true;
-    loadImage(documentId, versionId, pageNo, dpi)
+    loadPageImage(documentId, versionId, pageNo, dpi)
       .then((src) => live && setState({ key: pageKey, src, failed: false }))
       .catch(() => live && setState((prev) => (prev.key === pageKey && prev.src ? prev : { key: pageKey, src: null, failed: true })));
     return () => {
       live = false;
     };
   }, [documentId, versionId, pageNo, dpi, pageKey]);
-  // An image of another page never shows here, even for a moment.
+  // An image that was fetched ahead of time is drawn in the same frame; an image of another page never shows here.
+  const cached = versionId && pageNo ? peekPageImage(documentId, versionId, pageNo, dpi) : null;
   const current = state.key === pageKey;
+  if (!current && cached) return { src: cached, failed: false, loading: false };
   return { src: current ? state.src : null, failed: current && state.failed, loading: !current || (!state.src && !state.failed) };
 }
 
@@ -207,7 +189,7 @@ function ToolbarButton({
  * marked, or the extracted text. The text view is used when the image cannot be loaded
  * or when a quote has no position on the page.
  */
-export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight, canEdit, onPageSaved }: Props) {
+export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight, canEdit, onPageSaved, editRequest }: Props) {
   const reduceMotion = useReducedMotion();
   const sorted = useMemo(() => [...pages].sort((a, b) => a.page_number - b.page_number), [pages]);
   const page = sorted.find((p) => p.page_number === pageNumber) ?? sorted[0];
@@ -233,6 +215,14 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
     setEditing(false);
     setSaveError(null);
   };
+  const seenEditRequest = useRef(editRequest ?? 0);
+  useEffect(() => {
+    if (!canEdit || !editRequest || editRequest === seenEditRequest.current) return;
+    seenEditRequest.current = editRequest;
+    startEdit();
+    // startEdit only reads the page text at the moment of the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest, canEdit]);
   const saveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!page || !versionId || saving) return;

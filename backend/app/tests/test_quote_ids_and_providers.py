@@ -17,6 +17,9 @@ from backend.app.modules.analysis.providers.gemini import GeminiAIProvider
 from backend.app.modules.analysis.providers.mock import MockAIProvider
 from backend.app.modules.analysis.providers.openai_compat import OpenAICompatibleProvider
 from backend.app.modules.analysis.sentences import SentenceIndex, apply_quote_ids, split_sentences
+from backend.app.modules.claims import checks as claim_checks
+from backend.app.modules.claims import status as claim_status
+from backend.app.modules.claims.build import build_claims
 
 
 # ---------------------------------------------------------------------------
@@ -181,23 +184,36 @@ def _answer(prov_ids, obl_ids):
 async def test_pipeline_quotes_from_ids_are_verified_exact():
     provider = _ScriptedProvider(_answer(["p1.s2"], ["p1.s3"]))
     res = await RegulatoryIntelligencePipeline(provider).execute_document_analysis(pages=PAGES)
-    assert res.success and res.prompt_version == PROMPT_VERSION == "v2"
+    assert res.success and res.prompt_version == PROMPT_VERSION == "v4"
     assert "[p1.s2]" in provider.calls[0]["user_prompt"]
     assert provider.calls[0]["json_schema"] is ANALYSIS_RESPONSE_SCHEMA
     prov = res.structured_payload["provisions"][0]
     assert prov["verbatim_text"] == "All banks must classify loans into three stages."
     assert prov["verification_status"] == STATE_VERIFIED_EXACT
     assert res.validation_report.verified_exact_count == 2
-    assert res.publication_status == "PUBLISHED_MACHINE_VERIFIED"
+    # The pipeline holds nothing back any more; every point is checked on its own (see claims/).
+    drafts = {d.kind: d for d in build_claims(res.structured_payload, SentenceIndex.build(PAGES))}
+    assert drafts["PROVISION"].verification_status == STATE_VERIFIED_EXACT
+    assert drafts["OBLIGATION"].verification_status == STATE_VERIFIED_EXACT
+    assert drafts["OBLIGATION"].evidence["quote"] == ["p1.s3"]
 
 
 @pytest.mark.asyncio
-async def test_pipeline_unknown_ids_go_to_review():
+async def test_pipeline_unknown_ids_are_not_shown():
+    """An answer that names a sentence that does not exist has no evidence, so that point is never shown."""
     provider = _ScriptedProvider(_answer(["p1.s2"], ["p1.s99"]))
     res = await RegulatoryIntelligencePipeline(provider).execute_document_analysis(pages=PAGES)
     assert res.success
-    assert res.publication_status == "AWAITING_REVIEW"
     assert res.structured_payload["obligations"][0]["needs_human_review"] is True
+    index = SentenceIndex.build(PAGES)
+    drafts = {d.kind: d for d in build_claims(res.structured_payload, index)}
+    assert drafts["OBLIGATION"].evidence["quote"] == []
+    ctx = claim_checks.CheckContext(index=index, pages={1: claim_checks.PageInfo(1), 2: claim_checks.PageInfo(2)})
+    for d in drafts.values():
+        claim_checks.apply_checks(d, ctx)
+        claim_status.route(d, type("Doc", (), {"publication_date": None})())
+    assert drafts["OBLIGATION"].check_status != "PASSED" and not claim_status.is_shown(drafts["OBLIGATION"])
+    assert drafts["PROVISION"].check_status == "PASSED"  # the other point still stands on its own
 
 
 @pytest.mark.asyncio
@@ -381,7 +397,7 @@ def test_factory_chooses_by_config(monkeypatch):
     monkeypatch.setattr(settings, "OPENAI_COMPAT_BASE_URL", None)
     with pytest.raises(ValueError, match="OPENAI_COMPAT_BASE_URL"):
         get_ai_provider()
-    with pytest.raises(ValueError, match="Unknown AI provider"):
+    with pytest.raises(ValueError, match="Unknown Analysis provider"):
         get_ai_provider("no-such-provider")
 
 

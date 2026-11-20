@@ -36,11 +36,11 @@ def plain_reason(error: str) -> str:
     if "already in progress" in e or "locked by worker" in e:
         return "An analysis is already running for this circular."
     if "429" in e or "quota" in e or "rate limit" in e:
-        return "The AI service's free limit is used up for now. Try again later."
+        return "The analysis service's free limit is used up for now. Try again later."
     if "503" in e or "overloaded" in e or "could not be reached" in e or "timeout" in e or "busy" in e:
-        return "The AI service is busy right now. Try again in a few minutes."
+        return "The analysis service is busy right now. Try again in a few minutes."
     if "not configured" in e or "not set" in e or "authentication" in e:
-        return "The AI service is not set up on the server."
+        return "The analysis service is not set up on the server."
     if "still being read" in e:
         return "Some pages are still being read. The analysis can run once they are done."
     if "pages are missing" in e or "no version" in e:

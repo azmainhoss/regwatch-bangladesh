@@ -28,9 +28,50 @@ _NO_WORD = re.compile(r"\b(?:nos?|number|num)\b\.?|\b(?:nos?|number)(?=\d)|ন�
 _YEAR_IN_DATE = re.compile(r"\b((?:19|20)\d{2})\b")
 
 
+# Bangla circulars name other circulars in Bangla ("বিআরপিডি সার্কুলার নং-১১/২০২২"). These are turned into
+# the English form the library is filed under ("brpd circular no-11/2022"). Spellings counted on the archive's
+# image-read pages on 14 Nov 2026, including frequent misreadings of BRPD, SMESPD and DOS.
+_BANGLA_DEPARTMENTS = {
+    "brpd": ("বিআরপিডি", "বিআরিপিডি", "বিআর্পিডি", "বিএআরপিডি", "বিএরিপিডি", "বিঅরপিডি"),
+    "fepd": ("এফইপিডি",),
+    "feod": ("এফইওডি",),
+    "fe": ("এফই",),
+    "dfim": ("ডিএফআইএম",),
+    "smespd": ("এসএমইএসপিডি", "এসএমএসপিডি", "এসএমএএসপিডি"),
+    "dos": ("ডিওএস", "ডিঅএস", "ডিওয়াস"),
+    "psd": ("পিএসডি",),
+    "dmd": ("ডিএমডি",),
+    "acd": ("এসিডি",),
+    "sfd": ("এসএফডি",),
+    "fid": ("এফআইডি",),
+    "fcrpd": ("এফসিআরপিডি",),
+    "cib": ("সিআইবি",),
+    "bfiu": ("বিএফআইইউ",),
+    "mpd": ("এমপিডি",),
+    "dcm": ("ডিসিএম", "ডিসএম"),
+    "ismd": ("আইএসএমডি",),
+    "did": ("ডিআইডি",),
+    "gbcsrd": ("জিবিসিএসআরডি",),
+}
+_BANGLA_WORDS = (
+    ("মাস্টার সার্কুলার", "master circular"), ("সার্কুলার লেটার", "circular letter"), ("সার্কুলার-লেটার", "circular letter"),
+    ("সার্কুলার", "circular"), ("পরিপত্র", "circular"),
+)
+_BANGLA_NAME_PATTERNS = [
+    (re.compile(r"(?<![ঀ-৿])" + re.escape(unicodedata.normalize("NFKC", bn)) + r"(?![ঀ-৿])"), f" {en} ")
+    for en, spellings in _BANGLA_DEPARTMENTS.items() for bn in spellings
+] + [
+    (re.compile(r"(?<![ঀ-৿])" + re.escape(unicodedata.normalize("NFKC", bn)) + r"(?![ঀ-৿])"), f" {en} ") for bn, en in _BANGLA_WORDS
+]
+_BANGLA_NAME_PATTERNS.sort(key=lambda p: -len(p[0].pattern))  # longest spelling first
+
+
 def _prepare(text: str) -> str:
     text = unicodedata.normalize("NFKC", text or "").translate(_BANGLA_DIGITS).lower()
     text = text.replace("‌", "").replace("‍", "")
+    if any("ঀ" <= ch <= "৿" for ch in text):
+        for pattern, english in _BANGLA_NAME_PATTERNS:
+            text = pattern.sub(english, text)
     return text
 
 

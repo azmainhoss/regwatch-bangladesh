@@ -32,6 +32,7 @@ from backend.app.database.session import AsyncSessionLocal  # noqa: E402
 from backend.app.modules.documents.models import DocumentPage  # noqa: E402
 from backend.app.modules.analysis.auto import analyze_ready_live_circulars  # noqa: E402
 from backend.app.modules.extraction.vision import available_gemini_keys, gemini_keys  # noqa: E402
+from backend.app.modules.claims.reading_jobs import process_pending_quote_checks  # noqa: E402
 from backend.app.modules.extraction.vision_jobs import PAGE_READER_LOCK, process_pending_vision_pages  # noqa: E402
 
 LOG = ROOT / "data" / "page_reader.log"
@@ -61,12 +62,31 @@ def lock_is_held_by_other() -> bool:
     return fresh and info.get("pid") != os.getpid()
 
 
-def heartbeat(state: str) -> None:
+def heartbeat(state: str, quotes_paused: bool = False) -> None:
     info = {"pid": os.getpid(), "state": state, "at": datetime.now(timezone.utc).isoformat()}
-    if state == "waiting for quota":
+    if state == "waiting for quota" or quotes_paused:
         from backend.app.modules.extraction.vision import _next_quota_reset
-        info["quota_back_at"] = _next_quota_reset().isoformat()
+        reset = _next_quota_reset().isoformat()
+        if state == "waiting for quota":
+            info["quota_back_at"] = reset
+        if quotes_paused:
+            info["quote_quota_back_at"] = reset
     PAGE_READER_LOCK.write_text(json.dumps(info), encoding="utf-8")
+
+
+async def quote_checks() -> dict:
+    """The second reading of quoted sentences, newest circulars first. Returns its summary ({} when it was skipped)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            q = await process_pending_quote_checks(db, limit=10)
+    except Exception as e:  # the database is busy with an import: the next batch tries again
+        log(f"Second reading skipped: {type(e).__name__}: {str(e)[:120]}")
+        return {}
+    if q.get("checked") or q.get("calls") or q.get("failed"):
+        log(f"second reading: {q['checked']} sentences done (clean {q['clean']}, misread {q['misread']}, "
+            f"unclear {q['unclear']}), {q['calls']} calls, {q['claims_rerouted']} points checked again, "
+            f"busy {q['waiting_busy']}")
+    return q
 
 
 async def run() -> None:
@@ -79,9 +99,14 @@ async def run() -> None:
     heartbeat("starting")
     log(f"Page reader started with {len(gemini_keys())} keys.")
     read_total = 0
+    quotes_paused = False
     try:
         while True:
-            heartbeat("reading")
+            heartbeat("reading", quotes_paused)
+            # The second reading of quoted sentences of the newest circulars goes before any older page is read.
+            q = await quote_checks()
+            quotes_paused = bool(q.get("out_of_quota"))
+            heartbeat("reading", quotes_paused)
             try:
                 async with AsyncSessionLocal() as db:
                     summary = await process_pending_vision_pages(db, limit=40)
@@ -101,14 +126,18 @@ async def run() -> None:
                 log(f"read {summary['read']}, failed {summary['failed']}, to a person {summary['sent_to_review']}, "
                     f"busy {summary['waiting_busy']} (total read this run: {read_total})")
             if summary["out_of_quota"] or not available_gemini_keys():
-                log("All keys used today's free quota; waiting for the daily reset.")
-                for _ in range(30):  # 30 min, keeping the lock fresh
-                    heartbeat("waiting for quota")
+                log("All keys used today's free quota for page reading; waiting for the daily reset.")
+                for _ in range(30):  # 30 min, keeping the lock fresh; quoted-sentence checks keep their own model's quota
+                    heartbeat("waiting for quota", quotes_paused)
                     await asyncio.sleep(60)
+                    if available_gemini_keys():
+                        break
+                    q = await quote_checks()
+                    quotes_paused = bool(q.get("out_of_quota"))
                 continue
             if summary["batch_full"] and summary["read"]:
                 continue
-            heartbeat("idle")
+            heartbeat("idle", quotes_paused)
             # Short sleep, so a new upload is picked up within seconds.
             await asyncio.sleep(10)
     finally:

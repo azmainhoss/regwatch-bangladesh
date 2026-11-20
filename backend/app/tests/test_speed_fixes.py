@@ -105,7 +105,7 @@ async def test_failed_analysis_reports_plain_reason(client, monkeypatch):
     from backend.app.modules.analysis import service as svc
 
     async def boom(**kwargs):
-        raise RuntimeError("AI analysis pipeline failed: Gemini rate limit or quota reached (HTTP 429)")
+        raise RuntimeError("Analysis pipeline failed: Gemini rate limit or quota reached (HTTP 429)")
 
     monkeypatch.setattr(svc.AnalysisService, "analyze_document_version", staticmethod(boom))
     _, token = await make_user(is_superuser=True)
@@ -322,8 +322,13 @@ async def test_reading_status_says_what_is_waiting(client, monkeypatch):
     from backend.app.modules.documents.models import Document
     from backend.app.tests.test_page_reading import _ingest, bangla_pdf
 
+    from backend.app.modules.extraction import vision, vision_jobs
+
     monkeypatch.setattr(settings, "GEMINI_API_KEY", "k")
     monkeypatch.setattr(settings, "VISION_WORKER_ENABLED", True)
+    # Never read the real page reader's status file or quota state.
+    monkeypatch.setattr(vision_jobs, "page_reader_running", lambda: False)
+    monkeypatch.setattr(vision, "_exhausted_until", {})
     doc_id, _v = await _ingest(bangla_pdf(pages=2))
     async with AsyncSessionLocal() as db:
         (await db.get(Document, doc_id)).publication_status = "EXTRACTED"

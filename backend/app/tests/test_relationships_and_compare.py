@@ -269,7 +269,12 @@ async def test_pending_link_is_listed_but_never_changes_status(client):
     old, _, _ = await make_doc(f"{dept} Circular No. 1/2020")
     new, _, _ = await make_doc(f"{dept} Circular No. 2/2024")
     await make_link(new, old, rel_type="REPEALS", status="PENDING_REVIEW")
-    body = await status_of(client, old)
+    # Readers do not see a link that is still waiting for a person; administrators see it as unconfirmed.
+    reader = await status_of(client, old)
+    assert reader["in_force_status"] == "IN_FORCE"
+    assert reader["verified_incoming"] == [] and reader["unconfirmed_incoming"] == []
+    _admin, admin_token = await make_user(is_superuser=True)
+    body = await status_of(client, old, admin_token)
     assert body["in_force_status"] == "IN_FORCE"
     assert body["in_force_by"] is None
     assert body["verified_incoming"] == []
@@ -362,7 +367,12 @@ async def test_graph_has_unlinked_hint_nodes_and_dashed_pending_edges(client):
     b, _, pages = await make_doc(f"{dept} Circular No. 2/2021", pub=date(2021, 1, 1))
     await make_link(b, a, rel_type="AMENDS", page=pages[0])
     await make_link(b, None, rel_type="REFERENCES", status="PENDING_REVIEW", hint=f"{dept} Circular No. 99/1999")
-    graph = (await client.get(f"/api/v1/relationships/document/{b.id}/graph?depth=2")).json()
+    # A link waiting for a person is not on a reader graph at all; administrators see it dashed.
+    reader_graph = (await client.get(f"/api/v1/relationships/document/{b.id}/graph?depth=2")).json()
+    assert [e["relationship_type"] for e in reader_graph["edges"]] == ["AMENDS"]
+    assert not [n for n in reader_graph["nodes"] if not n["in_library"]]
+    _admin, admin_token = await make_user(is_superuser=True)
+    graph = (await client.get(f"/api/v1/relationships/document/{b.id}/graph?depth=2", headers=_auth(admin_token))).json()
     nodes = {n["key"]: n for n in graph["nodes"]}
     assert nodes[str(a.id)]["in_force_status"] == "AMENDED"
     assert nodes[str(b.id)]["is_center"] is True

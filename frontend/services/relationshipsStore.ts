@@ -274,11 +274,47 @@ export async function reviewLink(link: RelLink, decision: Decision): Promise<boo
       notice: { kind: "success", text: decision === "VERIFIED" ? "Link confirmed. It now counts toward the in-force status." : "Link rejected. It is no longer shown." },
     });
     void refreshAll();
+    announceLinkDecision(link.source.id);
     return true;
   } catch (e: any) {
     const { [link.id]: _failed, ...rest } = state.busy;
     commit({ ...before, busy: rest, notice: { kind: "error", text: `Could not save that decision: ${e?.message || "unknown error"}. Nothing was changed.` } });
     void refreshAll();
+    announceLinkDecision(link.source.id);
     return false;
   }
+}
+
+/** Tells the checked-points store that a link's point changed, so the circular's page shows it too. */
+function announceLinkDecision(docId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("regwatch-link-decided", { detail: { docId } }));
+}
+
+// ------------------------------------------------------------------------------------ decisions made elsewhere
+
+function allLinks(s: RelState): RelLink[] {
+  const out: RelLink[] = [];
+  s.pending?.links.forEach((l) => out.push(l));
+  Object.values(s.status).forEach((st) => out.push(...st.verified_incoming, ...st.unconfirmed_incoming, ...st.outgoing));
+  Object.values(s.timeline).forEach((t) => t.items.forEach((it) => out.push(...it.changes)));
+  return out;
+}
+
+/**
+ * Shows a link decision made through its checked point (the review screen) on every links screen at once.
+ * Returns a function that puts everything back, or null when no screen holds that link yet.
+ */
+export function showLinkDecision(relationshipId: string, decision: Decision, link?: RelLink): (() => void) | null {
+  const found = link ?? allLinks(state).find((l) => l.id === relationshipId);
+  if (!found) return null;
+  const before = state;
+  epoch++;
+  commit({ ...applyDecision(state, found, decision), notice: null });
+  return () => commit({ inForce: before.inForce, status: before.status, graph: before.graph, timeline: before.timeline, pending: before.pending });
+}
+
+/** A message about a link decision made through the review of points. */
+export function setRelNotice(notice: { kind: "error" | "success"; text: string }) {
+  commit({ notice });
 }

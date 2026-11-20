@@ -24,7 +24,7 @@ class PipelineExecutionResult(BaseModel):
     token_usage: TokenUsage
     latency_ms: int
     validation_report: ClaimValidationReport
-    publication_status: str  # PUBLISHED_MACHINE_PROCESSED or AWAITING_REVIEW or FAILED
+    publication_status: str  # PUBLISHED_MACHINE_VERIFIED, or FAILED (the real status is derived from the claims)
     error: Optional[str] = None
 
 
@@ -32,9 +32,9 @@ class RegulatoryIntelligencePipeline:
     """
     Multi-stage end-to-end regulatory document analysis pipeline:
     1. Formats page text with page-level boundaries.
-    2. Runs AI provider inference for structured intelligence.
+    2. Runs Analysis provider inference for structured intelligence.
     3. Runs mandatory deterministic citation verification.
-    4. Evaluates risk-based publication eligibility.
+    4. Reports the quote coverage figure. Publication is decided per point, later (claims/).
     """
 
     def __init__(self, provider: BaseAIProvider):
@@ -48,6 +48,7 @@ class RegulatoryIntelligencePipeline:
         reference_hint: Optional[str] = None,
         force_human_review: bool = False
     ) -> PipelineExecutionResult:
+        # `force_human_review` is applied to the claims by the analysis service, not here.
         start_time = time.time()
 
         # Step 1: split every page into sentences with stable IDs (p3.s12) and show the model
@@ -70,13 +71,13 @@ class RegulatoryIntelligencePipeline:
                 temperature=0.0
             )
         except Exception as e:
-            logger.error(f"AI provider raised during analysis: {e}")
+            logger.error(f"Analysis provider raised during analysis: {e}")
             llm_response = LLMResponse(
                 raw_content="",
                 parsed_json=None,
                 model_name=self.provider.model_name,
                 success=False,
-                error=f"AI provider error: {e}",
+                error=f"Analysis provider error: {e}",
             )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
@@ -85,8 +86,8 @@ class RegulatoryIntelligencePipeline:
         if not usable:
             error = llm_response.error
             if llm_response.success and not error:
-                error = "AI provider returned an answer that is not a JSON object."
-            logger.error(f"AI provider pipeline step failed: {error}")
+                error = "Analysis provider returned an answer that is not a JSON object."
+            logger.error(f"Analysis provider pipeline step failed: {error}")
             empty_report = ClaimValidationReport(
                 total_claims=0,
                 verified_claims=0,
@@ -120,32 +121,10 @@ class RegulatoryIntelligencePipeline:
             pages_by_number=pages_by_number
         )
 
-        # Step 4: Deterministic Publication Gates (Phase 4 Hardening)
-        # A document REQUIRES human review if:
-        # 1. Any unverified claims, candidate fuzzy citations, or wrong page citations exist
-        # 2. Overall citation coverage score < 95%
-        # 3. Document has high legal impact (AMENDS, REPEALS, SUPERSEDES, REPLACES)
-        # 4. Overall impact assessment is HIGH
-        # 5. Extraction quality requires human review
-        # 6. Explicitly forced via force_human_review
-        has_legal_alteration = any(
-            rel.get("relationship_type") in ("AMENDS", "REPEALS", "SUPERSEDES", "REPLACES")
-            for rel in payload.get("relationships", [])
-        )
-        has_high_impact = (
-            (payload.get("impact_assessment") or {}).get("overall_impact_severity") == "HIGH"
-        )
-
-        if (
-            force_human_review
-            or quote_problems
-            or not validation_report.is_publication_eligible
-            or has_legal_alteration
-            or has_high_impact
-        ):
-            publication_status = "AWAITING_REVIEW"
-        else:
-            publication_status = "PUBLISHED_MACHINE_VERIFIED"
+        # Step 4: nothing is held back here any more. Each point is checked and shown or hidden
+        # on its own after the analysis is saved (claims/checks.py and claims/status.py). The
+        # coverage number above is only kept as a summary figure.
+        publication_status = "PUBLISHED_MACHINE_VERIFIED"
 
         logger.info(
             f"Pipeline completed in {elapsed_ms}ms. "

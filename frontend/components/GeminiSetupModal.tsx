@@ -65,7 +65,7 @@ export default function GeminiSetupModal({ isOpen, onClose, isConfigured, active
 
   return (
     <Modal open={isOpen} onClose={onClose} labelledBy="gemini-title" width="max-w-xl">
-      <ModalHeader id="gemini-title" title="AI setup (Gemini free tier)" subtitle="How to connect a Google AI Studio key without billing" onClose={onClose} />
+      <ModalHeader id="gemini-title" title="Connect the analysis service" subtitle="How to connect a Google AI Studio key without billing" onClose={onClose} />
       <div className="max-h-[68dvh] space-y-5 overflow-y-auto px-5 py-5 text-[14px] leading-relaxed text-ink-2">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-panel bg-sunken px-4 py-3">
           <div>

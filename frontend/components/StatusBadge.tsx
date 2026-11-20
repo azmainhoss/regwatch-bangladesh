@@ -35,10 +35,10 @@ interface StatusSpec {
  */
 const STATUSES: Record<string, StatusSpec> = {
   // Documents
-  PUBLISHED_HUMAN_REVIEWED: { label: "Signed off", tone: "ok", icon: CheckCircle2, hint: "Checked and signed off by a compliance officer" },
-  PUBLISHED_MACHINE_VERIFIED: { label: "Machine verified", tone: "info", icon: CheckCircle2, hint: "Quotes matched the source; no human sign-off yet" },
-  PUBLISHED_MACHINE_PROCESSED: { label: "Not signed off", tone: "info", icon: Eye, hint: "Machine analysis, waiting for a compliance officer to sign off" },
-  AWAITING_REVIEW: { label: "Awaiting review", tone: "warn", icon: Clock },
+  PUBLISHED_HUMAN_REVIEWED: { label: "Checked by our team", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page, some by our team" },
+  PUBLISHED_MACHINE_VERIFIED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
+  PUBLISHED_MACHINE_PROCESSED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "Its points have not been checked yet" },
+  AWAITING_REVIEW: { label: "Points waiting", tone: "warn", icon: Clock, hint: "Some points are waiting for our team to check them; the rest are shown" },
   NEEDS_REVISION: { label: "Needs revision", tone: "warn", icon: AlertTriangle },
   ANALYZING: { label: "Analysing", tone: "info", icon: Loader2, spin: true },
   EXTRACTION_FAILED: { label: "Extraction failed", tone: "bad", icon: AlertTriangle },

@@ -127,7 +127,7 @@ async def test_add_from_circular_only_verified_current_published(client):
     pending = obls[2]
     again = await add_items(client, ws, rid, doc, ids=[pending.id])
     assert again.json()["items"] == []
-    assert again.json()["skipped"][0]["reason"] == "Awaiting quote check"
+    assert again.json()["skipped"][0]["reason"] == "This requirement is waiting for a check."
 
     # unpublished circular
     udoc, _v, _p, uobls = await circular(n_verified=1, status="EXTRACTED")
@@ -161,7 +161,7 @@ async def test_add_from_circular_only_verified_current_published(client):
 
     listing = await client.get(f"{base(ws)}/documents/{doc.id}/addable-obligations", headers=ws.headers("VIEWER"))
     flags = {o["id"]: (o["addable"], o["reason_not_addable"]) for o in listing.json()["obligations"]}
-    assert flags[str(pending.id)] == (False, "Awaiting quote check")
+    assert flags[str(pending.id)] == (False, "This requirement is waiting for a check.")
     assert flags[str(obls[0].id)][0] is True
     assert len(listing.json()["obligations"][0]["already_in_register_ids"]) == 1
 

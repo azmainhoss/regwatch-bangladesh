@@ -3,15 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowUpRight, BookOpenText, FileDown, GitBranch, ListPlus, Lock, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowUpRight, BookOpenText, CheckCircle2, EyeOff, FileDown, GitBranch, ListPlus, Lock, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import {
   AuthUser,
-  DocumentAnalysisData,
+  ClaimItem,
+  ClaimSection,
   DocumentItem,
   DocumentPage,
-  ObligationItem,
   QuoteBox,
-  RelationshipItem,
   type ResearchCitation,
   documentPdfUrl,
   fetchAnalysisStatus,
@@ -19,12 +18,13 @@ import {
   type ReadingStatus,
   openDocumentPdf,
   reextractDocument,
-  reviewDocumentAnalysis,
   triggerDocumentAnalysis,
 } from "@/services/api";
 import StatusBadge, { AwaitingReviewTag, InForceBadge, PrivateTag, Tag } from "./StatusBadge";
 import CompareButtons from "./CompareButtons";
 import { loadStatus, inForceOf, useRelState } from "@/services/relationshipsStore";
+import { askReview, askReviewAll, clearClaimsNotice, reloadDoc, useDocClaims } from "@/services/claimsStore";
+import { SECTION_ORDER, adminStateText, checkedBadge, checkedTag, entityLabel, minutesText, placeholderLines, readable, type PlaceholderLine } from "@/services/claimWords";
 import { relLabel } from "./LinksView";
 import PagePanel, { type PageHighlight } from "./PagePanel";
 import AddToRegisterModal from "./workspace/AddToRegisterModal";
@@ -40,11 +40,7 @@ export interface QaResponse {
 
 interface Props {
   doc: DocumentItem;
-  analysis: DocumentAnalysisData | null;
-  obligations: ObligationItem[];
-  relationships: RelationshipItem[];
   pages: DocumentPage[];
-  detailLoading: boolean;
   pageNumber: number;
   setPageNumber: (n: number) => void;
   pagePanelOpen: boolean;
@@ -66,38 +62,11 @@ interface Props {
   viewingVersionId?: string | null;
 }
 
-const ENTITY_LABELS: Record<string, string> = {
-  SCHEDULED_COMMERCIAL_BANK: "All scheduled commercial banks in Bangladesh",
-  ISLAMIC_BANK: "Islamic Shariah-based scheduled banks",
-  NBFI: "Non-bank financial institutions (NBFIs)",
-  PAYMENT_SERVICE_PROVIDER: "Payment service providers (PSPs)",
-};
-
-function readable(raw?: string) {
-  if (!raw) return "";
-  const s = raw.replace(/_/g, " ").toLowerCase();
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 function formatDate(value?: string | null) {
   if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
-function keyChanges(analysis: DocumentAnalysisData | null): string[] {
-  const raw: unknown = analysis?.key_changes;
-  if (Array.isArray(raw)) return raw.map((c) => (typeof c === "string" ? c : JSON.stringify(c)));
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.map((c) => (typeof c === "string" ? c : JSON.stringify(c))) : [raw];
-    } catch {
-      return [raw];
-    }
-  }
-  return [];
 }
 
 function Section({ title, count, children, aside }: { title: string; count?: number; children: React.ReactNode; aside?: React.ReactNode }) {
@@ -115,7 +84,7 @@ function Section({ title, count, children, aside }: { title: string; count?: num
   );
 }
 
-function PageLink({ page, onClick }: { page?: number; onClick: () => void }) {
+function PageLink({ page, onClick }: { page?: number | null; onClick: () => void }) {
   if (!page) return <span className="text-[12.5px] text-ink-3">Page not linked</span>;
   return (
     <button
@@ -130,15 +99,50 @@ function PageLink({ page, onClick }: { page?: number; onClick: () => void }) {
   );
 }
 
-
-function minutesText(m: number) {
-  if (m <= 1) return "about a minute";
-  if (m < 60) return `about ${m} minutes`;
-  const h = Math.round(m / 60);
-  return `about ${h} ${h === 1 ? "hour" : "hours"}`;
+/** One line for the points of a section that are held back: why, and a link to the page of the original. */
+function Placeholder({ line, onOpen }: { line: PlaceholderLine; onOpen: (page: number, boxes: QuoteBox[]) => void }) {
+  const pages = Array.from(new Set(line.pages)).sort((a, b) => a - b);
+  const lead = line.state === "waiting_for_team" ? "read" : "Read";
+  return (
+    <p className="mt-3 rounded-panel bg-sunken px-3.5 py-2.5 text-[14px] leading-relaxed text-ink-2" data-testid="held-back-line" data-state={line.state}>
+      {line.before}
+      {pages.length === 0 ? (
+        <>
+          {lead} the{" "}
+          <button
+            type="button"
+            onClick={() => onOpen(1, [])}
+            className="font-semibold text-accent underline underline-offset-2 hover:text-accent-strong"
+            aria-label="Open the original circular"
+          >
+            original circular
+          </button>
+          .
+        </>
+      ) : (
+        <>
+          {line.marked ? `${lead} the highlighted lines on ` : `${lead} `}
+          {pages.length === 1 ? "page " : "pages "}
+          {pages.map((n, i) => (
+            <span key={n}>
+              {i > 0 && (i === pages.length - 1 ? " and " : ", ")}
+              <button
+                type="button"
+                onClick={() => onOpen(n, line.highlights[n] ?? [])}
+                className="font-semibold text-accent underline underline-offset-2 hover:text-accent-strong"
+                aria-label={`Open page ${n} of the original`}
+              >
+                {n}
+              </button>
+            </span>
+          ))}
+          {" of the original."}
+        </>
+      )}
+    </p>
+  );
 }
 
-/** One plain sentence: what is being waited for, how far along, how long, and what comes next. */
 function readingLine(total: number, waiting: number, r: ReadingStatus | null) {
   const ready = `${total - waiting} of ${total} pages ready`;
   const next =
@@ -162,11 +166,7 @@ function readingLine(total: number, waiting: number, r: ReadingStatus | null) {
 export default function CircularDetail(props: Props) {
   const {
     doc,
-    analysis,
-    obligations,
-    relationships,
     pages,
-    detailLoading,
     pageNumber,
     setPageNumber,
     pagePanelOpen,
@@ -186,7 +186,6 @@ export default function CircularDetail(props: Props) {
   } = props;
 
   const [analyzing, setAnalyzing] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [reextracting, setReextracting] = useState(false);
   const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error" | "info"; text: string; canForce?: boolean } | null>(null);
 
@@ -195,20 +194,27 @@ export default function CircularDetail(props: Props) {
   const [added, setAdded] = useState<{ orgId: string; registerId: string; count: number } | null>(null);
   const rights = useAddRights(!!currentUser);
   const wsState = useWorkspace();
-  const published = String(doc.publication_status || "").startsWith("PUBLISHED");
+  const status = String(doc.publication_status || "");
+  // A circular with a point waiting for a person can still have shown points, so it can be added from.
+  const published = status.startsWith("PUBLISHED") || status === "AWAITING_REVIEW";
   const canAddToRegister = !!currentUser && !doc.is_private && published && !!rights.active;
   const activeOrgId = rights.active?.id ?? null;
   useEffect(() => {
     // Preload the bank workspace so the "In your register" tags are right and adding is instant.
     if (canAddToRegister && activeOrgId) void ensureWorkspace(activeOrgId);
   }, [canAddToRegister, activeOrgId]);
-  const inYourRegister = (obl: ObligationItem) =>
+  const inYourRegister = (item: ClaimItem) =>
     !!activeOrgId &&
-    orgItems(wsState, activeOrgId).some((i) => i.source.document_id === doc.id && (i.obligation_id === obl.id || i.source.quote === obl.supporting_text));
+    orgItems(wsState, activeOrgId).some((i) => i.source.document_id === doc.id && ((!!item.obligation_id && i.obligation_id === item.obligation_id) || i.source.quote === item.quote));
   const rel = useRelState();
   const relStatus = rel.status[doc.id];
   const inForce = inForceOf(rel, doc);
-  const awaiting = (relStatus?.unconfirmed_incoming.length ?? 0) + (relStatus?.outgoing.filter((l) => l.verification_status === "PENDING_REVIEW").length ?? 0);
+  const awaiting = isAdmin
+    ? (relStatus?.unconfirmed_incoming.length ?? 0) + (relStatus?.outgoing.filter((l) => l.verification_status === "PENDING_REVIEW").length ?? 0)
+    : 0;
+
+  // The checked points of this circular: from the shared copy at once, kept fresh while the page is visible.
+  const { view, error: claimsError, loading: claimsLoading, state: claimsState } = useDocClaims(doc.id, isAdmin);
 
   // In-force status, links and compare targets: shown from the shared copy at once, refreshed in the background.
   useEffect(() => {
@@ -239,7 +245,8 @@ export default function CircularDetail(props: Props) {
 
   const openPage = (n: number, quote?: string | null, boxes?: QuoteBox[] | null) => {
     setPageNumber(n);
-    setHighlight(quote ? { text: quote, boxes: boxes ?? null, key: `${Date.now()}` } : null);
+    const hasBoxes = !!boxes && boxes.length > 0;
+    setHighlight(quote || hasBoxes ? { text: quote ?? "", boxes: boxes ?? null, key: `${Date.now()}` } : null);
     setPagePanelOpen(true);
   };
 
@@ -248,7 +255,8 @@ export default function CircularDetail(props: Props) {
   const finishAnalysis = (state: string, message?: string | null) => {
     setAnalyzing(false);
     if (state === "DONE") {
-      setAdminMessage({ type: "success", text: "Analysis finished. The badge above shows whether it was published or needs a sign-off." });
+      setAdminMessage({ type: "success", text: "Analysis finished. Points that passed their checks are shown below; the rest wait for a check." });
+      void reloadDoc(doc.id);
       onRefresh();
     } else if (state === "FAILED") {
       setAdminMessage({ type: "error", text: message || "The analysis could not finish. Earlier results are kept." });
@@ -311,20 +319,6 @@ export default function CircularDetail(props: Props) {
     }
   };
 
-  const signOff = async () => {
-    try {
-      setPublishing(true);
-      setAdminMessage(null);
-      await reviewDocumentAnalysis(doc.id, "PUBLISHED_HUMAN_REVIEWED", "Signed off by administrator");
-      setAdminMessage({ type: "success", text: "Signed off. The circular is now published as human reviewed." });
-      onRefresh();
-    } catch (e: any) {
-      setAdminMessage({ type: "error", text: "Sign-off failed: " + (e.message || String(e)) });
-    } finally {
-      setPublishing(false);
-    }
-  };
-
   const reextract = async () => {
     try {
       setReextracting(true);
@@ -343,19 +337,17 @@ export default function CircularDetail(props: Props) {
     }
   };
 
-  const changes = keyChanges(analysis);
-  const payload = analysis?.structured_payload ?? {};
-  const covered = payload?.applicability?.covered_entities;
-  const conditional = payload?.applicability?.conditional_rules;
-  const exemptions = payload?.applicability?.exemptions;
-  const effective = payload?.deadlines?.effective_date || doc.effective_date;
-  const complianceDeadline = payload?.deadlines?.compliance_deadline || obligations.find((o) => o.explicit_deadline)?.explicit_deadline;
-
-  const appliesTo = (() => {
-    if (Array.isArray(covered) && covered.length > 0) return covered.map((e: string) => ENTITY_LABELS[e] || readable(e));
-    const targets = Array.from(new Set(obligations.map((o) => o.applicability_summary).filter(Boolean)));
-    return targets;
-  })();
+  // ------------------------------------------------------------------ what the checked view holds
+  const counts = view?.counts;
+  const itemsOf = (s: ClaimSection): ClaimItem[] => view?.sections[s] ?? [];
+  const shownOf = (s: ClaimSection) => itemsOf(s).filter((i) => i.shown !== false);
+  const heldOf = (s: ClaimSection) => (isAdmin ? itemsOf(s).filter((i) => i.shown === false) : []);
+  const lines = !isAdmin && view ? placeholderLines(view.hidden, view.checking) : [];
+  const linesOf = (s: ClaimSection) => lines.filter((l) => l.section === s);
+  const anyByTeam = SECTION_ORDER.some((s) => shownOf(s).some((i) => i.checked_by === "TEAM"));
+  const badge = view && view.state !== "NO_ANALYSIS" && counts && (status.startsWith("PUBLISHED") || status === "AWAITING_REVIEW") ? checkedBadge(counts, anyByTeam) : null;
+  const dateOf = (kind: string) => shownOf("dates").find((i) => i.fields.date_kind === kind)?.fields.date as string | undefined;
+  const hasHeld = !!counts && counts.shown < counts.total;
 
   const pdfButton =
     doc.is_private && !doc.source_url ? (
@@ -371,24 +363,104 @@ export default function CircularDetail(props: Props) {
       </a>
     );
 
-  const analysisBody = !currentUser ? (
-    <div className="rounded-panel border border-line bg-sunken/60 px-5 py-6 sm:px-6">
-      <div className="flex items-start gap-3">
-        <Lock className="mt-0.5 h-5 w-5 shrink-0 text-ink-3" strokeWidth={1.75} />
-        <div>
-          <h3 className="text-[16px] font-semibold text-ink">Sign in to read the analysis</h3>
-          <p className="mt-1 max-w-prose text-[14.5px] leading-relaxed text-ink-2">
-            The summary, the requirements with their quotes, who the circular applies to, its dates, and questions answered from its pages are
-            available to signed-in users.
-          </p>
-          <button type="button" onClick={onSignIn} className="btn-primary mt-4">
-            Sign in
-          </button>
-        </div>
-      </div>
+  const askButton = (item: ClaimItem) =>
+    isAdmin ? (
+      <button
+        type="button"
+        onClick={() => void askReview(doc.id, item.id)}
+        disabled={!!claimsState.busy[item.id]}
+        className="inline-flex min-h-9 items-center gap-1 rounded-control px-2 py-0.5 text-[12.5px] font-semibold text-ink-3 ring-1 ring-inset ring-line-strong transition-colors hover:bg-sunken hover:text-ink sm:min-h-0 sm:px-1.5"
+        title="Hide this point from readers until our team has decided it"
+        data-testid="ask-review"
+      >
+        <EyeOff className="h-3.5 w-3.5" strokeWidth={1.75} />
+        Ask for review
+      </button>
+    ) : null;
+
+  /** Administrators: a point waiting for a decision says so in plain words and links to its review. */
+  const reviewLink = (item: ClaimItem) =>
+    isAdmin && (item.status === "WAITING_FOR_PERSON" || item.status === "NOT_SHOWN") ? (
+      <Link
+        href={`/admin?tab=checks&point=${item.id}`}
+        className="inline-flex min-h-9 items-center gap-1 rounded-control px-2 py-0.5 text-[12.5px] font-semibold text-accent ring-1 ring-inset ring-accent/40 transition-colors hover:bg-sunken sm:min-h-0 sm:px-1.5"
+        data-testid="review-link"
+      >
+        Review
+      </Link>
+    ) : null;
+
+  /** A shown point that still waits for a decision (a link shown only as a mention) says so. */
+  const adminState = (item: ClaimItem) =>
+    isAdmin && item.shown !== false && item.status === "WAITING_FOR_PERSON" ? (
+      <>
+        <span className="text-warn" data-testid="admin-point-state">
+          {adminStateText(item)}
+        </span>
+        {reviewLink(item)}
+      </>
+    ) : null;
+
+  /** The quiet tag, the page link and (administrators) the ask-for-review button under one shown point. */
+  const foot = (item: ClaimItem, extra?: React.ReactNode) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-3">
+      <PageLink page={item.page_number} onClick={() => item.page_number && openPage(item.page_number, item.quote, item.quote_boxes)} />
+      <span data-testid="checked-tag">{checkedTag(item)}</span>
+      {extra}
+      {adminState(item)}
+      {askButton(item)}
     </div>
-  ) : detailLoading ? (
-    <div className="space-y-3 border-t border-line pt-5" aria-busy="true" aria-label="Loading analysis">
+  );
+
+  /** A point an administrator can see that readers cannot: its state in plain words. */
+  const heldRow = (item: ClaimItem, text: string) => (
+    <li key={item.id} className="rounded-panel border border-dashed border-line-strong px-3 py-2 text-[14px] text-ink-2" data-testid="admin-held-point">
+      <p className="max-w-prose text-ink" lang={hasBangla(text) ? "bn" : undefined}>
+        {text}
+      </p>
+      <p className="mt-1 text-[13px] text-ink-3" data-testid="admin-point-state">
+        {adminStateText(item)}
+      </p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        {item.page_number && <PageLink page={item.page_number} onClick={() => openPage(item.page_number!, item.quote, item.quote_boxes)} />}
+        {reviewLink(item)}
+      </div>
+    </li>
+  );
+
+  const sectionHint = (s: ClaimSection, empty: string) => {
+    if (shownOf(s).length > 0 || heldOf(s).length > 0 || linesOf(s).length > 0) return null;
+    return <p className="text-[14.5px] text-ink-3">{empty}</p>;
+  };
+
+  const heldPoints = (s: ClaimSection, label: (i: ClaimItem) => string) =>
+    heldOf(s).length > 0 && (
+      <ul className="mt-3 space-y-2">
+        {heldOf(s).map((i) => heldRow(i, label(i)))}
+      </ul>
+    );
+
+  const placeholders = (s: ClaimSection) =>
+    linesOf(s).map((l) => <Placeholder key={l.key} line={l} onOpen={(n, boxes) => openPage(n, "", boxes)} />);
+
+  const bulletList = (s: ClaimSection) =>
+    shownOf(s).length > 0 && (
+      <ul className="max-w-prose space-y-3">
+        {shownOf(s).map((i) => (
+          <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2 text-[15px] leading-relaxed text-ink" data-testid="shown-point">
+            <span aria-hidden className="mt-[0.7em] h-1.5 w-1.5 rounded-full bg-accent" />
+            <div className="space-y-1.5">
+              <span lang={hasBangla(i.fields.text) ? "bn" : undefined}>{i.fields.text}</span>
+              {foot(i)}
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+
+  const analysisBody = claimsLoading ? (
+    <div className="space-y-3 border-t border-line pt-5" aria-busy="true" aria-label="Loading the checked points" role="status">
+      <p className="text-[14px] text-ink-3">Loading the checked points of this circular. This takes a second.</p>
       <SkeletonLine className="h-4 w-28" />
       <SkeletonLine className="h-3.5 w-full" />
       <SkeletonLine className="h-3.5 w-11/12" />
@@ -396,124 +468,133 @@ export default function CircularDetail(props: Props) {
       <SkeletonLine className="mt-6 h-4 w-36" />
       <SkeletonLine className="h-16 w-full" />
     </div>
+  ) : !view ? (
+    <Notice kind="error">
+      Could not load the points of this circular{claimsError ? ` (${claimsError})` : ""}. This page tries again by itself every few seconds.
+    </Notice>
+  ) : view.state === "NO_ANALYSIS" ? (
+    <div className="space-y-3 border-t border-line pt-5">
+      {doc.title_bn && (
+        <p lang="bn" className="max-w-prose text-[16px] text-ink">
+          {doc.title_bn}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[14px] text-ink-2">No analysis has been run on this circular yet.</span>
+        {isAdmin && (
+          <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
+            <Sparkles className="h-3.5 w-3.5" />
+            {analyzing ? "Running..." : "Run analysis"}
+          </button>
+        )}
+      </div>
+    </div>
   ) : (
     <div className="space-y-6">
+      {view.state === "ANALYSING" && !analyzing && (
+        <Notice kind="info">Analysing this circular. This page updates by itself when it is done.</Notice>
+      )}
+      {hasHeld && counts && (
+        <p className="text-[14px] text-ink-2" data-testid="showing-count">
+          Showing {counts.shown} of {counts.total} points.
+          {isAdmin && counts.waiting_for_team > 0 && ` ${counts.waiting_for_team} waiting for a check.`}
+          {isAdmin && counts.not_shown > 0 && ` ${counts.not_shown} not shown.`}
+        </p>
+      )}
+      {isAdmin && counts && counts.checking > 0 && (
+        <Notice kind="info">
+          {counts.checking} {counts.checking === 1 ? "point is" : "points are"} still being checked against the page image,{" "}
+          {view.checking.paused_until
+            ? "checking is paused until today's free limit resets."
+            : `${minutesText(view.checking.minutes_left)} left. This page updates by itself.`}
+        </Notice>
+      )}
+
       <Section title="Summary">
-        {analysis?.executive_summary ? (
-          <p className="max-w-prose text-[16px] leading-[1.7] text-ink" lang={hasBangla(analysis.executive_summary) ? "bn" : undefined}>
-            {analysis.executive_summary}
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {doc.title_bn && (
-              <p lang="bn" className="max-w-prose text-[16px] text-ink">
-                {doc.title_bn}
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge status="AWAITING_REVIEW" size="sm" />
-              <span className="text-[14px] text-ink-2">No analysis has been run on this circular yet.</span>
-              {isAdmin && (
-                <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {analyzing ? "Running..." : "Run analysis"}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        {analysis?.purpose && (
-          <p className="mt-3 max-w-prose text-[14.5px] leading-relaxed text-ink-2">
-            <span className="font-semibold text-ink">Purpose. </span>
-            {analysis.purpose}
-          </p>
-        )}
+        {bulletList("summary")}
+        {heldPoints("summary", (i) => i.fields.text ?? "")}
+        {placeholders("summary")}
+        {sectionHint("summary", "No summary points are available yet.")}
       </Section>
 
       <Section title="What has changed">
-        {changes.length > 0 ? (
-          <ul className="max-w-prose space-y-2.5">
-            {changes.map((c, i) => (
-              <li key={i} className="grid grid-cols-[1rem_1fr] gap-2 text-[15px] leading-relaxed text-ink">
-                <span aria-hidden className="mt-[0.7em] h-1.5 w-1.5 rounded-full bg-accent" />
-                <span>{c}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[14.5px] text-ink-3">
-            {analysis ? "No changes to earlier circulars are listed. The requirements below are what this circular asks for." : "Shown once the circular is analysed."}
-          </p>
-        )}
+        {bulletList("changes")}
+        {heldPoints("changes", (i) => i.fields.text ?? "")}
+        {placeholders("changes")}
+        {sectionHint("changes", "No changes to earlier circulars are listed. The requirements below are what this circular asks for.")}
       </Section>
 
-      <Section title="Requirements" count={obligations.length}>
-        {obligations.length === 0 ? (
-          <div className="flex flex-wrap items-center gap-3 text-[14.5px] text-ink-3">
-            <span>No requirements have been extracted for this circular yet.</span>
-            {!analysis && isAdmin && (
-              <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
-                {analyzing ? "Extracting..." : "Extract requirements"}
-              </button>
-            )}
-          </div>
-        ) : (
+      <Section title="Requirements" count={shownOf("requirements").length}>
+        {shownOf("requirements").length > 0 && (
           <ol className="divide-y divide-line">
-            {obligations.map((obl, i) => {
-              const citedPage = pages.find((p) => p.id === obl.page_id)?.page_number;
+            {shownOf("requirements").map((item, i) => {
+              const f = item.fields;
               return (
                 <motion.li
-                  key={obl.id}
+                  key={item.id}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.25, delay: Math.min(i, 8) * 0.03, ease: EASE_OUT }}
                   className="space-y-2.5 py-4 first:pt-0 last:pb-0"
+                  data-testid="shown-point"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
-                    <h4 className="max-w-prose text-[15.5px] font-semibold leading-snug text-ink">{obl.title}</h4>
+                    <h4 className="max-w-prose text-[15.5px] font-semibold leading-snug text-ink">{f.title || "Requirement"}</h4>
                     <span className="flex flex-wrap items-center gap-1.5">
-                      {inYourRegister(obl) && (
+                      {inYourRegister(item) && (
                         <span data-testid="in-register-tag">
                           <Tag tone="ok" title="This obligation is already in a register of your bank">
                             In your register
                           </Tag>
                         </span>
                       )}
-                      {obl.obligation_type && <Tag tone="accent">{readable(obl.obligation_type)}</Tag>}
+                      {f.obligation_type && <Tag tone="accent">{readable(f.obligation_type)}</Tag>}
                     </span>
                   </div>
-                  <p className="max-w-prose text-[15px] leading-relaxed text-ink-2">{obl.requirement_description}</p>
-                  {obl.supporting_text && (
-                    <blockquote className="quote max-w-prose" lang={hasBangla(obl.supporting_text) ? "bn" : undefined}>
-                      &ldquo;{obl.supporting_text}&rdquo;
+                  {f.description && <p className="max-w-prose text-[15px] leading-relaxed text-ink-2">{f.description}</p>}
+                  {item.quote && (
+                    <blockquote className="quote max-w-prose" lang={hasBangla(item.quote) ? "bn" : undefined}>
+                      &ldquo;{item.quote}&rdquo;
                     </blockquote>
                   )}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-3">
-                    <PageLink page={citedPage} onClick={() => citedPage && openPage(citedPage, obl.supporting_text, obl.quote_boxes)} />
-                    <span>Applies to: {obl.applicability_summary || "Not stated"}</span>
-                    {obl.explicit_deadline && <span className="font-semibold text-warn">Deadline: {formatDate(obl.explicit_deadline)}</span>}
-                  </div>
+                  {foot(
+                    item,
+                    <>
+                      <span>Applies to: {entityLabel(f.who) || "Not stated"}</span>
+                      {f.deadline ? (
+                        <span className="font-semibold text-warn">Deadline: {formatDate(f.deadline)}</span>
+                      ) : f.deadline_text ? (
+                        <span className="font-semibold text-warn">Deadline: {f.deadline_text}</span>
+                      ) : null}
+                    </>
+                  )}
                 </motion.li>
               );
             })}
           </ol>
         )}
+        {heldPoints("requirements", (i) => i.fields.title ?? "Requirement")}
+        {placeholders("requirements")}
+        {sectionHint("requirements", "No requirements have been extracted for this circular yet.")}
       </Section>
 
       <Section title="Who it applies to">
-        {appliesTo.length > 0 ? (
-          <ul className="max-w-prose space-y-1.5 text-[15px] text-ink">
-            {appliesTo.map((t: string) => (
-              <li key={t} className="grid grid-cols-[1rem_1fr] gap-2">
+        {shownOf("applies_to").length > 0 && (
+          <ul className="max-w-prose space-y-2 text-[15px] text-ink">
+            {shownOf("applies_to").map((i) => (
+              <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2" data-testid="shown-point">
                 <span aria-hidden className="mt-[0.65em] h-1.5 w-1.5 rounded-full bg-ink-3" />
-                <span>{t}</span>
+                <div className="space-y-1.5">
+                  <span>{entityLabel(i.fields.entity)}</span>
+                  {foot(i)}
+                </div>
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-[14.5px] text-ink-3">Not identified yet. Read the circular text for who it applies to.</p>
         )}
-        {conditional && <p className="mt-2 max-w-prose text-[14.5px] text-ink-2">Scope: {conditional}</p>}
+        {heldPoints("applies_to", (i) => entityLabel(i.fields.entity))}
+        {placeholders("applies_to")}
+        {sectionHint("applies_to", "Not identified yet. Read the circular text for who it applies to.")}
       </Section>
 
       <Section title="Dates">
@@ -524,148 +605,186 @@ export default function CircularDetail(props: Props) {
           </div>
           <div>
             <dt className="text-[13px] text-ink-3">Takes effect</dt>
-            <dd className="mt-0.5 text-[15px] font-semibold text-ink tabular-nums">{formatDate(effective) || "Not stated"}</dd>
+            <dd className="mt-0.5 text-[15px] font-semibold text-ink tabular-nums">{formatDate(dateOf("EFFECTIVE")) || "Not stated"}</dd>
           </div>
           <div>
             <dt className="text-[13px] text-ink-3">Compliance deadline</dt>
-            <dd className={`mt-0.5 text-[15px] font-semibold tabular-nums ${complianceDeadline ? "text-warn" : "text-ink"}`}>
-              {formatDate(complianceDeadline) || "Not stated"}
+            <dd className={`mt-0.5 text-[15px] font-semibold tabular-nums ${dateOf("COMPLIANCE") ? "text-warn" : "text-ink"}`}>
+              {formatDate(dateOf("COMPLIANCE")) || "Not stated"}
             </dd>
           </div>
+          {dateOf("REPORTING") && (
+            <div>
+              <dt className="text-[13px] text-ink-3">Reporting deadline</dt>
+              <dd className="mt-0.5 text-[15px] font-semibold tabular-nums text-warn">{formatDate(dateOf("REPORTING"))}</dd>
+            </div>
+          )}
         </dl>
+        {shownOf("dates").length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+            {shownOf("dates").map((i) => (
+              <span key={i.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3" data-testid="shown-point">
+                <PageLink page={i.page_number} onClick={() => i.page_number && openPage(i.page_number, i.quote, i.quote_boxes)} />
+                {askButton(i)}
+              </span>
+            ))}
+          </div>
+        )}
+        {heldPoints("dates", (i) => `${readable(i.fields.date_kind)} date: ${formatDate(i.fields.date) ?? ""}`)}
+        {placeholders("dates")}
       </Section>
 
       <Section title="Exceptions and conditions">
-        {Array.isArray(exemptions) && exemptions.length > 0 ? (
-          <ul className="max-w-prose list-disc space-y-1 pl-5 text-[15px] text-ink marker:text-ink-3">
-            {exemptions.map((ex: unknown, i: number) => (
-              <li key={i}>{typeof ex === "string" ? ex : JSON.stringify(ex)}</li>
+        {shownOf("exemptions").length > 0 && (
+          <ul className="max-w-prose space-y-3 text-[15px] text-ink">
+            {shownOf("exemptions").map((i) => (
+              <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2" data-testid="shown-point">
+                <span aria-hidden className="mt-[0.65em] h-1.5 w-1.5 rounded-full bg-ink-3" />
+                <div className="space-y-1.5">
+                  <span lang={hasBangla(i.fields.text) ? "bn" : undefined}>{i.fields.text}</span>
+                  {foot(i)}
+                </div>
+              </li>
             ))}
           </ul>
-        ) : conditional ? (
-          <p className="max-w-prose text-[15px] text-ink">{conditional}</p>
-        ) : (
-          <p className="text-[14.5px] text-ink-3">No exceptions or special conditions identified yet.</p>
         )}
+        {heldPoints("exemptions", (i) => i.fields.text ?? "")}
+        {placeholders("exemptions")}
+        {sectionHint("exemptions", "No exceptions or special conditions identified yet.")}
       </Section>
 
-      {relationships.length > 0 && (
-        <Section title="Related circulars" count={relationships.length}>
-          <ul className="divide-y divide-line">
-            {relationships.map((item, idx) => {
-              // The same link as the history view sees it: it knows the stored circular and whether the link is confirmed.
-              const known = relStatus?.outgoing.find((l) => l.id === item.id);
-              const relPage = item.quote_boxes?.[0]?.page_number ?? known?.page_number ?? undefined;
-              const status = known?.verification_status ?? item.verification_status;
-              const pendingLink = status === "PENDING_REVIEW";
-              const target = known?.target;
-              return (
-                <li key={item.id ?? idx} className={`space-y-1.5 py-3 first:pt-0 last:pb-0 ${pendingLink ? "opacity-85" : ""}`} data-testid="related-item" data-status={status}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {target ? (
-                      <Link href={`/?doc=${target.id}`} className="refno hover:underline">
-                        {target.reference_number || target.title}
-                      </Link>
-                    ) : (
-                      <span className="refno">{item.target_reference_hint || "Cited circular"}</span>
+      {(shownOf("links").length > 0 || heldOf("links").length > 0 || linesOf("links").length > 0) && (
+        <Section title="Related circulars" count={shownOf("links").length}>
+          {shownOf("links").length > 0 && (
+            <ul className="divide-y divide-line">
+              {shownOf("links").map((item) => {
+                const link = item.link;
+                const label = link?.target_reference || "Cited circular";
+                return (
+                  <li key={item.id} className="space-y-1.5 py-3 first:pt-0 last:pb-0" data-testid="related-item" data-type={link?.shown_type}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {link?.target_document_id ? (
+                        <Link href={`/?doc=${link.target_document_id}`} className="refno hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        <span className="refno">{label}</span>
+                      )}
+                      <Tag tone="info">{relLabel(link?.shown_type || "REFERENCES")}</Tag>
+                      {!link?.target_document_id && (
+                        <Tag tone="muted" title="This circular is not in the library yet">
+                          Not in library
+                        </Tag>
+                      )}
+                    </div>
+                    {item.quote && (
+                      <blockquote className="quote max-w-prose" lang={hasBangla(item.quote) ? "bn" : undefined}>
+                        &ldquo;{item.quote}&rdquo;
+                      </blockquote>
                     )}
-                    <Tag tone={pendingLink ? "muted" : "info"}>{known ? relLabel(item.relationship_type) : readable(item.relationship_type)}</Tag>
-                    {pendingLink && <AwaitingReviewTag />}
-                    {!target && item.target_reference_hint && (
-                      <Tag tone="muted" title="This circular is not in the library yet">
-                        Not in library
-                      </Tag>
-                    )}
-                  </div>
-                  {item.supporting_quote && <blockquote className="quote max-w-prose">&ldquo;{item.supporting_quote}&rdquo;</blockquote>}
-                  {relPage && pages.length > 0 && (
-                    <PageLink page={relPage} onClick={() => openPage(relPage, item.supporting_quote, item.quote_boxes)} />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                    {foot(item)}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {heldPoints("links", (i) => i.link?.target_reference || i.fields.target_hint || "Cited circular")}
+          {placeholders("links")}
         </Section>
       )}
 
       <Section title="Ask this circular">
-        <p className="mb-3 max-w-prose text-[14px] text-ink-3">Answers come only from this circular, with the page each quote is on.</p>
-        <form onSubmit={onAsk} className="flex flex-col gap-2 sm:flex-row">
-          <label htmlFor={`qa-${doc.id}`} className="sr-only">
-            Your question
-          </label>
-          <input
-            id={`qa-${doc.id}`}
-            type="text"
-            value={qaQuery}
-            onChange={(e) => setQaQuery(e.target.value)}
-            placeholder="For example: what is the deadline, and who must report?"
-            className="field flex-1"
-          />
-          <button type="submit" disabled={qaLoading || !qaQuery.trim()} className="btn-primary px-4 py-2">
-            <Send className="h-4 w-4" strokeWidth={1.75} />
-            {qaLoading ? "Searching..." : "Ask"}
-          </button>
-        </form>
+        {currentUser ? (
+          <>
+            <p className="mb-3 max-w-prose text-[14px] text-ink-3">Answers come only from this circular, with the page each quote is on.</p>
+            <form onSubmit={onAsk} className="flex flex-col gap-2 sm:flex-row">
+              <label htmlFor={`qa-${doc.id}`} className="sr-only">
+                Your question
+              </label>
+              <input
+                id={`qa-${doc.id}`}
+                type="text"
+                value={qaQuery}
+                onChange={(e) => setQaQuery(e.target.value)}
+                placeholder="For example: what is the deadline, and who must report?"
+                className="field flex-1"
+              />
+              <button type="submit" disabled={qaLoading || !qaQuery.trim()} className="btn-primary px-4 py-2">
+                <Send className="h-4 w-4" strokeWidth={1.75} />
+                {qaLoading ? "Searching..." : "Ask"}
+              </button>
+            </form>
 
-        {qaError && (
-          <Notice kind="error" className="mt-3">
-            {qaError}
-          </Notice>
-        )}
+            {qaError && (
+              <Notice kind="error" className="mt-3">
+                {qaError}
+              </Notice>
+            )}
 
-        {qaLoading && !qaResponse && (
-          <div className="mt-4 space-y-3 rounded-panel border border-line bg-sunken/50 p-4" aria-live="polite">
-            <p className="flex items-center gap-2 text-[14px] text-ink-2">
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              Writing the answer. The matching lines are below already.
-            </p>
-            {!qaMatches ? (
-              <SkeletonLine />
-            ) : qaMatches.length === 0 ? (
-              <p className="text-[13.5px] text-ink-3">No line in this circular uses those exact words. The answer may still find it.</p>
-            ) : (
-              <div className="space-y-3 border-t border-line pt-3">
-                <p className="text-[13px] font-semibold text-ink-2">Matching lines</p>
-                {qaMatches.slice(0, 4).map((m, i) => (
-                  <div key={i} className="space-y-1.5">
-                    <blockquote className="quote" lang={hasBangla(m.verbatim_excerpt) ? "bn" : undefined}>
-                      &ldquo;{m.verbatim_excerpt}&rdquo;
-                    </blockquote>
-                    <PageLink page={m.page_number} onClick={() => openPage(m.page_number, m.verbatim_excerpt, (m.quote_boxes as QuoteBox[]) ?? null)} />
+            {qaLoading && !qaResponse && (
+              <div className="mt-4 space-y-3 rounded-panel border border-line bg-sunken/50 p-4" aria-live="polite">
+                <p className="flex items-center gap-2 text-[14px] text-ink-2">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  Writing the answer. The matching lines are below already.
+                </p>
+                {!qaMatches ? (
+                  <SkeletonLine />
+                ) : qaMatches.length === 0 ? (
+                  <p className="text-[13.5px] text-ink-3">No line in this circular uses those exact words. The answer may still find it.</p>
+                ) : (
+                  <div className="space-y-3 border-t border-line pt-3">
+                    <p className="text-[13px] font-semibold text-ink-2">Matching lines</p>
+                    {qaMatches.slice(0, 4).map((m, i) => (
+                      <div key={i} className="space-y-1.5">
+                        <blockquote className="quote" lang={hasBangla(m.verbatim_excerpt) ? "bn" : undefined}>
+                          &ldquo;{m.verbatim_excerpt}&rdquo;
+                        </blockquote>
+                        <PageLink page={m.page_number} onClick={() => openPage(m.page_number, m.verbatim_excerpt, (m.quote_boxes as QuoteBox[]) ?? null)} />
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {qaResponse && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25, ease: EASE_OUT }}
-            className="mt-4 rounded-panel border border-line bg-sunken/50 p-4"
-          >
-            <p className="max-w-prose whitespace-pre-line text-[15px] leading-relaxed text-ink">{qaResponse.answer}</p>
-            {Array.isArray(qaResponse.citations) && qaResponse.citations.length > 0 && (
-              <div className="mt-4 space-y-3 border-t border-line pt-3">
-                <p className="text-[13px] font-semibold text-ink-2">From the circular</p>
-                {qaResponse.citations.slice(0, 3).map((cit, i) => {
-                  const p = cit.page_number || cit.page || 1;
-                  const q = cit.verbatim_excerpt || cit.quoted_text || cit.quote || "";
-                  return (
-                    <div key={i} className="space-y-1.5">
-                      <blockquote className="quote" lang={hasBangla(q) ? "bn" : undefined}>
-                        &ldquo;{q}&rdquo;
-                      </blockquote>
-                      <PageLink page={p} onClick={() => openPage(p, q)} />
-                    </div>
-                  );
-                })}
-              </div>
+            {qaResponse && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: EASE_OUT }}
+                className="mt-4 rounded-panel border border-line bg-sunken/50 p-4"
+              >
+                <p className="max-w-prose whitespace-pre-line text-[15px] leading-relaxed text-ink">{qaResponse.answer}</p>
+                {Array.isArray(qaResponse.citations) && qaResponse.citations.length > 0 && (
+                  <div className="mt-4 space-y-3 border-t border-line pt-3">
+                    <p className="text-[13px] font-semibold text-ink-2">From the circular</p>
+                    {qaResponse.citations.slice(0, 3).map((cit, i) => {
+                      const p = cit.page_number || cit.page || 1;
+                      const q = cit.verbatim_excerpt || cit.quoted_text || cit.quote || "";
+                      return (
+                        <div key={i} className="space-y-1.5">
+                          <blockquote className="quote" lang={hasBangla(q) ? "bn" : undefined}>
+                            &ldquo;{q}&rdquo;
+                          </blockquote>
+                          <PageLink page={p} onClick={() => openPage(p, q)} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
             )}
-          </motion.div>
+          </>
+        ) : (
+          <div className="flex items-start gap-3 rounded-panel border border-line bg-sunken/60 px-4 py-4">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} />
+            <div>
+              <p className="max-w-prose text-[14.5px] text-ink-2">Sign in to ask questions about this circular and get answers with the page each quote is on.</p>
+              <button type="button" onClick={onSignIn} className="btn-primary mt-3">
+                Sign in
+              </button>
+            </div>
+          </div>
         )}
       </Section>
     </div>
@@ -677,7 +796,16 @@ export default function CircularDetail(props: Props) {
       <header className="space-y-3 px-5 pb-5 pt-5 sm:px-7 sm:pt-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="refno">{doc.reference_number || "Circular"}</span>
-          <StatusBadge status={doc.publication_status} />
+          {badge ? (
+            <span data-testid="checked-badge">
+              <Tag tone={badge.tone} title={badge.hint}>
+                <CheckCircle2 className="h-3 w-3" strokeWidth={2} aria-hidden />
+                {badge.label}
+              </Tag>
+            </span>
+          ) : (
+            <StatusBadge status={doc.publication_status} />
+          )}
           <InForceBadge info={inForce} />
           {awaiting > 0 && <AwaitingReviewTag count={awaiting} />}
           {doc.is_private && <PrivateTag />}
@@ -748,7 +876,7 @@ export default function CircularDetail(props: Props) {
           </Notice>
         )}
         {waitingCount > 0 && <Notice kind="info">{readingLine(pages.length, waitingCount, reading)}</Notice>}
-        {waitingCount === 0 && !analysis && reading?.analysis_after === "LATER" && (
+        {waitingCount === 0 && view?.state === "NO_ANALYSIS" && reading?.analysis_after === "LATER" && (
           <Notice kind="info">
             This is an older circular from the archive. Its full text is here now; the summary and requirements will be added later.
           </Notice>
@@ -764,8 +892,16 @@ export default function CircularDetail(props: Props) {
                 <RefreshCw className={`h-3.5 w-3.5 ${analyzing ? "animate-spin" : ""}`} />
                 {analyzing ? "Analysing..." : "Run analysis"}
               </button>
-              <button type="button" onClick={signOff} disabled={publishing} className="btn-secondary py-1">
-                {publishing ? "Signing off..." : "Approve and sign off"}
+              <button
+                type="button"
+                onClick={() => void askReviewAll(doc.id)}
+                disabled={!!claimsState.busyDoc[doc.id] || !counts || counts.shown === 0}
+                className="btn-secondary py-1"
+                title="Hide every shown point from readers until our team has decided each one"
+                data-testid="ask-review-all"
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+                Ask for review of all points
               </button>
               <button type="button" onClick={reextract} disabled={reextracting} className="btn-secondary py-1">
                 {reextracting ? "Re-extracting..." : "Re-extract pages"}
@@ -782,6 +918,11 @@ export default function CircularDetail(props: Props) {
                     Run it again anyway
                   </button>
                 )}
+              </Notice>
+            )}
+            {claimsState.notice && (
+              <Notice kind={claimsState.notice.kind} onDismiss={clearClaimsNotice}>
+                {claimsState.notice.text}
               </Notice>
             )}
           </div>

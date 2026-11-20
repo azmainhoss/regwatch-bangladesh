@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpenText, Check, Clock, X } from "lucide-react";
 import type { DocumentRef, RelGraph, RelGraphEdge, RelGraphNode, RelLink, RelTimeline } from "@/services/api";
-import { reviewLink, useRelState } from "@/services/relationshipsStore";
+import { useRelState } from "@/services/relationshipsStore";
+import { decideLink, useClaimsState } from "@/services/claimsStore";
 import { AwaitingReviewTag, InForceBadge, Tag } from "./StatusBadge";
 import { hasBangla } from "./ui";
 
@@ -15,7 +16,7 @@ export const REL_LABEL: Record<string, string> = {
   SUPERSEDES: "Supersedes",
   REPLACES: "Replaces",
   CLARIFIES: "Clarifies",
-  REFERENCES: "Refers to",
+  REFERENCES: "Mentions",
   IMPLEMENTS: "Implements",
   RELATED_TO: "Related to",
 };
@@ -58,14 +59,21 @@ export function PageQuoteLink({ link }: { link: Pick<RelLink, "source" | "page_n
 /** Approve / reject buttons for an unconfirmed link. Administrators only. */
 export function ReviewButtons({ link, compact = false }: { link: RelLink; compact?: boolean }) {
   const { busy } = useRelState();
-  const working = busy[link.id];
+  const claims = useClaimsState();
+  const [choice, setChoice] = useState<"VERIFIED" | "REJECTED" | null>(null);
+  // Saved through the checked point behind the link, so this screen and "Points to check" always agree.
+  const working = busy[link.id] ?? (link.claim_id && claims.busy[link.claim_id] ? choice : null);
+  const choose = (decision: "VERIFIED" | "REJECTED") => {
+    setChoice(decision);
+    void decideLink(link, decision).finally(() => setChoice(null));
+  };
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button type="button" onClick={() => void reviewLink(link, "VERIFIED")} disabled={!!working} className={`btn-primary ${compact ? "py-1" : ""}`}>
+      <button type="button" onClick={() => choose("VERIFIED")} disabled={!!working} className={`btn-primary ${compact ? "py-1" : ""}`}>
         <Check className="h-3.5 w-3.5" strokeWidth={2.25} />
         {working === "VERIFIED" ? "Saving..." : "Approve"}
       </button>
-      <button type="button" onClick={() => void reviewLink(link, "REJECTED")} disabled={!!working} className={`btn-danger ${compact ? "py-1" : ""}`}>
+      <button type="button" onClick={() => choose("REJECTED")} disabled={!!working} className={`btn-danger ${compact ? "py-1" : ""}`}>
         <X className="h-3.5 w-3.5" strokeWidth={2.25} />
         {working === "REJECTED" ? "Saving..." : "Reject"}
       </button>

@@ -78,6 +78,18 @@ async def analyze_ready_live_circulars(session_factory, limit: int = 3) -> int:
 DEFAULT_PAGES_PER_MINUTE = 6.0
 
 
+async def quote_checks_waiting(db: AsyncSession, version_id) -> int:
+    """Pages of this version that still have a quoted sentence waiting for its second reading.
+    One call covers all quoted sentences of a page, so pages are counted, not sentences."""
+    from backend.app.modules.claims.models import QuoteReadingCheck
+
+    return (await db.execute(
+        select(func.count(func.distinct(QuoteReadingCheck.page_id)))
+        .join(DocumentPage, DocumentPage.id == QuoteReadingCheck.page_id)
+        .where(DocumentPage.document_version_id == version_id, QuoteReadingCheck.status == "WAITING")
+    )).scalar_one()
+
+
 async def reading_status(db: AsyncSession, doc: Document) -> dict:
     """What a circular is waiting for, in plain terms, with a rough time estimate."""
     import json
@@ -92,11 +104,13 @@ async def reading_status(db: AsyncSession, doc: Document) -> dict:
     total = (await db.execute(select(func.count()).select_from(DocumentPage)
                               .where(DocumentPage.document_version_id == version_id))).scalar_one()
     waiting = await pages_waiting(db, version_id) if version_id else 0
+    quote_waiting = await quote_checks_waiting(db, version_id) if version_id else 0
     out = {"document_id": str(doc.id), "pages_total": total, "pages_waiting": waiting,
+           "quote_checks_waiting": quote_waiting,
            "pages_ahead": 0, "minutes_left": 0, "state": "DONE", "resumes_at": None,
            "analysis_after": "AUTOMATIC" if doc.publication_status == LIVE_STATUS else
                              ("LATER" if doc.publication_status == "EXTRACTED" else "ON_REQUEST")}
-    if not waiting:
+    if not waiting and not quote_waiting:
         return out
 
     # Pages of newer circulars are read first.
@@ -112,23 +126,27 @@ async def reading_status(db: AsyncSession, doc: Document) -> dict:
     recent = (await db.execute(select(func.count()).select_from(DocumentPage).where(
         DocumentPage.quality_status == "SUCCESS_VISION", DocumentPage.updated_at >= since))).scalar_one()
     rate = max(recent / 15.0, DEFAULT_PAGES_PER_MINUTE if recent == 0 else 1.0)
-    out.update(pages_ahead=ahead, minutes_left=max(1, round((ahead + waiting) / rate)),
+    out.update(pages_ahead=ahead, minutes_left=max(1, round((ahead + waiting + quote_waiting) / rate)),
                state="READING" if ahead < 20 else "QUEUED")
 
-    # Out of today's free reading quota, or nothing running to read pages.
-    reader = {}
+    # Out of today's free quota (for page reading, or for the second reading of quoted sentences), or
+    # nothing running to do the reading. The two readings use different models and different limits.
+    from backend.app.modules.extraction.vision import _next_quota_reset
+
     if page_reader_running():
         try:
             reader = json.loads(PAGE_READER_LOCK.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             reader = {}
-        if reader.get("state") == "waiting for quota":
-            out.update(state="PAUSED_DAILY_LIMIT", resumes_at=reader.get("quota_back_at"))
+        pages_blocked = bool(waiting) and reader.get("state") == "waiting for quota"
+        quotes_blocked = bool(quote_waiting) and bool(reader.get("quote_quota_back_at"))
+        if pages_blocked or quotes_blocked:
+            out.update(state="PAUSED_DAILY_LIMIT",
+                       resumes_at=reader.get("quota_back_at") if pages_blocked else reader.get("quote_quota_back_at"))
     elif not gemini_keys():
         out.update(state="PAUSED_NO_KEY")
     elif not (settings.VISION_WORKER_ENABLED or settings.SCHEDULER_ENABLED):
         out.update(state="PAUSED_NOT_RUNNING")
-    elif not available_gemini_keys():
-        from backend.app.modules.extraction.vision import _next_quota_reset
+    elif (waiting and not available_gemini_keys()) or (quote_waiting and not available_gemini_keys(settings.QUOTE_CHECK_MODEL)):
         out.update(state="PAUSED_DAILY_LIMIT", resumes_at=_next_quota_reset().isoformat())
     return out

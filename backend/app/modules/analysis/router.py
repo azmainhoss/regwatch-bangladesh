@@ -26,13 +26,13 @@ from backend.app.modules.organizations.models import OrganizationMember
 from backend.app.modules.provisions.models import Provision
 from backend.app.modules.relationships.models import DocumentRelationship
 
-router = APIRouter(prefix="/documents", tags=["AI Intelligence & Analysis"])
+router = APIRouter(prefix="/documents", tags=["Analysis"])
 
 
 @router.get("/provider-status")
 async def get_provider_status():
     """
-    Returns the active AI provider, model identifier, and configuration health.
+    Returns the active Analysis provider, model identifier, and configuration health.
     Safe public telemetry with zero credentials exposed.
     """
     from backend.app.modules.analysis.providers.factory import get_active_provider_info
@@ -62,7 +62,7 @@ async def test_provider_connection(current_user: User = Depends(get_current_supe
             "success": False,
             "busy": False,
             "error": str(e),
-            "message": "The AI service is not set up on the server yet.",
+            "message": "The analysis service is not set up on the server yet.",
         }
         return info
 
@@ -166,7 +166,26 @@ async def get_document_analysis(
     analysis = result.scalars().first()
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found for this document")
-    return analysis
+    if current_user is not None and current_user.is_superuser:
+        return analysis
+    # Readers get the checked points from /documents/{id}/claims. Nothing that was not checked, and nothing
+    # about how the analysis was made, leaves here.
+    shell = DocumentAnalysisRead.model_validate(analysis)
+    return shell.model_copy(update={
+        "executive_summary": "",
+        "purpose": None,
+        "background": None,
+        "key_changes": [],
+        "impact_summary": {},
+        "model_name": "",
+        "prompt_version": "",
+        "structured_payload": {},
+        "tokens_used": 0,
+        "estimated_cost_usd": 0.0,
+        "processing_time_ms": 0,
+        "review_notes": None,
+        "claims": [],
+    })
 
 
 @router.post("/{document_id}/publish")
@@ -194,6 +213,11 @@ async def publish_or_review_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Private circulars cannot be published to the shared library."
+        )
+    if payload.decision == "PUBLISHED_HUMAN_REVIEWED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Decide each point on the Points to check screen."
         )
 
     try:
@@ -245,12 +269,11 @@ async def list_document_obligations(
     if not doc.current_version_id:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    query = (
-        select(Obligation)
-        .where(Obligation.document_version_id == doc.current_version_id)
-        .order_by(Obligation.created_at)
-    )
-    result = await db.execute(query)
+    query = select(Obligation).where(Obligation.document_version_id == doc.current_version_id)
+    if current_user is None or not current_user.is_superuser:
+        # A row is VERIFIED only while its point is shown (claims/status.py::sync_rows).
+        query = query.where(Obligation.verification_status == "VERIFIED")
+    result = await db.execute(query.order_by(Obligation.created_at))
     return result.scalars().all()
 
 
@@ -267,4 +290,16 @@ async def list_document_relationships(
         .order_by(DocumentRelationship.confidence.desc())
     )
     result = await db.execute(query)
-    return result.scalars().all()
+    rows = result.scalars().all()
+    from backend.app.modules.relationships.customer import link_view
+
+    view = await link_view(db, rows, current_user)
+    if view is None:
+        return rows
+    out = []
+    for r in rows:
+        shown = view.type_of(r)
+        if shown is None:
+            continue
+        out.append(RelationshipRead.model_validate(r).model_copy(update={"relationship_type": shown, "verification_status": "VERIFIED"}))
+    return out

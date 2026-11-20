@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse, TokenUsage
+from backend.app.modules.claims import wording as _wording
 
 
 _SENTENCE_LINE = re.compile(r"^\[(p\d+\.s\d+)\] (.*)$", re.MULTILINE)
@@ -43,6 +44,65 @@ def _quotes_to_ids(response: Dict[str, Any], sentences: List[tuple]) -> None:
             quote = item.pop(field_name, "")
             item.pop("page_number", None)
             item["quote_span_ids"] = _ids_for_quote(quote, sentences)
+
+
+def _sentence_text(ids: List[str], sentences: List[tuple]) -> str:
+    by_id = dict(sentences)
+    return " ".join(by_id.get(i, "") for i in ids)
+
+
+def _to_v3(response: Dict[str, Any], sentences: List[tuple]) -> None:
+    """Reshapes the canned answer into the prompt v3 shape: every shown field names its evidence sentences.
+
+    Like a careful model, a value is only kept when the sentences it points at state it
+    (a date written in them, an entity named in them); otherwise it is left null.
+    """
+    obligations = response.get("obligations", [])
+    provisions = response.get("provisions", [])
+    first_ids = (
+        (obligations[0].get("quote_span_ids") if obligations else None)
+        or (provisions[0].get("quote_span_ids") if provisions else None)
+        or ([sentences[0][0]] if sentences else [])
+    )
+    first_text = _sentence_text(first_ids, sentences)
+    old = response.get("executive_summary") or {}
+    points = [{"text": old["short_summary"], "evidence_ids": first_ids}] if old.get("short_summary") else []
+    changes = [{"text": t, "evidence_ids": first_ids} for t in old.get("key_changes", []) if isinstance(t, str)]
+    response["executive_summary"] = {"summary_points": points, "key_changes": changes}
+
+    for obl in obligations:
+        ids = obl.get("quote_span_ids") or []
+        text = _sentence_text(ids, sentences)
+        entity = _wording.entity_for(obl.get("responsible_entity"))
+        if entity and not (_wording.alias_in(entity, text) or _wording.alias_in(entity, first_text)):
+            entity = None
+        obl["responsible_entity"] = entity
+        obl["who_ids"] = ids if entity else []
+        for value_key, ids_key in (("explicit_deadline", "deadline_ids"), ("effective_date", "effective_date_ids")):
+            parsed = _wording.parse_iso_date(obl.get(value_key))
+            if parsed is not None and parsed not in _wording.dates_in(text):
+                obl[value_key] = None
+                parsed = None
+            obl[ids_key] = ids if parsed is not None else []
+        obl["consequence_ids"] = ids if obl.get("consequence") else []
+
+    old_app = response.get("applicability") or {}
+    covered = []
+    for name in old_app.get("covered_entities", []):
+        entity = _wording.entity_for(name)
+        if entity and _wording.alias_in(entity, first_text):
+            covered.append({"entity": entity, "evidence_ids": first_ids})
+    exemptions = [{"text": t, "evidence_ids": first_ids} for t in old_app.get("exemptions", []) if isinstance(t, str)]
+    response["applicability"] = {"covered": covered, "exemptions": exemptions}
+
+    old_dates = response.get("deadlines") or {}
+    dates: Dict[str, Any] = {}
+    for key in ("effective_date", "compliance_deadline", "reporting_deadline"):
+        parsed = _wording.parse_iso_date(old_dates.get(key))
+        if parsed is not None and parsed in _wording.dates_in(first_text):
+            dates[key] = {"date": old_dates[key], "evidence_ids": first_ids}
+    response["deadlines"] = dates
+    response.pop("impact_assessment", None)
 
 
 _RESEARCH_LINE = re.compile(r"^\[(D\d+\.p\d+\.s\d+)\] (.*)$", re.MULTILINE)
@@ -232,7 +292,7 @@ class MockAIProvider(BaseAIProvider):
                         "title": "Maintain 5.00% General Provision on Stage 2 Loans",
                         "obligation_type": "MANDATORY",
                         "requirement_description": "Scheduled commercial banks must maintain 5.00% general provisioning on credit facilities categorized under Stage 2 (overdue 30-89 days).",
-                        "verbatim_quote": "1.2 Stage 2 (Underperforming): Significant increase in credit risk (overdue 30-89 days). Provision: 5.00%.",
+                        "verbatim_quote": "All scheduled commercial banks must classify their credit facilities into three distinct stages: 1.1 Stage 1 (Performing): Loans with no significant increase in credit risk. General provision: 1.00%. 1.2 Stage 2 (Underperforming): Significant increase in credit risk (overdue 30-89 days). Provision: 5.00%.",
                         "page_number": 1,
                         "clause_reference": "1.2",
                         "responsible_entity": "Scheduled Commercial Banks",
@@ -241,10 +301,10 @@ class MockAIProvider(BaseAIProvider):
                         "explicit_deadline": None,
                         "reporting_frequency": "QUARTERLY",
                         "required_evidence": "Quarterly CL-1/CL-2 regulatory reporting submission to BRPD and statutory audit confirmation",
-                        "consequence": "Penal sanctions under Section 109(7) of Bank Company Act, 1991"
+                        "consequence": None
                     },
                     {
-                        "title": "Submit Initial IFRS 9 Readiness Report",
+                        "title": "Submit Initial Readiness Report",
                         "obligation_type": "REPORTING",
                         "requirement_description": "Submit comprehensive readiness report outlining IT readiness and model calibration to BRPD.",
                         "verbatim_quote": "All banks must submit an initial readiness report to BRPD within 31 December 2024.",
@@ -515,6 +575,7 @@ class MockAIProvider(BaseAIProvider):
 
         if sentences:
             _quotes_to_ids(response_dict, sentences)
+            _to_v3(response_dict, sentences)
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         json_str = json.dumps(response_dict)
