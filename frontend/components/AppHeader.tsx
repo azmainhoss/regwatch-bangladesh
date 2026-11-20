@@ -59,6 +59,7 @@ export default function AppHeader() {
 
   const nav = [
     { href: "/", label: "Circulars", show: true },
+    { href: "/summary", label: "Summary", show: true },
     { href: "/search", label: "Search", show: true },
     { href: "/workspace", label: "Workspace", show: !!currentUser },
     { href: "/admin", label: "Admin", show: !!currentUser?.is_superuser },

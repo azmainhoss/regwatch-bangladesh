@@ -229,7 +229,7 @@ async def queue_counts(db) -> Dict[str, int]:
         select(func.count(DocumentPage.id))
         .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
         .join(Document, Document.id == DocumentVersion.document_id)
-        .where(DocumentPage.quality_status == "NEEDS_HUMAN_REVIEW", Document.owner_user_id.is_(None))
+        .where(DocumentPage.quality_status.in_(("NEEDS_HUMAN_REVIEW", "READ_FAILED")), Document.owner_user_id.is_(None))
     )).scalar_one()
     return {"discoveries": int(discoveries), "analyses": int(analyses), "links": int(links), "pages": int(pages)}
 

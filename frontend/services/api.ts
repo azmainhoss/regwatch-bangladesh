@@ -111,7 +111,7 @@ export interface DocumentPage {
   extraction_method: string;
   ocr_confidence?: number;
   has_tables: boolean;
-  /** SUCCESS_NATIVE, PENDING_VISION, NEEDS_HUMAN_REVIEW, ... */
+  /** SUCCESS_NATIVE, PENDING_VISION, READ_FAILED, ... (NEEDS_HUMAN_REVIEW on old pages) */
   quality_status?: string;
   vision_error?: string | null;
   /** One entry per printed line, boxes on a 0-1000 page scale ([ymin, xmin, ymax, xmax]). */
@@ -411,6 +411,34 @@ export interface DashboardStats {
 export async function fetchDocumentStats(): Promise<DashboardStats> {
   const res = await apiFetch(`/documents/stats`, { cache: "no-store" });
   if (!res.ok) await throwApiError(res, "Failed to fetch dashboard stats");
+  return res.json();
+}
+
+export interface Summary {
+  library_total: number;
+  first_year: number | null;
+  last_date: string | null;
+  pages_total: number;
+  pages_read: number;
+  target_total: number;
+  target_analysed: number;
+  target_checked: number;
+  target_cutoff: string;
+  target_recent: number;
+  target_older_master: number;
+  target_pages_total: number;
+  target_pages_read: number;
+  target_circulars_with_unread: number;
+  analysed_total: number;
+  caught_since: string;
+  caught_count: number;
+  caught_per_day: { day: string; count: number }[];
+  caught: { title: string; reference: string | null; published: string | null; state: string; document_id: string | null }[];
+}
+
+export async function fetchSummary(days = 14): Promise<Summary> {
+  const res = await apiFetch(`/summary?days=${days}`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the summary");
   return res.json();
 }
 

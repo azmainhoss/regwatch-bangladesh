@@ -1,3 +1,4 @@
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, status
@@ -23,6 +24,7 @@ from backend.app.modules.compliance.service import ConflictError
 from backend.app.modules.relationships.router import router as relationships_router
 from backend.app.modules.claims.router import router as claims_router
 from backend.app.modules.alerts.router import router as alerts_router
+from backend.app.modules.documents.summary import router as summary_router
 from backend.app.modules.alerts.worker import alerts_worker
 from backend.app.modules.alerts.mailer import email_configured
 from backend.app.workers.scheduler import monitoring_scheduler
@@ -63,7 +65,11 @@ async def lifespan(app: FastAPI):
         await alerts_worker.start()
     elif email_configured():
         logger.info("Email is set up but the alerts job is off. Set ALERTS_WORKER_ENABLED=true on one process.")
+    # Fill the Summary screen's numbers in the background so its first visit is instant.
+    from backend.app.modules.documents.summary import warm_summary_cache
+    warm_task = asyncio.create_task(warm_summary_cache())
     yield
+    warm_task.cancel()
     logger.info("Shutting down application...")
     if run_alerts:
         await alerts_worker.stop()
@@ -139,6 +145,7 @@ app.include_router(compliance_router, prefix=settings.API_V1_STR)
 app.include_router(relationships_router, prefix=settings.API_V1_STR)
 app.include_router(claims_router, prefix=settings.API_V1_STR)
 app.include_router(alerts_router, prefix=settings.API_V1_STR)
+app.include_router(summary_router, prefix=settings.API_V1_STR)
 
 
 @app.exception_handler(ConflictError)

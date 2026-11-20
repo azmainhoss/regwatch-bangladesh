@@ -14,7 +14,7 @@ ADMIN_QUEUES = {
     "discoveries": ("new circular", "new circulars", "to approve", "/admin?tab=queue"),
     "analyses": ("analysis", "analyses", "to review", "/admin?tab=library"),
     "links": ("link", "links", "to confirm", "/admin?tab=links"),
-    "pages": ("page", "pages", "to check", "/admin?tab=library"),
+    "pages": ("page", "pages", "could not be read", "/admin?tab=library"),
 }
 
 
@@ -193,7 +193,9 @@ def render(kind: str, p: Dict[str, Any], organization_id: Optional[str] = None) 
         n = int(p.get("count") or 0)
         return Rendered(
             title=f"{n} {one if n == 1 else many} {tail}",
-            body="They are waiting in the admin review queue.", detail=None, link=link, severity="info",
+            body=("Every way of reading them failed. They are listed in the unread pages report."
+                  if p.get("queue") == "pages" else "They are waiting in the admin review queue."),
+            detail=None, link=link, severity="info",
         )
     raise ValueError(f"Unknown alert kind: {kind}")
 

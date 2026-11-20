@@ -524,7 +524,8 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                 {page.quality_status === "PENDING_VISION" && (
                   <p>It has no usable text layer, so it is waiting to be read from the page image.</p>
                 )}
-                {page.quality_status === "NEEDS_HUMAN_REVIEW" && <p>Reading it automatically did not work. A person needs to check it.</p>}
+                {page.quality_status === "NEEDS_HUMAN_REVIEW" && <p>The text on this page looks damaged. It will be read again from the page image.</p>}
+                {page.quality_status === "READ_FAILED" && <p>Every way of reading this page failed, so it has no text yet.</p>}
                 {page.vision_error && page.quality_status === "PENDING_VISION" && <p>The last try did not work. It will be tried again soon.</p>}
               </div>
             )}

@@ -35,7 +35,7 @@ interface StatusSpec {
  */
 const STATUSES: Record<string, StatusSpec> = {
   // Documents
-  PUBLISHED_HUMAN_REVIEWED: { label: "Checked by our team", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page, some by our team" },
+  PUBLISHED_HUMAN_REVIEWED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_VERIFIED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_PROCESSED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "Its points have not been checked yet" },
   AWAITING_REVIEW: { label: "Points waiting", tone: "warn", icon: Clock, hint: "Some points are waiting for our team to check them; the rest are shown" },
@@ -68,7 +68,8 @@ const STATUSES: Record<string, StatusSpec> = {
   SUCCESS_VISION: { label: "Read from image", tone: "ok", icon: ScanText },
   SUCCESS_VISION_MANUAL: { label: "Read from image", tone: "ok", icon: ScanText },
   PENDING_VISION: { label: "Waiting to be read", tone: "info", icon: Clock, hint: "This page has no usable text layer yet; it is queued to be read from the page image" },
-  NEEDS_HUMAN_REVIEW: { label: "Needs human review", tone: "warn", icon: AlertTriangle, hint: "The text on this page looks damaged; a person should check it" },
+  NEEDS_HUMAN_REVIEW: { label: "Text may be damaged", tone: "warn", icon: AlertTriangle, hint: "The text on this page looks damaged; it will be read again from the page image" },
+  READ_FAILED: { label: "Could not be read", tone: "warn", icon: AlertTriangle, hint: "Every way of reading this page failed, so it has no text yet" },
   LOW_CONFIDENCE: { label: "Low confidence", tone: "warn", icon: AlertTriangle },
   EMPTY: { label: "No text", tone: "muted", icon: CircleDashed },
 

@@ -135,7 +135,7 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
 }
 
 export function checkedTag(item: ClaimItem): string {
-  if (item.checked_by === "TEAM") return "Checked by our team";
+  if (item.checked_by === "TEAM") return "Checked";
   return item.page_number ? `Checked against page ${item.page_number}` : "Checked";
 }
 
@@ -143,7 +143,7 @@ export function checkedTag(item: ClaimItem): string {
 export function checkedBadge(counts: { total: number; shown: number }, anyByTeam: boolean): { label: string; hint: string; tone: "ok" | "info" } | null {
   if (counts.total === 0) return null;
   if (counts.shown < counts.total) return { label: "Partly checked", hint: "Some points did not pass our checks yet and are not shown", tone: "info" };
-  if (anyByTeam) return { label: "Checked by our team", hint: "Every point shown here was checked against the page, some by our team", tone: "ok" };
+  if (anyByTeam) return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
   return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
 }
 
