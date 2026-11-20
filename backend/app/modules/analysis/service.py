@@ -129,6 +129,13 @@ class AnalysisService:
         if waiting:
             # Never analyse empty Bangla or scanned pages: wait until every page has been read.
             raise ValueError(f"Pages are still being read ({len(waiting)} waiting).")
+        unread = [p for p in version.pages
+                  if p.quality_status in ("NEEDS_HUMAN_REVIEW", "READ_FAILED") and not p.is_human_corrected]
+        if unread:
+            # A page whose reading failed or whose text is damaged may hold duties the analysis cannot see.
+            # Never publish such a circular by itself: every point waits for a person.
+            force_human_review = True
+            logger.info(f"Document {document_id}: {len(unread)} page(s) not read cleanly; held for a person.")
 
         # Check for active concurrent processing (prevent duplicate pipeline runs)
         now = datetime.now(timezone.utc)

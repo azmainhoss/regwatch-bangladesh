@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 # Methods that read the page image instead of the PDF text layer.
-VISION_METHODS = ("GEMINI_VISION", "MANUAL_SUBSCRIPTION_READING")
+VISION_METHODS = ("GEMINI_VISION", "MANUAL_SUBSCRIPTION_READING", "STRONG_VISION")
 
 
 class PageQualityMetric(BaseModel):
@@ -41,6 +41,13 @@ class DocumentCompletenessReport(BaseModel):
     quality_summary: str
 
 
+def text_layer_looks_damaged(metric: PageQualityMetric) -> bool:
+    """True when a text-layer page holds broken characters or runs of odd symbols (legacy fonts,
+    broken encodings), as opposed to a page that is merely short. Such a page is read from its image."""
+    return (metric.replacement_char_count > 0 or metric.garbled_char_count > 5
+            or metric.printable_ratio < 0.98)
+
+
 class ExtractionQualityAssessor:
     """
     Computes deterministic page-level and document-level quality scores
@@ -48,7 +55,15 @@ class ExtractionQualityAssessor:
     """
 
     REPLACEMENT_CHARS_PATTERN = re.compile(r"[\ufffd\u25a1\u0000-\u0008\u000b\u000c\u000e-\u001f]")
-    GARBLED_PUNCT_PATTERN = re.compile(r"([^\w\s\.\,\;\:\-\(\)\'\"]{3,})")
+    # Runs of 3+ odd symbols. Fill-in lines on forms ("Name: ……………", "_____") and curly quotes or dashes
+    # are normal printed text, not broken characters, so they never count.
+    # Bangla letters and vowel signs (U+0980-U+09FF, danda U+0964/5) are real text too: Python does not count
+    # every vowel sign as a word character, so clean Bangla used to look "garbled".
+    GARBLED_PUNCT_PATTERN = re.compile(
+        r"([^\w\s.,;:\-()\'\"*\u2026\u2018\u2019\u201c\u201d\u2013\u2014\u0980-\u09ff\u0964\u0965]{3,})")
+    # Invisible joiners inside normal Bangla, and soft hyphens: not printable, but not damage either.
+    # Word's Symbol-font bullets and spaces (U+F020-U+F0FF) are allowed as well.
+    INVISIBLE_OK = ("\u200c", "\u200d", "\u00ad", "\ufeff")
 
     @classmethod
     def assess_page(
@@ -106,7 +121,8 @@ class ExtractionQualityAssessor:
             issues.append(f"High frequency of garbled symbols ({garbled_count})")
 
         # 4. Printable ratio
-        printable_count = sum(1 for c in text if c.isprintable() or c in ("\n", "\r", "\t"))
+        printable_count = sum(1 for c in text if c.isprintable() or c.isspace() or c in cls.INVISIBLE_OK
+                              or "\uf020" <= c <= "\uf0ff")
         printable_ratio = round(printable_count / max(char_count, 1), 4)
 
         # 5. Compute deterministic quality score (0.0 to 1.0)

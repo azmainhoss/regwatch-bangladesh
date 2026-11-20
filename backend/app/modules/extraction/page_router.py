@@ -26,6 +26,7 @@ REASON_BROKEN_BANGLA = "broken_bangla"
 REASON_BANGLA_UNICODE = "bangla_unicode"
 REASON_NEAR_EMPTY = "near_empty"
 REASON_CLEAN_TEXT = "clean_text_layer"
+REASON_DAMAGED_TEXT = "damaged_text_layer"  # set by the extraction service after its quality check
 
 BANGLA_REASONS = {REASON_LEGACY_FONT, REASON_LEGACY_GLYPHS, REASON_BROKEN_BANGLA, REASON_BANGLA_UNICODE}
 

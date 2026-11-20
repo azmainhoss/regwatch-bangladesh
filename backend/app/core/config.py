@@ -53,7 +53,21 @@ class Settings(BaseSettings):
     VISION_DPI: int = 200
     VISION_MAX_RETRIES: int = 4  # retries inside one call on 429/503, with backoff
     VISION_RETRY_BASE_SECONDS: float = 5.0
-    VISION_MAX_ATTEMPTS: int = 5  # failed jobs on one page before it goes to a person
+    VISION_MAX_ATTEMPTS: int = 5  # failed tries on VISION_MODEL (each on the next key) before the stronger route
+    # Stronger route for a page the main model could not read: the bigger model on a sharper image.
+    # Only when that also fails is the page marked READ_FAILED and listed in UNREAD_REPORT_PATH.
+    # No page is ever left for a person.
+    VISION_FALLBACK_MODEL: str = "gemini-3.5-flash"
+    VISION_FALLBACK_DPI: int = 300
+    VISION_FALLBACK_ATTEMPTS: int = 2
+    # Last route for a page of a new circular that is still unread after both Gemini routes (failed,
+    # empty, or text that looks damaged): one read of the page image by STRONG_READER_MODEL (set both
+    # in .env). Off while either is empty: the page is then read by hand (scripts/held_pages.py).
+    # If this fails too, the circular is held from analysis and the platform team gets an alert.
+    STRONG_READER_API_KEY: Optional[str] = None
+    STRONG_READER_MODEL: Optional[str] = None
+    STRONG_READER_DPI: int = 300
+    UNREAD_REPORT_PATH: str = "data/unread_pages.md"
     VISION_POLL_SECONDS: int = 60  # fallback only: uploads wake the job at once
     # Pages of one circular are read a few at a time: up to VISION_CALLS_PER_KEY calls at once on
     # each key, rotating over GEMINI_API_KEY plus GEMINI_EXTRA_API_KEYS (comma-separated, optional).

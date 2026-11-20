@@ -72,6 +72,8 @@ class VisionResult:
     data: Any = None
     # True when no request was made at all (every key had used up its quota for the day already).
     not_sent: bool = False
+    # The key itself no longer works (deleted, suspended or invalid): not the page's fault either.
+    key_dead: bool = False
 
 
 _lock: Optional[asyncio.Lock] = None
@@ -98,17 +100,50 @@ def mark_key_exhausted(api_key: str, model: Optional[str] = None) -> None:
     _exhausted_until[(api_key, model or settings.VISION_MODEL)] = _next_quota_reset()
 
 
+# Keys whose project was deleted or suspended, or that are not valid: never used again by this process.
+_dead_keys: set = set()
+
+# Reply wording that means the key (or its project) is the problem, not the page.
+_DEAD_KEY_MARKERS = (
+    "api key not valid",
+    "api_key_invalid",
+    "api key expired",
+    "service account is deleted or disabled",
+    "consumer_suspended",
+    "has been suspended",
+    "permission_denied",
+)
+
+
+def mark_key_dead(api_key: str) -> None:
+    _dead_keys.add(api_key)
+
+
+def working_gemini_keys() -> list:
+    """The keys that have not been found dead in this process (quota left or not)."""
+    return [k for k in gemini_keys() if k not in _dead_keys]
+
+
 def available_gemini_keys(model: Optional[str] = None) -> list:
-    """The keys that still have quota today for this model (the page-reading model by default)."""
+    """The keys that still work and have quota today for this model (the page-reading model by default)."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     model = model or settings.VISION_MODEL
-    return [k for k in gemini_keys() if not (_exhausted_until.get((k, model)) and _exhausted_until[(k, model)] > now)]
+    return [k for k in gemini_keys() if k not in _dead_keys
+            and not (_exhausted_until.get((k, model)) and _exhausted_until[(k, model)] > now)]
 
 
 def _is_daily_quota(resp) -> bool:
     body = (resp.text or "")[:4000]
     return resp.status_code == 429 and ("PerDay" in body or "per day" in body.lower())
+
+
+def is_dead_key_reply(status_code: int, body: str) -> bool:
+    """A 400/401/403 reply that blames the key or its project (deleted, suspended, invalid)."""
+    if status_code not in (400, 401, 403):
+        return False
+    body = (body or "")[:4000].lower()
+    return any(marker in body for marker in _DEAD_KEY_MARKERS)
 
 
 def gemini_keys() -> list:
@@ -237,6 +272,11 @@ async def _generate(
                         continue
                     break
 
+                if is_dead_key_reply(resp.status_code, resp.text):
+                    mark_key_dead(api_key)
+                    logger.warning("A Gemini key no longer works (deleted, suspended or invalid); it is no longer used.")
+                    return None, VisionResult(success=False, error="the reading key no longer works", model=model,
+                                              transient=True, key_dead=True)
                 if resp.status_code != 200:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                     busy = False
@@ -354,6 +394,6 @@ async def read_images_json(
             except (ValueError, json.JSONDecodeError) as e:
                 return VisionResult(success=False, error=f"unusable answer: {e}", model=model, transient=False)
         last = failed
-        if not failed.quota_exhausted:
+        if not (failed.quota_exhausted or failed.key_dead):
             return failed
     return last

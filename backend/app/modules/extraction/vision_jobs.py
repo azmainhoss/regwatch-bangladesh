@@ -6,8 +6,12 @@ the Gemini keys (at most VISION_CALLS_PER_KEY calls at once on each key).
 
 - success: text and per-line boxes stored, status SUCCESS_VISION;
 - no GEMINI_API_KEY: nothing is touched, the pages keep waiting;
-- failure: the attempt is counted and the error kept; after VISION_MAX_ATTEMPTS failed jobs
-  the page goes to a person (NEEDS_HUMAN_REVIEW). Its text stays empty either way.
+- busy, out of quota, or a key that no longer works: the page keeps waiting, no failed try counted;
+- failure: the try is counted and the error kept, and the page is tried again on the next key.
+  After VISION_MAX_ATTEMPTS failed tries it moves to the stronger route (VISION_FALLBACK_MODEL on a
+  sharper VISION_FALLBACK_DPI image) for VISION_FALLBACK_ATTEMPTS more tries. Only when those fail
+  too is it marked READ_FAILED and listed in the unread report (UNREAD_REPORT_PATH). No page is ever
+  left for a person; its text stays empty until it is read.
 Pages a person corrected are never touched.
 """
 import asyncio
@@ -25,8 +29,8 @@ from backend.app.modules.documents.models import Document, DocumentPage, Documen
 from backend.app.modules.extraction.quality import ExtractionQualityAssessor
 from backend.app.modules.extraction.service import (
     METHOD_VISION,
-    STATUS_NEEDS_REVIEW,
     STATUS_PENDING_VISION,
+    STATUS_READ_FAILED,
     STATUS_VISION,
 )
 from backend.app.modules.extraction.vision import VisionResult, available_gemini_keys, read_page_image, render_page_png
@@ -56,7 +60,7 @@ async def process_pending_vision_pages(
 ) -> Dict[str, Any]:
     """Reads waiting pages, oldest first (only one version's pages when version_id is given).
     Returns counts of what happened."""
-    summary = {"read": 0, "failed": 0, "sent_to_review": 0, "waiting_no_key": 0, "waiting_busy": 0,
+    summary = {"read": 0, "failed": 0, "read_failed": 0, "waiting_no_key": 0, "waiting_busy": 0,
                "batch_full": False, "out_of_quota": False}
     default_reader = False
     if reader is None:
@@ -94,14 +98,21 @@ async def process_pending_vision_pages(
     parallel = max(1, min(settings.VISION_MAX_PARALLEL, max(1, len(keys)) * max(1, settings.VISION_CALLS_PER_KEY)))
     pdf_cache: Dict[str, bytes] = {}
 
-    async def _read(slot: int, page_number: int, storage_path: str) -> VisionResult:
+    async def _read(slot: int, page_number: int, storage_path: str, attempts: int) -> VisionResult:
+        stronger = attempts >= settings.VISION_MAX_ATTEMPTS
         try:
             if storage_path not in pdf_cache:
                 pdf_cache[storage_path] = storage_service.get_file_bytes(storage_path)
-            png = await asyncio.to_thread(render_page_png, pdf_cache[storage_path], page_number)
+            dpi = settings.VISION_FALLBACK_DPI if stronger else None
+            png = await asyncio.to_thread(render_page_png, pdf_cache[storage_path], page_number, dpi)
             if default_reader and keys:
-                live = available_gemini_keys() or keys
-                return await read_page_image(png, api_key=live[slot % len(live)])
+                model = settings.VISION_FALLBACK_MODEL if stronger else settings.VISION_MODEL
+                live = available_gemini_keys(model)
+                if not live:
+                    return VisionResult(success=False, error="daily limit reached", model=model,
+                                        transient=True, quota_exhausted=True, not_sent=True)
+                # Each new try of a page goes to the next key, so one bad key never fails a page twice.
+                return await read_page_image(png, api_key=live[(slot + attempts) % len(live)], model=model)
             return await reader(png)
         except Exception as e:  # missing file, broken PDF, unexpected error: count it as a failed try
             return VisionResult(success=False, error=f"{type(e).__name__}: {e}")
@@ -117,7 +128,7 @@ async def process_pending_vision_pages(
         if not batch:
             continue
         results = await asyncio.gather(*[
-            _read(i, page.page_number, path) for i, (page, path) in enumerate(batch)
+            _read(i, page.page_number, path, page.vision_attempts or 0) for i, (page, path) in enumerate(batch)
         ])
         for (page, _path), result in zip(batch, results):
             if result.no_key:
@@ -138,17 +149,18 @@ async def process_pending_vision_pages(
                 page.vision_error = None
                 summary["read"] += 1
             elif result.transient:
-                # Busy, rate-limited or out of quota: the page keeps waiting, no failed try counted.
+                # Busy, rate-limited, out of quota or a key that no longer works: the page keeps
+                # waiting, no failed try counted.
                 summary["waiting_busy"] += 1
-                if result.quota_exhausted and default_reader and not available_gemini_keys():
+                if (result.quota_exhausted or result.key_dead) and default_reader and not available_gemini_keys()                         and not available_gemini_keys(settings.VISION_FALLBACK_MODEL):
                     summary["out_of_quota"] = True
                     stop = True
             else:
                 page.vision_attempts = (page.vision_attempts or 0) + 1
                 page.vision_error = (result.error or "empty answer")[:2000]
-                if page.vision_attempts >= settings.VISION_MAX_ATTEMPTS:
-                    page.quality_status = STATUS_NEEDS_REVIEW
-                    summary["sent_to_review"] += 1
+                if page.vision_attempts >= settings.VISION_MAX_ATTEMPTS + settings.VISION_FALLBACK_ATTEMPTS:
+                    page.quality_status = STATUS_READ_FAILED
+                    summary["read_failed"] += 1
                 summary["failed"] += 1
                 logger.warning(f"Page-image reading failed for page {page.page_number} ({page.vision_attempts} tries): {page.vision_error}")
         # Commit after each batch, so the circular page shows the new text straight away.
@@ -156,9 +168,45 @@ async def process_pending_vision_pages(
         if stop:
             break
 
+    if summary["read_failed"]:
+        try:
+            await write_unread_report(db)
+        except Exception as e:  # the report is a convenience; never let it stop the reading
+            logger.warning(f"Unread pages report not written: {type(e).__name__}: {e}")
     if any(summary[k] for k in ("read", "failed")):
         logger.info(f"Page-image reading job: {summary}")
     return summary
+
+
+async def write_unread_report(db: AsyncSession, path: Optional[str] = None) -> int:
+    """Writes the short list of pages that every reading route failed on. Returns how many there are."""
+    rows = (await db.execute(
+        select(Document.title, Document.reference_number, Document.publication_date, DocumentPage.page_number,
+               DocumentPage.vision_attempts, DocumentPage.vision_error)
+        .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(DocumentPage.quality_status == STATUS_READ_FAILED, DocumentPage.is_human_corrected.is_(False))
+        .order_by(Document.publication_date.desc(), Document.title, DocumentPage.page_number)
+    )).all()
+    lines = [
+        "# Pages that could not be read",
+        "",
+        "Every reading route failed on these pages (the main model on each key, then the stronger model on a",
+        "sharper image). Their text is empty, and circulars with such a page are not handed out for analysis.",
+        "Rewritten by the page reader whenever a page is added to the list.",
+        "",
+        f"{len(rows)} page(s).",
+        "",
+        "| Circular | Reference | Date | Page | Tries | Last error |",
+        "|---|---|---|---|---|---|",
+    ]
+    for title, ref, pub, page_no, tries, error in rows:
+        error = re.sub(r"\s+", " ", (error or "")).replace("|", "/")[:120]
+        lines.append(f"| {(title or '').replace('|', '/')[:80]} | {ref or '-'} | {pub or '-'} | {page_no} | {tries} | {error} |")
+    out = _Path(path or settings.UNREAD_REPORT_PATH)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return len(rows)
 
 
 class VisionWorker:
@@ -214,7 +262,7 @@ class VisionWorker:
                         summary = await process_pending_vision_pages(session, limit=20)
                 # A backlog (such as the archive) is read batch after batch without waiting,
                 # until it is done or every key is out of today's quota.
-                if summary.get("read"):
+                if summary.get("read") or summary.get("read_failed"):
                     # New circulars from the live checker are analysed once all their pages are read.
                     from backend.app.modules.analysis.auto import analyze_ready_live_circulars
                     await analyze_ready_live_circulars(self._session_factory)

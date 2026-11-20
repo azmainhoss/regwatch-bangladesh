@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
 import backend.app.database.models  # Ensure all models are registered in SQLAlchemy mapper registry
-from backend.app.modules.documents.models import Document, DocumentVersion
+from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.documents.service import document_ingestion_service
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.sources.connector.bangladesh_bank import BangladeshBankConnector
@@ -520,6 +520,14 @@ class SourceMonitoringService:
                     # Automatically trigger AI Regulatory Intelligence pipeline
                     try:
                         from backend.app.modules.analysis.service import AnalysisService
+                        from backend.app.modules.extraction.strong_reader import page_is_read
+
+                        fresh = (await db.execute(
+                            select(DocumentPage).where(DocumentPage.document_version_id == version.id)
+                        )).scalars().all()
+                        if not fresh or not all(page_is_read(p) for p in fresh):
+                            # Some pages still need reading: the page reader analyses it once all are read.
+                            raise ValueError("pages are still being read")
                         await AnalysisService.analyze_document_version(
                             db=db,
                             document_id=doc.id

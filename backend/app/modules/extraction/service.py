@@ -6,8 +6,13 @@ import pymupdf as fitz
 
 from backend.app.core.logging import logger
 from backend.app.modules.extraction.layout import LayoutAwareExtractor
-from backend.app.modules.extraction.page_router import TEXT_LAYER, PageRoute, route_page
-from backend.app.modules.extraction.quality import DocumentCompletenessReport, ExtractionQualityAssessor, PageQualityMetric
+from backend.app.modules.extraction.page_router import REASON_DAMAGED_TEXT, TEXT_LAYER, VISION, PageRoute, route_page
+from backend.app.modules.extraction.quality import (
+    DocumentCompletenessReport,
+    ExtractionQualityAssessor,
+    PageQualityMetric,
+    text_layer_looks_damaged,
+)
 from backend.app.modules.extraction.tables import TableExtractor
 
 # extraction_method values
@@ -21,7 +26,10 @@ STATUS_NATIVE = "SUCCESS_NATIVE"
 STATUS_VISION = "SUCCESS_VISION"
 STATUS_VISION_MANUAL = "SUCCESS_VISION_MANUAL"
 STATUS_PENDING_VISION = "PENDING_VISION"
+# Old pages only: nothing sets this any more (no page is left for a person; see READ_FAILED).
 STATUS_NEEDS_REVIEW = "NEEDS_HUMAN_REVIEW"
+# Every way of reading the page image failed: the page has no text and is listed in the unread report.
+STATUS_READ_FAILED = "READ_FAILED"
 
 # Pages whose text came from reading the page image (by the API or by hand).
 VISION_DONE_STATUSES = (STATUS_VISION, STATUS_VISION_MANUAL)
@@ -39,8 +47,9 @@ class ExtractionService:
     def extract_document_pages(self, pdf_bytes: bytes) -> List[Dict[str, Any]]:
         """
         Reads every page of a PDF, choosing the method per page from its fonts and text:
-        - clean English text layer: PyMuPDF text, method TEXT_LAYER, status SUCCESS_NATIVE
-          (NEEDS_HUMAN_REVIEW when the text looks damaged), with one box per line;
+        - clean English text layer: PyMuPDF text, method TEXT_LAYER, status SUCCESS_NATIVE, with one
+          box per line (a page that is only short keeps its text); a text layer with broken characters
+          or odd symbols is read from the page image instead (below);
         - Bangla, legacy-font, broken or scanned page: left empty with status PENDING_VISION
           for the background page-image job (vision_jobs). Never filled with placeholder text.
         """
@@ -72,7 +81,15 @@ class ExtractionService:
                     extraction_method=METHOD_TEXT_LAYER,
                     has_tables=has_tables
                 )
-                status = STATUS_NEEDS_REVIEW if metric.status == STATUS_NEEDS_REVIEW else STATUS_NATIVE
+                if metric.status == STATUS_NEEDS_REVIEW and text_layer_looks_damaged(metric):
+                    # The text layer looks damaged (legacy font, broken encoding, odd symbols): read the
+                    # page image instead. A page that is only short keeps its text.
+                    logger.debug(f"Page {page_no}: text layer looks damaged; queued for page-image reading.")
+                    damaged = PageRoute(route=VISION, reason=REASON_DAMAGED_TEXT, language=route.language,
+                                        text=route.text, fonts=route.fonts, line_boxes=route.line_boxes)
+                    pages_result.append(self._pending_vision_page(page_no, native_text, damaged))
+                    continue
+                status = STATUS_NATIVE
 
                 pages_result.append({
                     "page_number": page_no,

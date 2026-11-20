@@ -5,6 +5,10 @@
 - `analyze_ready_live_circulars` runs after page reading: new circulars found by the live checker
   (status PUBLISHED_MACHINE_PROCESSED, shared library, no analysis yet) are analysed as soon as all
   their pages are read. Archive circulars (status EXTRACTED) are never analysed automatically.
+- "Read" means every page has status SUCCESS_* with text that does not look damaged (or a person
+  corrected it), not merely "none waiting". Pages still unread after both Gemini routes first get the
+  last reading route (extraction/strong_reader.py); a circular with a page that still fails is held
+  and the platform team is alerted.
 """
 import time
 from typing import Dict, List
@@ -40,6 +44,8 @@ async def ready_live_circulars(db: AsyncSession, limit: int = 3) -> List[UUID]:
         DocumentPage.is_human_corrected.is_(False),
     )
     analysed = exists().where(DocumentAnalysis.document_version_id == Document.current_version_id)
+    from backend.app.modules.extraction.strong_reader import page_is_read
+
     rows = (await db.execute(
         select(Document.id)
         .where(
@@ -53,13 +59,31 @@ async def ready_live_circulars(db: AsyncSession, limit: int = 3) -> List[UUID]:
         .limit(limit * 4)
     )).scalars().all()
     now = time.time()
-    return [d for d in rows if now - _last_try.get(d, 0) > RETRY_AFTER_SECONDS][:limit]
+    out: List[UUID] = []
+    for d in rows:
+        if now - _last_try.get(d, 0) <= RETRY_AFTER_SECONDS:
+            continue
+        version_id = (await db.execute(select(Document.current_version_id).where(Document.id == d))).scalar_one()
+        pages = (await db.execute(select(DocumentPage).where(DocumentPage.document_version_id == version_id))).scalars().all()
+        if pages and all(page_is_read(p) for p in pages):
+            out.append(d)
+        if len(out) >= limit:
+            break
+    return out
 
 
 async def analyze_ready_live_circulars(session_factory, limit: int = 3) -> int:
     """Analyses live-found circulars whose pages are now all read. Returns how many were analysed."""
     from backend.app.modules.analysis.service import AnalysisService
+    from backend.app.modules.extraction.strong_reader import rescue_unread_live_pages
 
+    try:
+        async with session_factory() as db:
+            rescued = await rescue_unread_live_pages(db)
+        if rescued["read"] or rescued["failed"]:
+            logger.info(f"Last reading route for new circulars: {rescued}")
+    except Exception as e:  # never let it stop the analysis of circulars that are ready
+        logger.warning(f"Last reading route skipped: {type(e).__name__}: {str(e)[:120]}")
     async with session_factory() as db:
         ids = await ready_live_circulars(db, limit)
     done = 0

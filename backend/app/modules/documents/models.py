@@ -86,7 +86,8 @@ class DocumentPage(Base):
     has_tables = Column(Boolean, default=False, nullable=False)
     extracted_tables = Column(JSON, default=list, nullable=False)
     page_image_path = Column(String(512), nullable=True)
-    # SUCCESS_NATIVE, SUCCESS_VISION, SUCCESS_VISION_MANUAL, PENDING_VISION, NEEDS_HUMAN_REVIEW
+    # SUCCESS_NATIVE, SUCCESS_VISION, SUCCESS_VISION_MANUAL, PENDING_VISION, READ_FAILED
+    # (NEEDS_HUMAN_REVIEW on old pages only)
     quality_status = Column(String(32), default="SUCCESS_NATIVE", nullable=False)
     quality_score = Column(Float, default=1.0, nullable=False)
     layout_hierarchy = Column(JSON, default=dict, nullable=False)

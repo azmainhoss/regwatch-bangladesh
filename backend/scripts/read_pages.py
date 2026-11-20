@@ -31,7 +31,7 @@ from backend.app.core.config import settings  # noqa: E402
 from backend.app.database.session import AsyncSessionLocal  # noqa: E402
 from backend.app.modules.documents.models import DocumentPage  # noqa: E402
 from backend.app.modules.analysis.auto import analyze_ready_live_circulars  # noqa: E402
-from backend.app.modules.extraction.vision import available_gemini_keys, gemini_keys  # noqa: E402
+from backend.app.modules.extraction.vision import available_gemini_keys, gemini_keys, working_gemini_keys  # noqa: E402
 from backend.app.modules.claims.reading_jobs import process_pending_quote_checks  # noqa: E402
 from backend.app.modules.extraction.vision_jobs import PAGE_READER_LOCK, process_pending_vision_pages  # noqa: E402
 
@@ -115,16 +115,20 @@ async def run() -> None:
                 await asyncio.sleep(15)
                 continue
             read_total += summary["read"]
-            if summary["read"]:
+            if summary["read"] or summary["read_failed"]:
                 try:
                     n = await analyze_ready_live_circulars(AsyncSessionLocal)
                     if n:
                         log(f"analysed {n} new circular(s) whose pages are now all read")
                 except Exception as e:
                     log(f"New-circular analysis skipped: {type(e).__name__}")
-            if summary["read"] or summary["failed"] or summary["sent_to_review"]:
-                log(f"read {summary['read']}, failed {summary['failed']}, to a person {summary['sent_to_review']}, "
+            if summary["read"] or summary["failed"] or summary["read_failed"]:
+                log(f"read {summary['read']}, failed {summary['failed']}, could not be read {summary['read_failed']}, "
                     f"busy {summary['waiting_busy']} (total read this run: {read_total})")
+            if not working_gemini_keys():
+                log("None of the reading keys works any more (deleted, suspended or invalid); "
+                    "stopping. Put working keys in .env and start the reader again.")
+                return
             if summary["out_of_quota"] or not available_gemini_keys():
                 log("All keys used today's free quota for page reading; waiting for the daily reset.")
                 for _ in range(30):  # 30 min, keeping the lock fresh; quoted-sentence checks keep their own model's quota

@@ -283,22 +283,58 @@ async def test_vision_job_reads_pending_pages_and_stores_boxes():
     pages = await _pages(version_id)
     assert [p.quality_status for p in pages] == ["SUCCESS_VISION", "SUCCESS_VISION"]
     assert [p.extraction_method for p in pages] == ["GEMINI_VISION", "GEMINI_VISION"]
-    assert pages[0].raw_text == "পৃষ্ঠা 1" and pages[0].line_boxes == [{"text": "পৃষ্ঠা 1", "box_2d": [10, 10, 40, 300]}]
+    # Pages are read at the same time, so which page got which answer depends on timing.
+    assert sorted(p.raw_text for p in pages) == ["পৃষ্ঠা 1", "পৃষ্ঠা 2"]
+    assert all(p.line_boxes == [{"text": p.raw_text, "box_2d": [10, 10, 40, 300]}] for p in pages)
 
 
-async def test_vision_job_failure_keeps_page_pending_then_sends_it_to_a_person():
+async def test_vision_job_failure_keeps_retrying_then_marks_the_page_unread_never_for_a_person(tmp_path, monkeypatch):
+    report = tmp_path / "unread_pages.md"
+    monkeypatch.setattr(settings, "UNREAD_REPORT_PATH", str(report))
     _doc_id, version_id = await _ingest(bijoy_pdf())
 
     async def failing(png):
-        return VisionResult(success=False, error="HTTP 503")
+        return VisionResult(success=False, error="HTTP 500")
 
-    for attempt in range(1, settings.VISION_MAX_ATTEMPTS + 1):
+    total = settings.VISION_MAX_ATTEMPTS + settings.VISION_FALLBACK_ATTEMPTS
+    for attempt in range(1, total + 1):
         async with AsyncSessionLocal() as db:
             await process_pending_vision_pages(db, reader=failing, version_id=version_id)
         page = (await _pages(version_id))[0]
-        assert page.raw_text == "" and page.vision_attempts == attempt and page.vision_error == "HTTP 503"
-        expected = "NEEDS_HUMAN_REVIEW" if attempt == settings.VISION_MAX_ATTEMPTS else "PENDING_VISION"
-        assert page.quality_status == expected
+        assert page.raw_text == "" and page.vision_attempts == attempt and page.vision_error == "HTTP 500"
+        assert page.quality_status == ("READ_FAILED" if attempt == total else "PENDING_VISION")
+    assert "| 1 | 7 | HTTP 500 |" in report.read_text(encoding="utf-8")
+
+
+async def test_vision_job_moves_a_failing_page_to_the_stronger_route(monkeypatch):
+    from backend.app.modules.extraction import vision, vision_jobs
+
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "key-a")
+    monkeypatch.setattr(settings, "GEMINI_EXTRA_API_KEYS", "key-b")
+    vision._dead_keys.clear()
+    vision._exhausted_until.clear()
+    _doc_id, version_id = await _ingest(bijoy_pdf())
+    calls, renders = [], []
+    real_render = vision_jobs.render_page_png
+
+    def render(pdf, page_number, dpi=None):
+        renders.append(dpi)
+        return real_render(pdf, page_number, 72)
+
+    async def fake_read(png, api_key=None, model=None, **kw):
+        calls.append((api_key, model))
+        return VisionResult(success=False, error="unusable answer: no lines", model=model)
+
+    monkeypatch.setattr(vision_jobs, "render_page_png", render)
+    monkeypatch.setattr(vision_jobs, "read_page_image", fake_read)
+    for _ in range(settings.VISION_MAX_ATTEMPTS + 1):
+        async with AsyncSessionLocal() as db:
+            await process_pending_vision_pages(db, version_id=version_id)
+    main = calls[:settings.VISION_MAX_ATTEMPTS]
+    assert {m for _k, m in main} == {settings.VISION_MODEL}
+    assert {k for k, _m in main} == {"key-a", "key-b"}  # each new try goes to the next key
+    assert calls[-1][1] == settings.VISION_FALLBACK_MODEL
+    assert renders[-1] == settings.VISION_FALLBACK_DPI and renders[0] is None
 
 
 async def test_vision_job_without_key_leaves_pages_waiting(monkeypatch):
