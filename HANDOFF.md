@@ -6,7 +6,7 @@
 - **Page reader:** no longer parks pages for human review. It retries across keys, then a bigger Gemini model, and lists unread pages in `data/unread_pages.md`.
   - User still to run: `backend/scripts/requeue_pages.py`, then restart the `RegWatchPageReader` task.
   - The 9 "redo" circulars: settled, no redo needed (see below).
-- **Git:** `b874f8d` committed (not pushed). Scorer, research and notes files still uncommitted (safety check blocked them).
+- **Git:** everything is committed on local `main` (latest f4b3f6b, 6 commits ahead of `origin/main`, not pushed). The scorer, research and notes files went in with 6c29d3f.
 - **Hosting:** one free Oracle Cloud server (Mumbai) for both apps; BankEye on Turso; the laptop scans the 3 banks that block cloud IPs. Waiting on the user to create Oracle and Cloudflare accounts.
 - **Rule:** no human review step, ever. Avoid repeated permission prompts.
 
