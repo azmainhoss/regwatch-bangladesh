@@ -19,7 +19,7 @@ from html import unescape
 from pathlib import Path
 
 URL = "https://www.bb.org.bd/en/index.php/mediaroom/circular"
-UA = "RegWatchBot/0.1"
+UA = "DocFetchBot/1.0"
 GAP_S = 15
 BDT = timezone(timedelta(hours=6))
 TEST_START = datetime(2026, 11, 12, 12, 0, tzinfo=BDT)

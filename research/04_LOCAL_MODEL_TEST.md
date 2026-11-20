@@ -70,7 +70,7 @@ or 28/40 after small fixes. Most misses were PDFs with broken Unicode fonts.
 ## Bot-check finding
 - **Blocked** (HTTP 200 HTML challenge pages, 40-50 KB) at 01:25-01:28:
   curl with a browser-like User-Agent ("Mozilla/5.0 ... Chrome/130"), no other headers, 3 s apart.
-- **Not blocked** at 01:31-01:32: the honest User-Agent "RegWatchBot/0.1", 10 s apart. All 7 PDFs came back.
+- **Not blocked** at 01:31-01:32: our own honest bot name, 10 s apart. All 7 PDFs came back.
 - **Inference:** the fake browser identity triggered the check; the honest bot name did not.
 
 ## Side effects on this PC

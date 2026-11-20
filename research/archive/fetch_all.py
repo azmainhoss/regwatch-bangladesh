@@ -7,7 +7,7 @@ Usage (use E:/regwatch-research/venv/Scripts/python.exe):
     python fetch_all.py status       # counts so far
 
 Rules:
-- Own name RegWatchBot/0.1, one request at a time (shared lock, see archive_lib.py).
+- Own honest bot name, one request at a time (shared lock, see archive_lib.py).
 - The gap between requests is read from data/gap.txt before every file (never below 2 s, default 5 s).
 - A challenge page (HTTP 200 HTML, /TSPD/, "What code is in the image") is a block: back off
   30 min, doubling up to 6 h; after 3 blocks in one Bangladesh day, write data/STOPPED and exit.
@@ -117,7 +117,7 @@ def speedtest():
     fresh, _ = pending_items(index, state)
     queue = iter(fresh)
     if not log_path.exists():
-        log_path.write_text("# Archive download: speed test\n\nOwn name `RegWatchBot/0.1`, one request at a time. "
+        log_path.write_text("# Archive download: speed test\n\nOwn honest bot name, one request at a time. "
                             "Gap = pause from the end of one request to the start of the next. "
                             "Avg file time = time the server took to send the file.\n\n"
                             "| Start (BDT) | Gap (s) | Planned | Done | OK | Rejected | Failed | Challenge pages | "

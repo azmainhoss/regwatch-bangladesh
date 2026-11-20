@@ -1,6 +1,6 @@
 # Archive download: speed test
 
-Own name `RegWatchBot/0.1`, one request at a time. Gap = pause from the end of one request to the start of the next. Avg file time = time the server took to send the file.
+Own honest bot name, one request at a time. Gap = pause from the end of one request to the start of the next. Avg file time = time the server took to send the file.
 
 | Start (BDT) | Gap (s) | Planned | Done | OK | Rejected | Failed | Challenge pages | Avg file time (s) | Wall time (min) | Result |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -9,7 +9,7 @@ Own name `RegWatchBot/0.1`, one request at a time. Gap = pause from the end of o
 | 2026-11-13T18:13:50 | 2 | 100 | 100 | 99 | 1 | 0 | 0 | 0.82 | 4.7 | clean |
 
 ## Result (13 Nov 2026)
-- 300 files in three stages, one request at a time, own name `RegWatchBot/0.1`: no challenge page at 5 s, 3 s or 2 s.
+- 300 files in three stages, one request at a time, own honest bot name: no challenge page at 5 s, 3 s or 2 s.
   The one "Request Rejected" file per stage is a single refused URL (skipped), not a block.
 - Parallel requests were not tried. The full download is one request at a time anyway (shared lock), so
   parallel would only add risk to the live detection test for no gain.

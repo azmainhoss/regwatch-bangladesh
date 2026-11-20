@@ -94,7 +94,7 @@ class Settings(BaseSettings):
 
     # Talking to bb.org.bd (DECISIONS.md 1 and 2)
     # The checker uses its own name, one request at a time, at least this many seconds apart.
-    BB_CRAWLER_USER_AGENT: str = "RegWatchBot/0.1"
+    BB_CRAWLER_USER_AGENT: str = "DocFetchBot/1.0"
     BB_REQUEST_INTERVAL_SECONDS: float = 15.0
     # How many days back the new-circular check asks the date filter for.
     BB_POLL_DAYS: int = 7

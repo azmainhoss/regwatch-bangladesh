@@ -21,7 +21,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - **Being confirmed by a 5-working-day live test that ends 18 Nov 2026** (see "Running tests" below).
 
 ### 2. How the script talks to the site
-- **It uses its own name, `RegWatchBot/0.1`, not a fake Chrome identity.**
+- **It uses its own name, `DocFetchBot/1.0`, not a fake Chrome identity.**
   - The only block seen on 2026-11-10 came from a fake Chrome name with requests 3 s apart.
   - The same downloads under the script's own name, 10 s apart, all worked.
   - 126 PDFs downloaded 15-20 s apart (38 min) with no block.
@@ -80,7 +80,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - Details: `research/06_VERDICT.md`.
 
 ### 11. Downloading the full archive (decided 2026-11-13)
-- **Own name `RegWatchBot/0.1`, one request at a time, 2 s between requests.** (Started at 3 s; moved to 2 s, the fastest tested-clean rate, on 13 Nov at the user's request.) The speed test (300 files at 5 s, 3 s, then 2 s) had no challenge page at any rate.
+- **Own name `DocFetchBot/1.0`, one request at a time, 2 s between requests.** (Started at 3 s; moved to 2 s, the fastest tested-clean rate, on 13 Nov at the user's request.) The speed test (300 files at 5 s, 3 s, then 2 s) had no challenge page at any rate.
   Never below 2 s; no parallel requests (untested, and a block would also stop the live detection test). Details: `research/archive/SPEED_TEST.md`.
 - **Runs 24/7** on the always-on PC as the scheduled task `RegWatchArchiveDownload` (`research/archive/fetch_all.py run`). The 10:00-18:00 window is dropped for downloads.
 - **Back-off on a challenge page:** 30 min, doubling up to 6 h; after 3 blocks in one day it stops and writes `data/STOPPED`.

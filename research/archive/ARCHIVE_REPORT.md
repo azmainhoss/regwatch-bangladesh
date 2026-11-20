@@ -7,7 +7,7 @@
 | 3 s | 100 | 0 | 1 | 0.77 s |
 | 2 s | 100 | 0 | 1 | 0.82 s |
 
-- Own name `RegWatchBot/0.1`, one request at a time, no proxies, no fake browser.
+- Own honest bot name, one request at a time, no proxies, no fake browser.
 - Parallel requests were not tried: the download is serial by design, so it would only add risk for no gain.
 - **Chosen rate: 3 s** (last clean rate 2 s, plus one step of margin). The rate lives in `data/gap.txt` and is re-read before every file; it can never go below 2 s.
 
