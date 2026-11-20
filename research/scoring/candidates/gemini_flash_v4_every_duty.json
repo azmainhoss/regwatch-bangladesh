@@ -1,0 +1,10 @@
+{
+  "name": "gemini_flash_v4_every_duty",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "prompt": "research/scoring/prompts/v4_every_duty.txt",
+  "method": "whole_document",
+  "paid": false,
+  "settings": {},
+  "notes": "Round 1: baseline plus rules telling the model to list every separate duty (one per item, per institution, no boilerplate)."
+}

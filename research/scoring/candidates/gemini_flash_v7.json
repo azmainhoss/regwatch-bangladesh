@@ -1,0 +1,10 @@
+{
+  "name": "gemini_flash_v7",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "prompt": "research/scoring/prompts/v7_who_and_deadlines.txt",
+  "method": "whole_document",
+  "paid": false,
+  "settings": {},
+  "notes": "Round 14: v6 plus the Offshore Banking Unit entity, who must act on every item (addressee by default), and a shared deadline given on each duty it covers."
+}

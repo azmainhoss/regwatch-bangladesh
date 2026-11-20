@@ -1,0 +1,10 @@
+{
+  "name": "gemini_flash_v6_types",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "prompt": "research/scoring/prompts/v6_types_enclosures.txt",
+  "method": "whole_document",
+  "paid": false,
+  "settings": {},
+  "notes": "Round 7: v5 plus the product's own definitions of requirement kinds (caps are must-not, most specific kind), what to leave out, enclosures, and dates in explicit_deadline."
+}

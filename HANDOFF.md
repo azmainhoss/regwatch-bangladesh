@@ -1,4 +1,48 @@
-# Handoff: RegWatch (as of 2026-11-13 late night, latest)
+# START HERE (20 Nov 2026, end of day)
+
+- **Model plan (settled):** the backfill of ~635-670 past circulars runs on subscription scheduled tasks. Live circulars use a paid model API, bought only at launch (~$20/month); until then they run through the subscription app. Free-model and Gemini tuning loops are dropped.
+- **Backfill lanes:** lane 1 account A; lane 2 (account B, account B2) retired via the runbook; lane 3 account C (current); lane 4 rrh trial (account D), no per-run cap. 245 of 635 done; finish expected 28-30 Nov.
+- **Live checker:** detection test passed; registered on the laptop as `RegWatchLiveChecker`.
+- **Page reader:** no longer parks pages for human review. It retries across keys, then a bigger Gemini model, and lists unread pages in `data/unread_pages.md`.
+  - User still to run: `backend/scripts/requeue_pages.py`, then restart the `RegWatchPageReader` task.
+  - The 9 "redo" circulars: settled, no redo needed (see below).
+- **Git:** `b874f8d` committed (not pushed). Scorer, research and notes files still uncommitted (safety check blocked them).
+- **Hosting:** one free Oracle Cloud server (Mumbai) for both apps; BankEye on Turso; the laptop scans the 3 banks that block cloud IPs. Waiting on the user to create Oracle and Cloudflare accounts.
+- **Rule:** no human review step, ever. Avoid repeated permission prompts.
+
+- **The 9 "redo" circulars needed no redo (20 Nov, later).** Their 21 "damaged" pages were clean English forms; the damaged-text check counted dotted fill-in lines ("Name: ……"), Bangla vowel signs and Word bullets as garbage. Check fixed (`extraction/quality.py`); the 21 pages and 147 more wrongly requeued clean pages got their exact text layer back (DB copies `data/regwatch.before-restore-*.db`). All 281 shared-repo answers match today's page text, so nothing was removed. REDO.txt approvals cleared.
+- **New circulars never go to analysis with a bad page.** Ready = every page `SUCCESS_*` with text that passes the damaged-text check (not just "none waiting"). Order per page: text layer -> Gemini (main, then stronger) -> last route (`extraction/strong_reader.py`, one read of the page image; needs `STRONG_READER_API_KEY` and `STRONG_READER_MODEL` in `.env`) -> circular held + admin alert. A hand-started analysis with a bad page holds every point for a person.
+- **Until the last route has a key, held pages are read by hand.** Any coding session on this laptop: run `.venv\Scripts\python.exe backend\scripts\held_pages.py list`, open each page image it writes (`research/archive/data/held_pages/`), write the exact transcription to a text file (page's own language, numbers and dates as printed, table rows with " | "), then `held_pages.py save <page_id> <file>`. The circular is analysed once all its pages are clean. The hourly sync (`sync_analysis_repo.ps1`) writes a `held:` line to `research/archive/data/manual_analysis/sync.log` when such pages exist. On 20 Nov: 0 held pages.
+
+(Older notes below may be out of date where they conflict with this section.)
+
+# Handoff: RegWatch (as of 2026-11-20, latest)
+
+## Plan changed on 20 Nov (user's decision; overrides the autoresearch "START HERE" below)
+- **The free-model tuning loop is dropped.** No more scorer rounds on free Gemini (round 14 never ran). The archive backfill (about 670 circulars, DECISIONS.md 14) runs on subscription scheduled tasks, and live analysis of new circulars moves to a paid model API (key still to be wired).
+- New order: (1) finish reading the Bangla archive pages, (2) backfill of the ~670 circulars on subscription scheduled tasks (already set up by the user, nothing to do), (3) wire the paid API key for live analysis, (4) run 24/7.
+- Commit `b874f8d` (claim checks, prompt v4, page reader) is made, not pushed. The scorer, research and notes files are still uncommitted.
+
+## Step 1, reading the Bangla archive pages (20 Nov, uncommitted)
+- State before: 17,500 pages read (7,691 from the PDF text, 9,778 from the page image), 141 waiting, 1,117 sent to a person. Of the 1,117: 271 failed only because their key's project was suspended on 14 Nov, 802 were never read from the image at all (the PDF text looked damaged, so they went straight to a person; about half are legacy-font Bangla, the rest English forms with dotted lines), 44 really failed (no text in the answer).
+- Built: a deleted, suspended or invalid key (`vision.is_dead_key_reply`) is benched for the rest of the run and never counts as a failed try on the page; the reader stops with a plain log line when no key works. New uploads: a text layer with broken characters or runs of odd symbols (`quality.text_layer_looks_damaged`) is read from the page image instead (`extraction/service.py`, reason `damaged_text_layer`), with the text layer kept in `native_text` for a person; a page that is only short keeps its text as before. Tests: `test_page_requeue.py` (9). `test_vision_job_reads_pending_pages_and_stores_boxes` was flaky (about 1 run in 5, parallel reads finish in any order); it now checks content, not order.
+- `backend/scripts/requeue_pages.py` (dry run unless `--yes`, saves a database copy first) sends wrongly flagged pages back. Dry run with `--repo F:\side-income\regwatch-analysis-work`: 271 key pages (154 circulars) + 529 damaged pages (152 circulars) go back = 800 pages; 124 damaged pages in 35 circulars stay, because those circulars are already analysed or handed out and replacing their text would change sentence IDs their answers cite; 149 short clean pages keep their text; 44 stay with a person. **Not run yet:** reading the 800 pages costs page-image calls, which needs the user's yes on which reader to use (the free Gemini page reader is still running, or the subscription route).
+- Gap fixed (20 Nov): `manual_analysis.py export` used to hand a circular out once no page was *waiting*, so pages with a person went out blank or garbled. Now a circular is held back until every page has usable text (`targets()` field `unread` = waiting + pages with a person that are empty or damaged; short clean pages don't count). An unanswered held-back circular is taken off the cloud queue (`inbox/`, `inbox_long/`) and goes out again by itself once read. At the next hourly sync this takes 31 circulars off the queue (40 of the 668 have unread pages). Tests: `test_manual_analysis_export.py` (5).
+- REDO list: `research/archive/data/manual_analysis/REDO.txt` (new `manual_analysis.py mark-redo`) holds the 35 circulars that went out with damaged pages. 26 are unanswered: the requeue script re-reads their damaged pages and the export re-sends them once read, then drops them from the list. 9 are already analysed in the app: their 21 damaged pages are left alone, and the export lists them as "fully read but already analysed" only once read. Replacing those analyses (removing the old answer from the shared repo) is the user's call.
+- **No page goes to a person any more (20 Nov, DECISIONS.md 15).** Failed page -> next key (Flash-Lite, 5 tries) -> Flash on a 300 dpi image (2 tries) -> READ_FAILED, listed in `data/unread_pages.md`. The status NEEDS_HUMAN_REVIEW came from the 5 Nov quality checker (commit 646f385) and the 12 Nov page reader (7540dfe) sent failed pages there; nothing sets it now. Screens say "Could not be read"; admin alert "N pages could not be read". Tesseract is not installed and stays dropped (decision 10). The requeue script now also marks the 149 short clean pages as read and sends the 44 real failures straight to the stronger route; only the 21 damaged pages of the 9 analysed redo circulars keep the old status until the user decides.
+- **Requeue not run yet.** The user said yes (free Gemini, existing keys), but this session's safety check refused `requeue_pages.py --yes`. Dry run now: 271 key pages + 632 damaged pages = 903 pages go back; 21 pages (9 analysed circulars) stay; 149 short clean pages are marked as read; 44 real failures go to the stronger route. To run it: `.venv\Scripts\python.exe backend\scripts\requeue_pages.py --repo F:\side-income\regwatch-analysis-work --yes`, then `read_pages.py --status` should show PENDING_VISION go up and fall as the reader works.
+
+## Check on 20 Nov (nothing committed)
+- The 13 Nov evening "Build queue" items 1-4 (`/search`, relationship map + compare, bank workspace, alerts) are all in commit 8daf4c4, already pushed. Alerts is finished: hooks in sources, analysis, relationships, compliance and claim review ("new circular" once per circular, never for archive circulars). Nothing alerts-related is left half-done. Only open alerts item: spec check 10 (a real SMTP send), which needs the user's mail settings.
+- Uncommitted work is all from 13-14 Nov after that commit: claim checks (chunks 1-4), prompt v4 + `deadline_text`, autoresearch scorer, speed/page-reader changes. 9 frontend files show as changed only because of line endings (no content change).
+- Full pytest (20 Nov): 476 pass, 6 fail, 1 error. Same 7 as 14 Nov, all missing seed data or setup: `test_document_stats_endpoint_truthfulness`, `test_second_genuine_document_generalisation_brpd15`, `test_end_to_end_ai_pipeline_on_corpus_document`, `test_genuine_documents_honest_publication_status`, `test_authenticated_regulatory_qa` (no seeded SMESPD circular), `test_storage_immutability_and_sha256`, error in `test_alembic_lifecycle_full_upgrade_and_downgrade`. Alerts tests: 36 of 36 pass. The run rewrote `backend/app/tests/fixtures/genuine_corpus/test_genuine_brpd_circular.pdf` again; restore it (`git checkout -- backend/app/tests/fixtures`) before committing.
+- Next: the user approves the commit split; then the 14 Nov autoresearch loop below.
+
+## Detection test finished (20 Nov; nothing committed)
+- The live test ended 19 Nov 18:00. **Verdict: decided.** 10 of 10 new circulars caught, median 5.8 min and worst 7.5 min after upload, 0 missed, 0 challenge pages, 17 of 388 checks failed and each recovered on the next try. Full write-up: `research/06_VERDICT.md` Step 1; rules in DECISIONS.md 1 and 3.
+- On this PC (Hozaifa-Laptop, the always-on one with `E:\regwatch-research`) `RegWatchDetectPoll` and `RegWatchDetectReconcile` are now **disabled**, not deleted. Still running and untouched: `RegWatchArchiveDownload`, `RegWatchArchiveImport`, `RegWatchPageReader`, `RegWatchAnalysisSync`.
+- **The other (collecting) PC** can't be reached from here. Its own copies of `RegWatchDetectPoll` / `RegWatchDetectReconcile` (running `research/detect/detect_test.py`) were paused on 12-13 Nov. On that PC, check they're still disabled or delete them with `schtasks /delete /tn RegWatchDetectPoll /f` and `schtasks /delete /tn RegWatchDetectReconcile /f`.
+- App's own live checker (user said yes on 20 Nov): `backend/scripts/live_checker.py` runs only the monitoring schedule, no web server (09:00-19:00, every 10 min Sun-Thu, hourly Fri-Sat, full-list check 18:50; overnight uploads are caught at 09:00 by the 7-day filter). Log `data/live_checker.log`. Its task is registered by `backend/scripts/register_live_checker.ps1`; as of 20 Nov the user still has to run that script once (this session was not allowed to). Never also run the web backend with `SCHEDULER_ENABLED=true`. Long-term home: an always-on machine.
 
 ## Archive download (13 Nov, always-on PC; nothing committed)
 - Full archive: 5,191 PDFs (1,226 English, 3,965 Bangla) in about 4,800 circulars, downloading into `research/archive/data/pdfs/` (git-ignored).
@@ -6,11 +50,55 @@
 - Status any time: `E:\regwatch-research\venv\Scripts\python.exe research\archive\fetch_all.py status`. Full report: `research/archive/ARCHIVE_REPORT.md`.
 - Load into the app when the download is done: `.venv\Scripts\python.exe backend\scripts\import_archive.py --app-db` (default without the flag is a throw-away test database). No analysis is run.
 
-## START HERE: next session (written 13 Nov late night; nothing committed)
+## START HERE: autoresearch state (14 Nov, after the overnight loop; nothing committed)
 
 **Paste this to start the next session:**
 
-> Read the project notes, DECISIONS.md (decisions 11-12 are new), research/07_REDUCE_HUMAN_REVIEW.md, then this section. The user approved building the 07 plan. Usage is tight: do the design and judgement work yourself (no Opus subagents); use only Sonnet subagents for building, one at a time, never in parallel, each with a self-contained brief. Step 1 is done. Next: write docs/specs/CLAIM_CHECKS_SPEC.md yourself (plan steps 2, 3 and 5: claim-level checks, per-claim status with hiding, a small one-claim-at-a-time reviewer screen, and checking only the quoted Bangla sentences instead of decision 10's page-level 2% rule), ordered into 2-4 build chunks with "done when" checks. Then hand each chunk to one Sonnet subagent in turn. Then plan step 4: the answer key for the 40 tuning + 90 test circulars and a scoring harness (the same test also picks the analysis model; include the main paid models as candidates as the user decided (price the test first); the app itself stays on free tiers during the build). Keep archive analysis on hold until the claim checks exist. Every screen must say what it waits for and how long, update by itself, and show no technical codes.
+> Read DECISIONS.md, `research/scoring/AUTORESEARCH_LOG.md` and this section. Continue the dev-split autoresearch loop from the kept state (SCORE 21.04, leak 17.8%) with candidate `gemini_flash_v6_types` (its prompt is now the app's own prompt v4). One change per round; keep it only if SCORE rises and the leak rate does not. Next targets, cheapest first: (1) false alarms are 22% (72 right claims hidden): look at DUTY_WORDING, WHO and NUMBERS failures on right claims with `--rescore-only`; (2) dates the model misses (104 "from 01/01/2027", 1484, 3056); (3) links score is only 18%. Do every step yourself (no subagents). Do not change the scorer's rules without the user's yes. When the loop stalls: price the paid candidates (`price.py`, vendor price pages, OpenAI first) and show the user the total before any `--yes-spend`.
+
+**What changed (14 Nov):**
+- Answer key for the 40 dev circulars is in `E:\regwatch-research\answer_key_kit\answers\` (from github.com/hozaifa1/regwatch-answer-key); `check_key.py`: 0 errors, 40 of 40. Audited 104, 671, 190, 2450 against the page images: every quote matches. Doubtful calls in 671 (an eligibility rule marked "must"; "stay within the limit" marked "must not").
+- All 141 dev pages are read (`prepare_inputs.py --split dev` done).
+- Keys: `.env` GEMINI_EXTRA_API_KEYS has 28 keys (+ the shell key = 29). See memory `regwatch-api-keys`. Accounts account B, account E and the DU account need the AI Studio terms accepted first (waiting on the user's own yes); never use account F.
+- Scores (all 40 dev): baseline with round 1 12.84 / leak 18.5% -> kept state **21.04 / leak 17.8%**. Obligation F1 11.5% -> 33.2%; duties taken from enclosed copies 14 -> 0.
+- App changes kept: who-check name variants and wider address block (`claims/wording.py`, `claims/checks.py`); new obligation field `deadline_text` (deadline in words) in the answer format, claims, checks, review screen, circular page ("Deadline: within 1 month ...") and scorer; prompt v4 in `analysis/prompts.py`.
+- Not checked: the `deadline_text` line on the circular page in a real browser (no analysis in the app database has it yet; it appears after the next analysis run).
+- Tests: full pytest 471 pass, 6 fail, 1 error (the old data/setup failures plus `test_authenticated_regulatory_qa`, a login/seed failure not touched here). `test_quote_ids_and_providers.py` now expects prompt "v4". `npx tsc --noEmit` passes. Tests rewrote `backend/app/tests/fixtures/genuine_corpus/test_genuine_brpd_circular.pdf`; restore it before committing.
+- Scorer cache: its key includes the answer format, so adding `deadline_text` orphaned the old v3 answers (re-running v3 costs 40 calls).
+- Page reader restarted with 29 keys; if it ever exits at once with "Another page reader is running", delete a stale `data/page_reader.lock` whose pid is gone.
+
+## Earlier START HERE (written 14 Nov, before the loop)
+
+**Paste this to start the next session:**
+
+> Read the project notes, DECISIONS.md (10 was updated, 13 is new), research/09_SCORER_SPEC.md, research/scoring/README.md, and this section. The user has written the answer key for the 40 dev circulars outside this repo; copy their `answers/` folder into `E:\regwatch-research\answer_key_kit\answers\` and run `python E:\regwatch-research\answer_key_kit\check_key.py` (it must say 0 errors and 40 of 40). Audit 4 keys (10%) yourself against the page images; fix nothing silently, ask the user about real doubts. Then: (1) finish `prepare_inputs.py --split dev` if any Bangla or scanned pages still wait; (2) run the free baseline candidate and `score.py` on dev, and write the baseline numbers into this file; (3) start the overnight `/autoresearch` loop on the dev split only, with `score.py`'s `SCORE` as the metric and the leak rate as a guard that must not rise. One change per round, keep it only if SCORE rises. Order of work for the loop: first the free changes that re-score from cache in seconds (`run_candidate.py --rescore-only`): the duty check (it raised every false alarm in the 13 Nov review: polite "Please bring this to the notice of", Bangla "করবে", caps like "shall not exceed"), the who check (spelling variants such as তফসিলী/তফসিলি, residents, agent customers, offshore banking units), numbers like "15 (fifteen) percent", exemption wording ("will not, however, apply", "যোগ্য বিবেচিত হবে না"), Act names in the target check. Then prompt changes that need model calls (free tier): issue date given as effective date, added words ("formally", "strict"), rules taken from enclosed older circulars, "issued under section X of an Act" called a change link, a form's mention of the circular itself read as a link. Also re-run the two empty analyses (FID Circular No. 03, FCRPD Circular No. 6) in the app. (4) In the morning: report the best dev SCORE and what changed; list the paid candidates to try (main paid models incl. paid Gemini; prices from each vendor's own price page, OpenAI's first), run `price.py` for each and show the user the total (estimate was about $20-35) before any `--yes-spend`. (5) Only after the user writes the 90 test keys (same kit, test split): score the finalists once with `--final`. One helper at a time, never in parallel; A careful helper for design and judgement, a build helper for building. Every screen must update by itself and show no technical codes. Commit and push only when the user asks; scrub any mention of the assistant first.
+
+**State after the 13-14 Nov session (nothing committed since 8daf4c4):**
+- Claim-checks spec chunks 1-4 all built and tested. Full pytest: 472 pass, 5 fail, 1 error (the old known failures). Build and lint pass.
+  - Chunk 3: "Points to check" review screen (admin tab), approve / fix / reject / ask for review, keys A F R J K ? Esc Ctrl+Enter, instant updates across tabs. A decision that clears review sends the "new circular" alert once (never for archive circulars). Fix keeps the fingerprint, so fixed points carry over to the next run.
+  - Chunk 4: Bangla and scanned quotes get a second reading from a crop of their lines; DECISIONS.md 10 records the change. First live run: 31 of 35 sentences matched, 2 misread (one real digit error, ১৪৮৮ vs ১৪৪৮), 2 unclear (bad line boxes on FEPD-1 Circular Letter No. 20 page 1).
+  - Not checked by eye: the "Fix the page reading" link opening the editor (the browser pane was hidden), and two admins in two real browsers (the user said it is not needed).
+- Stand-in review (decision 13) of the 8 backfilled circulars: 6 approved, 33 fixed, 10 rejected, 7 held for page-reading errors. Log: `research/review_log_2026-11-13.md`. Backup before it: `data/regwatch.before-review.db`.
+- On-screen "AI" wording replaced with "analysis" (admin tab "Analysis engine", messages "The analysis service ..."). The admin key-setup guide still names Google AI Studio, because the steps need it.
+- Answer-key kit for the 40 dev circulars: `E:\regwatch-research\answer_key_kit.zip` (PDFs, `PROMPT.md`, `manifest.json`, English page text, `check_key.py`). Copies in `research/08_ANSWER_KEY_PROMPT.md` and `research/08_check_key.py`. The same kit can be rebuilt for the 90 test circulars later (script: the `make_kit.py` logic, with `split == "test"`).
+- Scorer: spec `research/09_SCORER_SPEC.md`; code `research/scoring/` (README has every command). Built 14 Nov, no app code changed, 22 scorer tests pass. Dev inputs: 93 of 141 pages ready; 48 Bangla or scanned pages wait for the free page-reading quota (back about 14:05 Bangladesh time; `prepare_inputs.py --split dev --wait` finishes them, sharing quota with the page reader). The free baseline `gemini_flash_v3` already ran on the 16 ready circulars (cached); run it on the other 24 once their pages are ready. Paid batch submit is untested against a live service and only runs with `--yes-spend`; Gemini batch is upload-by-hand then `--collect`.
+- Low-text pages: 17 image-read pages in 13 circulars have under 150 characters (for example SMESPD Circular No. 05/2026 page 1 holds only the letterhead). Suggested rule, not built: an image-read page under 150 characters that is page 1, or not an obvious divider page, goes back for reading once, then to a person.
+- 16 points on BRPD Circular No. 15/2024 sit in "checking" with empty checks; not looked at yet.
+- Background tasks keep running: `RegWatchArchiveDownload`, `RegWatchArchiveImport`, `RegWatchPageReader` (restarted 14 Nov on the chunk 4 code).
+
+## Earlier START HERE (14 Nov early morning, done)
+
+**Paste this to start the next session:**
+
+> Read the project notes, DECISIONS.md (decision 13 is new), docs/specs/CLAIM_CHECKS_SPEC.md (sections 0, 5.2, 6.2, 7, 8 chunks 3-4), then this section. Chunks 1 and 2 of the claim-checks spec are built and tested (not committed). Next, one helper at a time, never in parallel: (1) a build helper builds chunk 3 (review screen, "Points to check"), including the chunk 1 notes in the spec (send the "new circular" alert when a decision clears review; keep the fingerprint on Fix). (2) Then ONE careful helper, as the stand-in reviewer (decision 13), works slowly and serially through the held points of the 8 backfilled circulars via the chunk 3 decision endpoints, writing a short reason per decision; check usage before starting. (3) Then a build helper builds chunk 4 (Bangla quoted-sentence second reading); afterwards record in DECISIONS.md that decision 10 is replaced. (4) Then plan step 4: answer key for the 40 tuning + 90 test circulars and a scoring harness; paid candidates run once each in batch mode (estimate about $20-35 total; check OpenAI's own price page first). A careful helper for design and judgement, a build helper for building. Every screen must update by itself and show no technical codes. Commit and push only when the user asks; scrub any mention of the assistant first.
+
+**State after this session (13-14 Nov):**
+- Pushed to GitHub main on 13 Nov (commit 8daf4c4). Everything after that is uncommitted: claims module, migration `c7e9a1b3d5f8` (applied to data/regwatch.db), checked customer view, backfill script, spec, DECISIONS.md 13.
+- Backfill applied to 8 circulars. Most points are hidden for now because v2 analyses had no evidence for summaries; re-running analysis (v3 prompt) brings them back checked. Backups: `data/regwatch.before-claims.db`, `data/regwatch.before-backfill.db`.
+- Tests: 425 pass, 5 fail, 1 error (the old known failures). `test_claim_checks.py` 40, `test_claims_view.py` 12, all pass. Build and lint pass.
+- Known gaps: the "still being checked, about N minutes" line shows but nothing works that queue until chunk 4 (those points stay hidden, safe). Some admin messages still say "The AI service ..." (`analysis/jobs.py`, `providers/factory.py`, `analysis/router.py`); reword to plain text.
+- Overview artboard: `private/regwatch-artboard.html` (git-ignored, offline, 9 boards).
+- Usage rule from the user: one helper at a time; the stand-in reviewer is one careful helper working serially and slowly.
 
 **Running on this PC right now (started in a session, so they stop if the PC restarts):**
 - Archive download: scheduled task `RegWatchArchiveDownload`, 2 s gap. Progress: `E:/regwatch-research/venv/Scripts/python.exe research/archive/fetch_all.py status`.
@@ -22,7 +110,7 @@
 - Step 1 of the 07 plan: analysis refuses to run while any page waits to be read (`analysis/auto.py`; the button answers "N pages are still being read"). New circulars from the live checker (status PUBLISHED_MACHINE_PROCESSED) are analysed by themselves once all pages are read (hooked into the page reader and the web job). Archive circulars (status EXTRACTED) are never analysed automatically.
 - New GET `/documents/{id}/reading-status` and a plain line on the circular page: "Reading the page images: x of y pages ready, about N minutes left", or "Waiting in line: N pages from newer circulars are read first", or "paused: today's free reading limit is used up; starts again at about HH:MM", plus what happens next (analysed by itself / added later for older circulars / an admin can run it). Archive circulars with no analysis say the summary comes later. Checked by API on a real archive circular; the browser check at 375 px is still to do.
 - SQLite now waits up to 60 s for another process's write (WAL when possible), so the reader, import and app share the file safely.
-- The Opus design subagent was stopped before writing anything (usage). `research/07_scratch/` holds the 07 research scripts.
+- The design helper was stopped before writing anything (usage). `research/07_scratch/` holds the 07 research scripts.
 
 **Notion:** item 6 updated 13 Nov through Composio (the Notion connector was failing; use Composio for Notion).
 
@@ -51,7 +139,7 @@ The "Next task" prompt below is finished. Only our own design (the "b" parts) wa
 | 4 | Admin, Check now | about 7 min | Answers right after the listing (well under 2 s in tests); downloads go on in the background with live counts | `background_ingest=True` on the manual trigger; GET `/sources/{id}/ingest-status`. Downloads use their own lock, so a listing check never waits for them; the shared request gate still keeps one request per 15 s. Screen: "N new found, adding them now: x of y done", then "Added N". A failed or blocked listing says "did not count", never "0 new". Live click NOT done here, to avoid clashing with the archive download running on this PC; covered by `test_phase2_source_monitoring.py`. |
 | 5 | Bangla / scanned page reading | 12 pages in 2-4 min (10-20 s a page) | 8 pages in 45 s; 7 scanned pages in about 60 s (about 6-8 s a page) | Upload already woke the worker; now pages of one circular are read 2 at a time per key (`VISION_CALLS_PER_KEY`, cap `VISION_MAX_PARALLEL`), rotating over `GEMINI_API_KEY` + `GEMINI_EXTRA_API_KEYS` (comma list), committing after each batch. Circular page shows "Reading the page images: x of y pages ready" and fills in text by itself (polls every 4 s). Raw error text no longer shown on the page panel. |
 
-Row 5 with more keys (done 13 Nov): `.env` now has `GEMINI_EXTRA_API_KEYS` with 7 extra free keys (8 in all, all tested OK; 3 new ones from the hozaifah626 AI Studio projects AgenticDev, libre, Natively). `VISION_MAX_PARALLEL` is now 8. A 7-page scanned circular was read in about 20 s, all pages at once. Google refused a new project on that account (project limit), so more keys would need another Google account. `new-api.txt` in the repo root holds one of the keys and is now git-ignored.
+Row 5 with more keys (done 13 Nov): `.env` now has `GEMINI_EXTRA_API_KEYS` with 7 extra free keys (8 in all, all tested OK; 3 new ones from the account C AI Studio projects AgenticDev, libre, Natively). `VISION_MAX_PARALLEL` is now 8. A 7-page scanned circular was read in about 20 s, all pages at once. Google refused a new project on that account (project limit), so more keys would need another Google account. `new-api.txt` in the repo root holds one of the keys and is now git-ignored.
 
 Checks: full pytest 368 pass, 5 fail, 1 error (the old data/setup failures: missing seeded genuine circulars and a missing stored file; none from this work). New tests: `backend/app/tests/test_speed_fixes.py` (11). `npm run build` and `npm run lint` pass. Browser checks done at desktop (Test connection, Run analysis incl. the unchanged skip and forced rerun with badge redraw, Ask with instant matching lines, live page-reading counter) and at 375 px (circular page, no sideways scroll). A test rewrote `backend/app/tests/fixtures/genuine_corpus/test_genuine_brpd_circular.pdf`; run `git checkout -- backend/app/tests/fixtures` before committing.
 
@@ -130,7 +218,7 @@ Done and checked in a real browser (desktop + 375 px), all uncommitted:
 Stopped half-way: **4. Alerts** per `docs/specs/ALERTS_SPEC.md` (defaults A1-A12). Partial files: `backend/app/modules/alerts/` (16 files), `backend/migrations/versions/b9d1f3a5c7e8_alerts.py`, `backend/app/core/storage.py` (shorter evidence path fix), `backend/app/tests/test_evidence_storage.py`. Not known: whether hooks, router registration or any frontend exists yet, or whether tests pass. Review `git status` / `git diff` first, then finish it.
 
 Still to do, in order (one helper at a time):
-5. Pick the analysis model (Opus writes the answer key from `E:\regwatch-research\gold\batches.json`, dev first, `validate_gold.py` to 0 errors; Sonnet builds the harness and runs free models; test split scored once; verdict in `research/06_VERDICT.md` + DECISIONS.md).
+5. Pick the analysis model (a careful helper writes the answer key from `E:\regwatch-research\gold\batches.json`, dev first, `validate_gold.py` to 0 errors; a build helper builds the harness and runs free models; test split scored once; verdict in `research/06_VERDICT.md` + DECISIONS.md).
 6. Always-on startup tasks for backend + scheduler on this PC, enabled only after 19 Nov 18:00.
 7. Update TickTick task "RegWatch build test" (project 6ae6f48a8f0847e165e47f9b) and Notion page 417366f4-5d6d-8173-b470-c09e9af7c267 (send base64 through COMPOSIO_REMOTE_WORKBENCH).
 Then delete `.venv`, `frontend/node_modules`, `frontend/.next` before the user tests.
@@ -140,7 +228,7 @@ Known leftovers from this round: re-running analysis on a circular drops earlier
 ## Build queue (13 Nov, paused for usage limit; nothing committed)
 - Done, uncommitted: sign-up in the account modal; admin "Edit text" page correction in PagePanel (tests in `backend/app/tests/test_signup_and_page_edit.py`; 219 pass, the 7 old failures remain).
 - Stopped half-way: search screen `/search` (full-text search + ask across circulars + store page-correction reason/who/when). Review the working tree before continuing; it may hold partial edits.
-- Still to do, in order, one helper at a time: relationship map + old-vs-new compare (Sonnet, spec by lead); bank compliance screens and alerts (Opus designs, Sonnet builds; alerts = in-app inbox + email when SMTP is set); analysis model pick (Opus writes the answer key from `E:\regwatch-research`, which still exists; Sonnet runs harness and models); always-on setup on this PC, enabled only after 19 Nov 18:00; then update the TickTick/Notion "RegWatch build test" steps.
+- Still to do, in order, one helper at a time: relationship map + old-vs-new compare (build helper, spec by lead); bank compliance screens and alerts (careful helper designs, build helper builds; alerts = in-app inbox + email when SMTP is set); analysis model pick (a careful helper writes the answer key from `E:\regwatch-research`, which still exists; a build helper runs harness and models); always-on setup on this PC, enabled only after 19 Nov 18:00; then update the TickTick/Notion "RegWatch build test" steps.
 - Before handing over for testing, delete `.venv`, `frontend/node_modules`, `frontend/.next` so the user's test starts from install.
 
 ## Results so far
@@ -169,7 +257,7 @@ Known leftovers from this round: re-running analysis on a circular drops earlier
 - Reject in the admin queue still uses the browser's prompt box.
 
 ## Rules
-Plain, short explanations. Never mention AI tools in files, commits or docs. Commit as `hozaifa-rrh <hozaifahossain@rrh.com.bd>` with plain messages. Never call bb.org.bd faster than one request per 15 s. Never commit API keys or `research/*/data/`.
+Plain, short explanations. Never mention AI tools in files, commits or docs. Commit as `hozaifa-rrh <account D>` with plain messages. Never call bb.org.bd faster than one request per 15 s. Never commit API keys or `research/*/data/`.
 
 ---
 # Handoff: RegWatch architecture benchmark (as of 2026-11-11)
@@ -179,7 +267,7 @@ The user wants one tested verdict per app step, scored on a locked test split of
 
 ## User rules that apply to this work
 - Talk ELI5 and briefly. Lead with the verdict.
-- **One subagent at a time.** The user's Pro limit was hit twice by parallel agents. On a Max account, still run one at a time unless the user says otherwise.
+- **One helper at a time.** The user's Pro limit was hit twice by parallel helpers. On a Max account, still run one at a time unless the user says otherwise.
 - Never mention AI or an agent in any file, commit or doc. Never commit the local assistant settings folder or key files.
 - Only research from 2026-11-10 onward counts. No legal or ethics lectures about downloading public circulars.
 - Free models first. Paid models only if free falls short, and the user decides whether to pay.
@@ -217,9 +305,9 @@ The user wants one tested verdict per app step, scored on a locked test split of
 
 ## API keys (never commit or print them)
 - **Gemini free keys, 4 of them, each in a different Google project:**
-  - shell env GEMINI_API_KEY (account hozaifah626);
+  - shell env GEMINI_API_KEY (account account C);
   - GOOGLE_API_KEY_FALLBACK in `F:\Projects\titan-title-review\.env`;
-  - two in `E:\regwatch-research\gemini_keys.env` (accounts 20hozaifa02 and hozaifahossain@rrh.com.bd).
+  - two in `E:\regwatch-research\gemini_keys.env` (accounts G and D).
 - **Free Gemini limits:**
   - 3.5 Flash: about 17 requests per key per day;
   - 3.5 Flash-Lite: much higher;
@@ -229,9 +317,9 @@ The user wants one tested verdict per app step, scored on a locked test split of
 
 ## Next steps, in order
 1. **Write the analysis answer key.**
-   - **How:** one agent per batch from `gold\batches.json`, dev batches first. Each follows `GOLD_SPEC_ANALYSIS.md` and must run `validate_gold.py` until 0 errors.
-   - **Model:** on Max, Opus is the better choice for this key. The Pro plan forced a switch to Sonnet.
-   - **Cost to expect:** the 26-page Opus transcription job used about 40% of a Pro 5-hour window. The analysis key is about 366 pages.
+   - **How:** one helper per batch from `gold\batches.json`, dev batches first. Each follows `GOLD_SPEC_ANALYSIS.md` and must run `validate_gold.py` until 0 errors.
+   - **Model:** on Max, the strongest model is the better choice for this key. The Pro plan forced a switch to a lighter one.
+   - **Cost to expect:** the 26-page transcription job used about 40% of a Pro 5-hour window. The analysis key is about 366 pages.
 2. **Audit 10% of the analysis key by hand** (about 13 rows) against the page images.
 3. **Produce the reading-winner text for every analysis page.**
    - `pymupdf_raw` already covers English.

@@ -1,0 +1,10 @@
+{
+  "name": "gemini_flash_v3",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "prompt": "app",
+  "method": "whole_document",
+  "paid": false,
+  "settings": {},
+  "notes": "Baseline: the app's current settings (Gemini free tier, the app's default analysis model) and the app's current prompt (v3), whole document in one call, rotating over the free keys in .env."
+}

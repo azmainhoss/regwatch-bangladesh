@@ -87,3 +87,6 @@ data/*.lock
 data/*.log
 data/*.out
 *.tsbuildinfo
+
+# Personal overview files, not for the repo
+private/

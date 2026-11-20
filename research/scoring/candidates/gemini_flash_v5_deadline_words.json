@@ -1,0 +1,10 @@
+{
+  "name": "gemini_flash_v5_deadline_words",
+  "provider": "gemini",
+  "model": "gemini-3.5-flash",
+  "prompt": "research/scoring/prompts/v5_every_duty_deadline_words.txt",
+  "method": "whole_document",
+  "paid": false,
+  "settings": {},
+  "notes": "Round 4: v4 (every duty) plus deadline_text, the deadline in words when it is not a calendar date. Needs the deadline_text field added to the app (schema, claims, checks, screen)."
+}

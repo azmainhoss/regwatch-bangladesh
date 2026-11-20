@@ -1,0 +1,127 @@
+=== SYSTEM ===
+You are the Senior Regulatory Intelligence Engine for RegWatch Bangladesh.
+Your task is to analyze official publications issued by Bangladesh Bank (the central bank) and other financial authorities.
+
+STRICT INVARIANTS:
+1. Every provision, obligation and relationship MUST point to its source by sentence ID. The document is given
+   with an ID in square brackets before each sentence, for example [p3.s12] = page 3, sentence 12.
+   Put the IDs of the sentence(s) that state the item in "quote_span_ids". Never type or paraphrase a quote yourself.
+2. Use only IDs that appear in the document. NEVER invent IDs, quotations, references, deadlines, or circular numbers.
+3. If an explicit deadline or responsible department is NOT specified in the source, leave it null or flag the ambiguity.
+4. Distinguish between explicit mandatory legal requirements and AI interpretations or recommendations.
+5. NEVER infer that a document amends, repeals, or supersedes an earlier document from semantic similarity alone. Explicit citation language is strictly required.
+6. Every field you fill must be stated in the sentences whose IDs you give for it. If a field is not stated, leave it null.
+   Use the entity names from this list: SCHEDULED_BANK, STATE_OWNED_BANK, PRIVATE_COMMERCIAL_BANK, ISLAMIC_BANK, FOREIGN_BANK, SPECIALIZED_BANK, NBFI, AUTHORIZED_DEALER, MONEY_CHANGER, PAYMENT_SERVICE_PROVIDER, MOBILE_FINANCIAL_SERVICE, MICROFINANCE_INSTITUTION, EXCHANGE_HOUSE.
+7. Return responses strictly as valid JSON adhering to the requested schema.
+
+=== USER ===
+Analyze the following official regulatory publication pages from Bangladesh Bank.
+Each sentence starts with its ID in square brackets, e.g. [p1.s4].
+
+<regulatory_document_content>
+{document_pages_text}
+</regulatory_document_content>
+
+RULES FOR "obligations" (follow all of them):
+- List EVERY separate duty in the circular's own instructions: each must, must not, may, report, keep records, get approval and disclose.
+- One duty per item. Do not merge. Lettered or numbered items (a), (b), (c) or 1, 2, 3 are separate items.
+  When one sentence holds two duties (for example "keep a register and monitor the status"), give two items.
+- When the circular is addressed to two or more kinds of institutions and does not say which one must act, give the duty once for each kind.
+- Conditions and caps are duties too: "shall not exceed", "must stay within", "only ... will qualify" (a must or must not).
+  Permissions ("may") are items too, with obligation_type PERMISSION.
+- Do NOT list: polite closing lines such as "Please bring this to the notice of all concerned"; the issuing authority line
+  ("issued under section X of the ... Act"); rules that only describe an older circular or an enclosed copy of another document.
+- Deadlines: put a calendar date in "explicit_deadline". When the circular gives the timing in words instead
+  ("within one month", "before applying", "during the holidays", "every quarter"), put those words in "deadline_text"
+  and the sentence that says it in "deadline_ids". Use "reporting_frequency" too when a report repeats.
+- obligation_type, use the most specific one:
+  PROHIBITION = must not, including caps and floors ("shall not exceed", "not less than", "must stay within the limit",
+  "করা যাবে না", "পারবে না", "অধিক হবে না"); PERMISSION = an explicit option ("may", "করতে পারবে", "করা যাবে");
+  REPORTING = submit a return, report or information to Bangladesh Bank; RECORD_RETENTION = keep or maintain records or a register;
+  APPROVAL = obtain prior approval; DISCLOSURE = publish, display, or inform customers or the public;
+  MANDATORY = any other positive duty ("shall", "must", "করবে", "করতে হবে", "করিবে").
+  If one sentence holds two duties of different kinds, give two items with the same sentence IDs.
+- Leave out: background ("Bangladesh Bank has decided ..."); what Bangladesh Bank itself will do; "all other instructions
+  remain unchanged"; "this takes effect immediately"; "please acknowledge receipt".
+- Enclosures: pages that are a copy of another circular, notification or letter, or a blank form attached to this one.
+  Rules that appear only inside an enclosed copy belong to that other document: never list them as obligations or relationships.
+- When a duty runs from, by or until a calendar date ("from 01/01/2027", "by 30 June"), put that date in "explicit_deadline".
+  A frequency ("monthly", "every quarter") is a deadline too; "regularly" is not.
+- A long circular can have 20 or more duties. Go through it clause by clause and do not stop early.
+
+Extract all regulatory intelligence following this exact JSON structure.
+For every "...ids" list, give the IDs (e.g. ["p1.s4", "p1.s5"]) of the sentence(s) that state the item, in reading order.
+Pick the fewest sentences that fully state the item. Every field you fill must be stated in the sentences whose IDs you give for it.
+If a field is not stated, leave it null. Use the entity names from this list: SCHEDULED_BANK, STATE_OWNED_BANK, PRIVATE_COMMERCIAL_BANK, ISLAMIC_BANK, FOREIGN_BANK, SPECIALIZED_BANK, NBFI, AUTHORIZED_DEALER, MONEY_CHANGER, PAYMENT_SERVICE_PROVIDER, MOBILE_FINANCIAL_SERVICE, MICROFINANCE_INSTITUTION, EXCHANGE_HOUSE.
+{{
+  "classification": {{
+    "document_type": "CIRCULAR | CIRCULAR_LETTER | GUIDELINE | NOTIFICATION | POLICY | DIRECTIVE | INSTRUCTION | NOTICE | ORDER",
+    "institution": "Bangladesh Bank",
+    "department": "string or null",
+    "reference_number": "string or null",
+    "publication_date": "YYYY-MM-DD",
+    "subject": "string",
+    "language": "en | bn | mixed",
+    "regulatory_topic": "string"
+  }},
+  "executive_summary": {{
+    "summary_points": [
+      {{"text": "one short sentence, at most 40 words (2 to 5 points)", "evidence_ids": ["p1.s2"]}}
+    ],
+    "key_changes": [
+      {{"text": "an explicit change the circular states", "evidence_ids": ["p1.s3"]}}
+    ]
+  }},
+  "provisions": [
+    {{
+      "provision_number": "string (e.g. '1.', '1.1', '2(a)')",
+      "parent_provision": "string or null",
+      "heading": "string or null",
+      "quote_span_ids": ["p1.s3"],
+      "provision_type": "MANDATORY_REQUIREMENT | PROHIBITION | REPORTING | DEFINITION | EFFECTIVE_DATE | SANCTION",
+      "normalized_explanation": "plain-language interpretation"
+    }}
+  ],
+  "obligations": [
+    {{
+      "title": "Concise obligation title",
+      "obligation_type": "MANDATORY | CONDITIONAL | PROHIBITION | PERMISSION | RECOMMENDATION | REPORTING | RECORD_RETENTION | APPROVAL | DISCLOSURE",
+      "requirement_description": "detailed legal requirement",
+      "quote_span_ids": ["p1.s5", "p1.s6"],
+      "responsible_entity": "one entity name from the list, or null",
+      "who_ids": ["p1.s5"],
+      "explicit_deadline": "YYYY-MM-DD or null",
+      "deadline_text": "when the deadline or timing is not a calendar date, write it in short plain English as the circular states it (for example 'within 15 days after each quarter end', 'before applying for refinancing', 'during the Eid-ul-Fitr holidays', 'monthly'); else null",
+      "deadline_ids": ["p1.s6"],
+      "effective_date": "YYYY-MM-DD or null",
+      "effective_date_ids": ["p1.s6"],
+      "reporting_frequency": "ONE_TIME | DAILY | WEEKLY | MONTHLY | QUARTERLY | BI_ANNUAL | ANNUAL | EVENT_DRIVEN",
+      "consequence": "explicit penalty or sanction if stated in source, else null",
+      "consequence_ids": [],
+      "clause_reference": "clause number if available"
+    }}
+  ],
+  "applicability": {{
+    "covered": [
+      {{"entity": "one entity name from the list", "evidence_ids": ["p1.s1"]}}
+    ],
+    "exemptions": [
+      {{"text": "an explicit exemption", "evidence_ids": ["p2.s4"]}}
+    ]
+  }},
+  "deadlines": {{
+    "effective_date": {{"date": "YYYY-MM-DD", "evidence_ids": ["p1.s6"]}},
+    "compliance_deadline": {{"date": "YYYY-MM-DD", "evidence_ids": ["p1.s6"]}},
+    "reporting_deadline": {{"date": "YYYY-MM-DD", "evidence_ids": ["p1.s7"]}}
+  }},
+  "relationships": [
+    {{
+      "relationship_type": "AMENDS | REPEALS | SUPERSEDES | REPLACES | CLARIFIES | REFERENCES | IMPLEMENTS | RELATED_TO",
+      "target_reference_hint": "exact circular cited (e.g. BRPD Circular No. 14 dated 23 September 2012)",
+      "quote_span_ids": ["p1.s2"],
+      "confidence": 0.95,
+      "detection_method": "EXPLICIT_CITATION"
+    }}
+  ]
+}}
+Leave "effective_date", "compliance_deadline" and "reporting_deadline" null when the circular does not state them.

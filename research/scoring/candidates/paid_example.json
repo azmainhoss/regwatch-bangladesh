@@ -1,0 +1,19 @@
+{
+  "name": "paid_example",
+  "provider": "openai_compat",
+  "model": "REPLACE_WITH_MODEL_ID",
+  "prompt": "app",
+  "method": "whole_document",
+  "paid": true,
+  "settings": {
+    "base_url": "https://api.example-vendor.com/v1",
+    "api_key_env": "PAID_CANDIDATE_API_KEY",
+    "response_format": "json_object"
+  },
+  "price_input_per_mtok": null,
+  "price_output_per_mtok": null,
+  "batch_discount": 0.5,
+  "price_source": "FILL IN: the vendor's own price page address",
+  "price_checked": "FILL IN: date the page was read",
+  "notes": "A template. Copy it, fill in the model and the prices from the vendor's price page, then run price.py. Nothing paid runs without --yes-spend."
+}
