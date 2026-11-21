@@ -26,7 +26,8 @@ This is the single source of truth for architecture decisions. Last updated 2026
   - **Run the live checker on its own, apart from bulk downloads.** On 12 Nov, on the other PC, it shared one request queue with the archive download and 16 of 25 checks timed out. On the always-on PC, where they ran as separate tasks, there were no timeouts.
 
 ### 2. How the script talks to the site
-- **It uses its own name, `DocFetchBot/1.0`, not a fake Chrome identity.**
+- **It uses its own name, `NoticeIndexBot/0.1`, not a fake Chrome identity.**
+  - The previous name, "DocFetch" bot version 1.0 (used from 20 Nov), got 5 Imperva challenges in a row on 20-21 Nov, so it was replaced on 21 Nov.
   - The only block seen on 2026-11-10 came from a fake Chrome name with requests 3 s apart.
   - The same downloads under the script's own name, 10 s apart, all worked.
   - 126 PDFs downloaded 15-20 s apart (38 min) with no block.
@@ -40,7 +41,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
 ### 3. Hosting
 - Run from Bangladesh. The user's home connection is fine for now. A small Bangladeshi server later.
 - **The home laptop is not good enough for the live checker at launch** (live test, 10-19 Nov). It was off or asleep for two full working days (Sun 15 Nov and Tue 17 Nov) and most of a third afternoon (Wed 18 Nov). Nothing was missed only because nothing was published in those hours. Launch needs a machine that stays on.
-- **The site never showed a challenge page to the checker** in 388 checks over 9 days under the name `DocFetchBot/1.0` from a home connection. This confirms decision 2.
+- **The site never showed a challenge page to the checker** in 388 checks over 9 days under its own honest bot name from a home connection. This confirms decision 2.
 
 ### 4. Official access
 - The user emails webmaster@bb.org.bd asking for a feed or an IP allow-list
@@ -87,7 +88,7 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - Details: `research/06_VERDICT.md`.
 
 ### 11. Downloading the full archive (decided 2026-11-13)
-- **Own name `DocFetchBot/1.0`, one request at a time, 2 s between requests.** (Started at 3 s; moved to 2 s, the fastest tested-clean rate, on 13 Nov at the user's request.) The speed test (300 files at 5 s, 3 s, then 2 s) had no challenge page at any rate.
+- **Own name `NoticeIndexBot/0.1`, one request at a time, 2 s between requests.** (Started at 3 s; moved to 2 s, the fastest tested-clean rate, on 13 Nov at the user's request.) The speed test (300 files at 5 s, 3 s, then 2 s) had no challenge page at any rate.
   Never below 2 s; no parallel requests (untested, and a block would also stop the live detection test). Details: `research/archive/SPEED_TEST.md`.
 - **Runs 24/7** on the always-on PC as the scheduled task `RegWatchArchiveDownload` (`research/archive/fetch_all.py run`). The 10:00-18:00 window is dropped for downloads.
 - **Back-off on a challenge page:** 30 min, doubling up to 6 h; after 3 blocks in one day it stops and writes `data/STOPPED`.

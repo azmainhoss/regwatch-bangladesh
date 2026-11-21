@@ -139,7 +139,7 @@ async def test_poll_recent_posts_the_date_filter(monkeypatch):
     assert len(result.candidate_publications) == 4
     assert sent["url"] == BB_LIST_URL
     assert sent["data"] == {"from_date": "2026-11-05", "to_date": "2026-11-12", "search_circular": "Search"}
-    assert sent["headers"]["User-Agent"] == "DocFetchBot/1.0"
+    assert sent["headers"]["User-Agent"] == "NoticeIndexBot/0.1"
 
 
 # ---------------------------------------------------------------------------

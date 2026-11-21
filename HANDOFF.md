@@ -345,7 +345,7 @@ The user wants one tested verdict per app step, scored on a locked test split of
 8. **Update DECISIONS.md, 06_VERDICT.md and project memory.**
 
 ## Gotchas
-- **bb.org.bd:** use User-Agent `DocFetchBot/1.0`, about 15 s between requests. A "Request Rejected" page for one URL means skip that file (2 sample files are like this). It isn't a block.
+- **bb.org.bd:** use User-Agent `NoticeIndexBot/0.1`, about 15 s between requests. A "Request Rejected" page for one URL means skip that file (2 sample files are like this). It isn't a block.
 - **Windows Python:** always open files with `encoding="utf-8"`. Heredocs eat backslashes, so use forward slashes in paths inside Python.
 - **Some pages are misclassified.** For example `1191_0_p10` is marked English but is Bangla. Route by font check, not by class label alone.
 - **Free OpenRouter "reasoning" vision models** run out of output tokens on dense pages.

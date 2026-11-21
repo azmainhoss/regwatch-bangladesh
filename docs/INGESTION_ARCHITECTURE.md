@@ -50,7 +50,7 @@ Because financial regulation demands absolute legal certainty and evidentiary au
     - SFD (Sustainable Finance Department) - Green financing, ESG compliance.
 - **How the app talks to the site (DECISIONS.md 1 and 2):**
   - The app's own checker queries `bb.org.bd` directly. It runs from Bangladesh (home-hosted for now).
-  - It identifies itself honestly as `DocFetchBot/1.0`, never as a browser.
+  - It identifies itself honestly as `NoticeIndexBot/0.1`, never as a browser.
   - One request at a time, at least 15 s apart (`BB_REQUEST_INTERVAL_SECONDS`), across listing checks,
     PDF downloads and HEAD checks. The pace and lock live in the scheduler process (`SCHEDULER_ENABLED` on one process only).
   - New-circular check: `POST en/index.php/mediaroom/circular` with `from_date`, `to_date` (last 7 days, inclusive)

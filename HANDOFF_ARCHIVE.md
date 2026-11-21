@@ -14,7 +14,7 @@ Read first: `DECISIONS.md`, `HANDOFF.md` (top section), `research/archive/fetch_
 
 ## What is known
 - Listing: `POST https://www.bb.org.bd/en/index.php/mediaroom/circular` with a date filter (see DECISIONS.md 1). The full list is about 2.6 MB.
-- Use User-Agent `DocFetchBot/1.0`. Never fake a browser.
+- Use User-Agent `NoticeIndexBot/0.1`. Never fake a browser.
 - Blocked: fake Chrome name, 3 s apart, after about 20 files. Fine: own name 10 s apart (7 files), own name 15-20 s apart (126 files). Never tested faster with our own name, never tested parallel.
 - A block looks like an HTTP 200 HTML challenge page ("What code is in the image", /TSPD/, 40-50 KB) instead of a PDF. A "Request Rejected" page for one URL means skip that file, not a block.
 - The detection task `RegWatchDetectPoll` runs on this PC every 10 min and must keep working until 19 Nov 18:00. Downloads must share its request lock (one request at a time across both) so they never overlap.

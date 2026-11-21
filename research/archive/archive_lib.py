@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 URL = "https://www.bb.org.bd/en/index.php/mediaroom/circular"
-UA = "DocFetchBot/1.0"
+UA = "NoticeIndexBot/0.1"
 BDT = timezone(timedelta(hours=6))
 
 HERE = Path(__file__).resolve().parent

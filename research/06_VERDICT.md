@@ -40,7 +40,7 @@ CER is the share of characters wrong. A missing output counts as 100% wrong. "Nu
 
 ## Step 1: spotting new circulars. DECIDED 2026-11-20
 
-**Winner:** our own script asking the circular page's 7-day date filter every 10 min on working days (09:00-19:00) and hourly otherwise, plus one full-list check every night. Name `DocFetchBot/1.0`, one request at a time.
+**Winner:** our own script asking the circular page's 7-day date filter every 10 min on working days (09:00-19:00) and hourly otherwise, plus one full-list check every night. Name `NoticeIndexBot/0.1`, one request at a time.
 
 ### Live test numbers (always-on PC, 10 Nov 22:08 to 19 Nov 18:00)
 | Measure | Result |
