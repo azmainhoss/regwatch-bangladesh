@@ -1,3 +1,11 @@
+# START HERE (21 Nov 2026, evening): TickTick "Regwatch" list built
+
+- **Built and tested in Brave (commits 88a14f6, c833fde, 3fb632a, local only):** dashboard home (Today / This week / This month / Read later boxes, Ask a question, Assigned box), Departments + Categories tabs (31 categories in `topics/taxonomy.py`, all 4,789 circulars sorted by Flash-Lite via `backend/scripts/classify_topics.py`; new circulars are sorted by the live checker after each check), stronger search (short forms like ECL expand to "expected credit loss", whole-word only, words may sit on different pages, summaries and categories count), Favourites / Read later / own lists (`/me/lists`), original PDF in the right panel, back links strip, arrow-key page navigation, mind map from checked points (big window, emailable picture), Assign to team (`/share/assign`, shows on both dashboards) and Email (`/share/email`, summary + mind map + PDF attached; `.eml` download when SMTP is off), plans Free / Pro / Enterprise (min 20 seats; `plans/plans.py`; admin tab "Plans" switches one on), installable web app (manifest, `public/sw.js`).
+- **Bot checks:** the checker keeps the site's cookies, falls back to the full list when the date filter is challenged, and waits at most 2 h. Back-off cleared and `RegWatchLiveChecker` restarted on 21 Nov.
+- **Waiting on the user:** plan prices (placeholders: Pro Tk 2,500/person/month, Enterprise Tk 1,800/seat/month); SMTP settings for real email (Brevo per hosting plan); a live domain before a Play Store app (TWA) can be built.
+- **Tests:** full suite 487 pass, 7 fail + 1 error, all old known ones (`test_human_review_and_publication_workflow` fails because no point waits for a person any more).
+- Demo banks are on Enterprise (`backend/scripts/seed_demo_plans.py`). Design page: https://claude.ai/artifact/NCjxu3xD8vbWjh37V8B5kf
+
 # START HERE (20 Nov 2026, end of day)
 
 - **Model plan (settled):** the backfill of ~635-670 past circulars runs on subscription scheduled tasks. Live circulars use a paid model API, bought only at launch (~$20/month); until then they run through the subscription app. Free-model and Gemini tuning loops are dropped.
