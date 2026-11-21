@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     ANSWER_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     ANSWER_MAX_RETRIES: int = 1
     ANSWER_TIMEOUT_SECONDS: float = 45.0
+    # When the fast model is busy or fails, this model is asked at once (no waiting retry); it is
+    # also asked if the fast model has not answered after ANSWER_HEDGE_SECONDS. Empty = off.
+    ANSWER_FALLBACK_GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    ANSWER_HEDGE_SECONDS: float = 4.0
+    ANSWER_DEADLINE_SECONDS: float = 20.0  # with the second model on: give up after this, in all
 
     # Talking to bb.org.bd (DECISIONS.md 1 and 2)
     # The checker uses its own name, one request at a time, at least this many seconds apart.

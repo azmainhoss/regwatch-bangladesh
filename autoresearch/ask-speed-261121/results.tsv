@@ -1,0 +1,6 @@
+Baseline	2.363	3.972	6.108	13.069	10
+Page text in memory	0.524	0.821	7.579	54.064	10
+Busy-model switch	0.343	1.014	2.524	4.628	10
+Repeat questions	0.345	0.914	2.628	54.245	10
+Deadline and retry order	0.415	1.0	2.832	9.718	10
+Same questions again	0.309	0.669	0.249	2.706	10

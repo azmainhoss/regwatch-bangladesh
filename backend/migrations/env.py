@@ -21,11 +21,17 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to):
+    # The Ask search's change log is made by the app itself (research/page_cache.py), not by migrations.
+    return not (type_ == "table" and name == "search_page_changes")
+
+
 def run_migrations_offline() -> None:
     url = settings.SYNC_DATABASE_URL
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -45,7 +51,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, include_object=include_object
         )
 
         with context.begin_transaction():

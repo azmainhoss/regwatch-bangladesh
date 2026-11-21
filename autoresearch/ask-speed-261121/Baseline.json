@@ -1,0 +1,148 @@
+{
+ "summary": {
+  "label": "Baseline",
+  "matches_median": 2.363,
+  "matches_max": 3.972,
+  "answer_median": 6.108,
+  "answer_max": 13.069,
+  "grounded": 10
+ },
+ "rows": [
+  {
+   "q": "What is the minimum capital adequacy ratio for banks?",
+   "matches_s": 3.972,
+   "n_matches": 8,
+   "answer_s": 8.748,
+   "grounded": true,
+   "n_quotes": 2,
+   "answer": "Under the Basel II accord framework, the minimum total Capital Adequacy Ratio is required to be 10.00% of risk-weighted assets. Additionally",
+   "caveats": [
+    "Requirements vary depending on the specific capital accord regime (such as Basel II versus earlier master circular standards)."
+   ]
+  },
+  {
+   "q": "loan classification and provisioning for SME loans",
+   "matches_s": 2.135,
+   "n_matches": 8,
+   "answer_s": 5.015,
+   "grounded": true,
+   "n_quotes": 2,
+   "answer": "To encourage bank participation in disbursing Cottage, Micro, and Small enterprise credits under the CMSME sector, provisions are required t",
+   "caveats": [
+    "D3.p1.s17 mentions a 1% provision rate for unclassified CMS enterprise credits until 31 December 2026, but D2.p1.s17 specifies 0.50% based on a later or referencing circular letter."
+   ]
+  },
+  {
+   "q": "When must banks submit the CRR and SLR return?",
+   "matches_s": 3.967,
+   "n_matches": 8,
+   "answer_s": 8.09,
+   "grounded": true,
+   "n_quotes": 1,
+   "answer": "Weekly reporting must be submitted every Thursday by 4:00 PM.",
+   "caveats": [
+    "The provided documents mention weekly reporting for liquidity returns but do not explicitly use the terms 'CRR and SLR return' together, though DOS Circular No. 03/2025 covers Cash Reserve Ratio and Statutory Liquidity Ratio maintenance and reporting."
+   ]
+  },
+  {
+   "q": "What are the rules for opening a student file for foreign remittance?",
+   "matches_s": 2.841,
+   "n_matches": 8,
+   "answer_s": 8.366,
+   "grounded": true,
+   "n_quotes": 3,
+   "answer": "Authorized Dealers must maintain a separate file for each student with all relevant papers in readiness for perusal by inspecting officials.",
+   "caveats": [
+    "Requirements for student files can vary depending on whether the file is for regular studies, correspondence courses, or new/higher courses."
+   ]
+  },
+  {
+   "q": "agent banking outlet requirements",
+   "matches_s": 1.743,
+   "n_matches": 8,
+   "answer_s": 4.261,
+   "grounded": true,
+   "n_quotes": 2,
+   "answer": "No agent is permitted to relocate, transfer, replace, or close its agent banking outlet without the prior written consent of the bank. Prior",
+   "caveats": []
+  },
+  {
+   "q": "Interest rate cap on credit card loans",
+   "matches_s": 2.854,
+   "n_matches": 8,
+   "answer_s": 5.669,
+   "grounded": true,
+   "n_quotes": 2,
+   "answer": "While the cap on the rate of interest on lending in various sectors has been withdrawn, credit cards are explicitly categorized under high r",
+   "caveats": []
+  },
+  {
+   "q": "How long must KYC records be kept?",
+   "matches_s": 1.483,
+   "n_matches": 8,
+   "answer_s": 3.551,
+   "grounded": false,
+   "n_quotes": 0,
+   "answer": "I could not verify this from the available regulatory documents.",
+   "caveats": [
+    "The provided regulatory corpus does not contain information regarding the retention period for KYC records."
+   ]
+  },
+  {
+   "q": "rescheduling of defaulted loans down payment",
+   "matches_s": 2.152,
+   "n_matches": 8,
+   "answer_s": 13.069,
+   "grounded": true,
+   "n_quotes": 4,
+   "answer": "For first time rescheduling of term loans, applications are considered upon receiving a cash payment of at least 15% of the overdue installm",
+   "caveats": []
+  },
+  {
+   "q": "mobile financial services transaction limit per day",
+   "matches_s": 1.814,
+   "n_matches": 8,
+   "answer_s": 6.548,
+   "grounded": true,
+   "n_quotes": 1,
+   "answer": "Bangladesh Bank determines and fixes the specific transaction limits and overall caps per customer per month for person-to-person payments a",
+   "caveats": [
+    "The specific daily or per-transaction numerical limit is not mentioned in the provided text."
+   ]
+  },
+  {
+   "q": "ঋণ শ্রেণীকরণ ও প্রভিশন",
+   "matches_s": 1.209,
+   "n_matches": 8,
+   "answer_s": 3.283,
+   "grounded": true,
+   "n_quotes": 3,
+   "answer": "শীতলীকরণ শিল্প প্রতিষ্ঠানের ঋণ পুনর্ফসিল করা হলেও উক্ত ঋণের বিপরীতে রক্ষিত প্রভিশন সংরক্ষণ করতে হবে এবং প্রকৃত আদায় ব্যতিরেকে তা আয়খাতে স্থা",
+   "caveats": [
+    "তথ্যগুলো শুধুমাত্র কোল্ড স্টোরেজ শিল্প এবং সাধারণ ছুটির প্রেক্ষাপটে প্রদত্ত প্রবিধানের ওপর ভিত্তি করে তৈরি।"
+   ]
+  },
+  {
+   "q": "export retention quota foreign currency account",
+   "matches_s": 2.574,
+   "n_matches": 8,
+   "answer_s": 6.919,
+   "grounded": true,
+   "n_quotes": 3,
+   "answer": "Authorized Dealers may credit the equivalent amount in local currency to a freelancer's account upon verifying electronic evidence and retai",
+   "caveats": []
+  },
+  {
+   "q": "Who must approve the appointment of a bank managing director?",
+   "matches_s": 3.952,
+   "n_matches": 8,
+   "answer_s": 5.402,
+   "grounded": false,
+   "n_quotes": 0,
+   "answer": "I could not verify this from the available regulatory documents.",
+   "caveats": [
+    "The provided regulatory documents do not specify who must approve the appointment of a bank managing director."
+   ]
+  }
+ ]
+}

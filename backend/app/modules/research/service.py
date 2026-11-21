@@ -1,13 +1,17 @@
+import asyncio
 import re
+import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
 from backend.app.modules.analysis.providers.factory import get_answer_provider
 from backend.app.modules.analysis.sentences import SentenceIndex
+from backend.app.modules.research import page_cache
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.documents.access import visible_documents_condition
 from backend.app.modules.identity.models import User
@@ -154,6 +158,20 @@ def sanitize_prompt_injection(text: str) -> str:
     return sanitized
 
 
+# Checked answers to recent questions: a repeat question is answered at once, but only while
+# none of the pages behind the answer has changed (page_cache tracks every change).
+ANSWER_CACHE_SECONDS = 15 * 60
+ANSWER_CACHE_SIZE = 300
+_ANSWER_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+
+
+def _remember_answer(cache_key: tuple, stamp: tuple, page_ids: List[str], result: "ResearchQueryResponse") -> None:
+    _ANSWER_CACHE[cache_key] = (time.monotonic(), stamp, page_ids, result.model_copy(deep=True))
+    _ANSWER_CACHE.move_to_end(cache_key)
+    while len(_ANSWER_CACHE) > ANSWER_CACHE_SIZE:
+        _ANSWER_CACHE.popitem(last=False)
+
+
 class ResearchService:
     @staticmethod
     async def query_regulatory_knowledge(
@@ -195,7 +213,21 @@ class ResearchService:
 
         # Step 2: Pull the best matching pages (local search, no model call).
         keywords = _keywords(query)
+        cache_key = None
+        if page_cache.enabled():
+            await asyncio.to_thread(page_cache.page_cache.sync)
+            # Answers built from the shared library are shared by everyone; a user with private
+            # uploads gets answers of their own, since those may draw on their files.
+            uid = str(user.id) if user else None
+            owner_part = uid if page_cache.page_cache.owns_private_pages(uid) else None
+            cache_key = (" ".join(query.lower().split()), owner_part,
+                         str(document_id) if document_id else None, str(institution_id) if institution_id else None)
+        cached = await ResearchService._cached_answer(cache_key, user) if cache_key else None
+        if cached is not None:
+            return cached
         top_snippets = await ResearchService._top_pages(db, keywords, document_id, institution_id, user)
+        # Taken after the lookup synced the page copy: any later change to these pages voids the answer.
+        stamp = page_cache.page_cache.stamp() if page_cache.enabled() else None
 
         if not top_snippets:
             return ResearchQueryResponse(
@@ -307,13 +339,31 @@ Answer from these sentences only and name the supporting sentences by their tags
                 logger.critical("Sensitive credential pattern detected in research assistant output! Redacting.")
                 answer_text = sec_pattern.sub("[REDACTED_CREDENTIAL]", answer_text)
 
-        return ResearchQueryResponse(
+        result = ResearchQueryResponse(
             query=query,
             answer=answer_text,
             is_grounded=True,
             citations=citations_list,
             caveats=caveats,
         )
+        if stamp is not None and cache_key is not None:
+            _remember_answer(cache_key, stamp, [str(snip["page"].id) for snip in top_snippets], result)
+        return result
+
+    @staticmethod
+    async def _cached_answer(cache_key: tuple, user: Optional[User]) -> Optional[ResearchQueryResponse]:
+        """A recent checked answer to the same question, if none of the pages behind it changed since."""
+        if cache_key not in _ANSWER_CACHE:
+            return None
+        made_at, stamp, page_ids, result = _ANSWER_CACHE[cache_key]
+        if time.monotonic() - made_at > ANSWER_CACHE_SECONDS:
+            _ANSWER_CACHE.pop(cache_key, None)
+            return None
+        if not page_cache.page_cache.unchanged_since(stamp, page_ids, str(user.id) if user else None):
+            _ANSWER_CACHE.pop(cache_key, None)
+            return None
+        _ANSWER_CACHE.move_to_end(cache_key)
+        return result.model_copy(deep=True)
 
     @staticmethod
     async def _top_pages(
@@ -327,8 +377,25 @@ Answer from these sentences only and name the supporting sentences by their tags
         # Pull candidate pages from the current files of every document in scope.
         # Without a document scope, the database narrows to pages containing at least one
         # query keyword, so the whole repository is searched (not just the first few documents).
+        # Scoring reads only the page text: whole page rows carry large JSON (line boxes, tables)
+        # that is slow to load, so only the winning pages are loaded in full, at the end.
+        if page_cache.enabled():
+            # Fast path: score the in-memory copy of the page text (kept in sync by triggers).
+            await asyncio.to_thread(page_cache.page_cache.sync)
+            if document_id is None and not keywords:
+                return []
+            scored = await asyncio.to_thread(
+                page_cache.page_cache.score, keywords, str(user.id) if user else None,
+                str(document_id) if document_id else None, str(institution_id) if institution_id else None,
+            )
+            return await ResearchService._load_winners(db, scored[:limit], user)
+
+        page_text = case(
+            (func.coalesce(DocumentPage.cleaned_text, "") != "", DocumentPage.cleaned_text),
+            else_=func.coalesce(DocumentPage.raw_text, ""),
+        )
         pages_stmt = (
-            select(DocumentPage, Document)
+            select(DocumentPage.id, page_text)
             .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
             .join(Document, Document.id == DocumentVersion.document_id)
             .where(visible_documents_condition(user), DocumentVersion.status != "SUPERSEDED")
@@ -342,40 +409,58 @@ Answer from these sentences only and name the supporting sentences by their tags
             if not keywords:
                 rows = []
             else:
-                cleaned = func.lower(func.coalesce(DocumentPage.cleaned_text, ""))
-                raw = func.lower(func.coalesce(DocumentPage.raw_text, ""))
-                kw_filters = []
-                for kw in keywords[:20]:
-                    kw_filters.append(cleaned.like(f"%{kw}%"))
-                    kw_filters.append(raw.like(f"%{kw}%"))
+                # Only the text that is scored is searched: a page whose other text alone matched
+                # would score 0 below and be dropped anyway.
+                lowered_text = func.lower(page_text)
+                kw_filters = [lowered_text.like(f"%{kw}%") for kw in keywords[:20]]
                 pages_stmt = pages_stmt.where(or_(*kw_filters))
                 rows = (await db.execute(pages_stmt)).all()
         else:
             rows = (await db.execute(pages_stmt)).all()
 
-        matched_pages: List[Dict[str, Any]] = []
-        for p, doc in rows:
-            text = p.cleaned_text or p.raw_text or ""
-            if not text.strip():
+        scored: List[tuple] = []
+        for page_id, text in rows:
+            if not text or not text.strip():
                 continue
             lowered = text.lower()
             # Keyword overlap scoring
             match_count = sum(1 for kw in keywords if kw in lowered) if keywords else 0
             # If scoped to a specific document, keep page even if keyword count is 0 (handles cross-lingual Bengali/English queries)
             if match_count > 0 or document_id is not None:
-                matched_pages.append({
-                    "doc": doc,
-                    "page": p,
-                    "doc_title": doc.title,
-                    "ref_no": doc.reference_number or "BB Circular",
-                    "page_no": p.page_number,
-                    "text": text,
-                    "relevance": match_count
-                })
+                scored.append((page_id, match_count))
 
-        # Sort by relevance
-        matched_pages.sort(key=lambda x: x["relevance"], reverse=True)
-        return matched_pages[:limit]
+        # Sort by relevance (stable, so equal scores keep page order)
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return await ResearchService._load_winners(db, scored[:limit], user)
+
+    @staticmethod
+    async def _load_winners(db: AsyncSession, winners: List[tuple], user: Optional[User]) -> List[Dict[str, Any]]:
+        """Loads the winning pages in full, fresh from the database, with the visibility rules applied again."""
+        if not winners:
+            return []
+        ids = [pid if isinstance(pid, UUID) else UUID(str(pid)) for pid, _ in winners]
+        full_rows = (await db.execute(
+            select(DocumentPage, Document)
+            .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(DocumentPage.id.in_(ids), visible_documents_condition(user), DocumentVersion.status != "SUPERSEDED")
+        )).all()
+        by_id = {p.id: (p, doc) for p, doc in full_rows}
+        matched_pages: List[Dict[str, Any]] = []
+        for page_id, (_pid, match_count) in zip(ids, winners):
+            if page_id not in by_id:
+                continue  # changed a moment ago; it is no longer a current, visible page
+            p, doc = by_id[page_id]
+            matched_pages.append({
+                "doc": doc,
+                "page": p,
+                "doc_title": doc.title,
+                "ref_no": doc.reference_number or "BB Circular",
+                "page_no": p.page_number,
+                "text": p.cleaned_text or p.raw_text or "",
+                "relevance": match_count
+            })
+        return matched_pages
 
 
     @staticmethod

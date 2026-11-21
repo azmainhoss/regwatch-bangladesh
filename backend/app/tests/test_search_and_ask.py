@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from backend.app.database.session import AsyncSessionLocal
 from backend.app.main import app
-from backend.app.modules.analysis.providers.base import LLMResponse
+from backend.app.modules.analysis.providers.base import LLMResponse, TokenUsage
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion, PageCorrection
 from backend.app.modules.documents.search import make_snippet, query_terms
 from backend.app.tests.factories import make_institution, make_user
@@ -328,6 +328,71 @@ async def test_ask_finds_nothing_for_unrelated_questions(client):
     assert body["is_grounded"] is False and body["citations"] == []
 
 
+@pytest.mark.asyncio
+async def test_ask_page_lookup_ranks_by_words_and_reads_raw_text_when_cleaned_is_empty():
+    """The page lookup scores only the page text, then loads the winning pages in full."""
+    from backend.app.modules.research.service import ResearchService
+
+    a, b = _tok(), _tok()
+    one_word, _v1 = await make_real_doc([f"Only {a} here."])
+    both_words, _v2 = await make_real_doc([f"Both {a} and {b} appear here."])
+    raw_only, v3 = await make_real_doc(["placeholder"])
+    async with AsyncSessionLocal() as db:
+        page = (await db.execute(select(DocumentPage).where(DocumentPage.document_version_id == v3.id))).scalar_one()
+        page.cleaned_text = ""
+        page.raw_text = f"Raw text with {a} and {b} and more."
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        pages = await ResearchService._top_pages(db, [a, b], None, None, None)
+    found = [(str(p["doc"].id), p["relevance"]) for p in pages]
+    assert found[:2] == sorted(found[:2], key=lambda x: -x[1])
+    assert {d for d, r in found if r == 2} == {str(both_words.id), str(raw_only.id)}
+    assert (str(one_word.id), 1) in found
+    raw_hit = next(p for p in pages if str(p["doc"].id) == str(raw_only.id))
+    assert raw_hit["text"].startswith("Raw text with")
+    assert raw_hit["page"].page_number == 1  # the full page row is loaded for winners
+
+
+@pytest.mark.asyncio
+async def test_ask_page_lookup_sees_every_change_at_once():
+    """The in-memory page text never goes stale: edits, supersession, privacy and new pages show at once."""
+    from backend.app.modules.research.service import ResearchService
+
+    async def lookup(word, user=None):
+        async with AsyncSessionLocal() as db:
+            return [str(p["doc"].id) for p in await ResearchService._top_pages(db, [word], None, None, user)]
+
+    old_word, new_word = _tok(), _tok()
+    doc, version = await make_real_doc([f"Rule about {old_word} only."])
+    assert str(doc.id) in await lookup(old_word)  # loads the copy
+
+    async with AsyncSessionLocal() as db:  # the page text is corrected
+        page = (await db.execute(select(DocumentPage).where(DocumentPage.document_version_id == version.id))).scalar_one()
+        page.cleaned_text = f"Rule about {new_word} now."
+        await db.commit()
+    assert str(doc.id) not in await lookup(old_word)
+    assert str(doc.id) in await lookup(new_word)
+
+    fresh_word = _tok()  # a brand-new circular is searchable straight away
+    fresh, _v = await make_real_doc([f"New circular on {fresh_word}."])
+    assert await lookup(fresh_word) == [str(fresh.id)]
+
+    owner, _token = await make_user()  # made private: only its owner finds it
+    async with AsyncSessionLocal() as db:
+        d = await db.get(Document, fresh.id)
+        d.owner_user_id = owner.id
+        await db.commit()
+    assert await lookup(fresh_word) == []
+    assert await lookup(fresh_word, owner) == [str(fresh.id)]
+
+    async with AsyncSessionLocal() as db:  # replaced by a newer file
+        v = await db.get(DocumentVersion, version.id)
+        v.status = "SUPERSEDED"
+        await db.commit()
+    assert str(doc.id) not in await lookup(new_word)
+
+
 # ---------------------------------------------------------------- page corrections
 
 @pytest.mark.asyncio
@@ -384,3 +449,102 @@ async def test_refused_corrections_leave_no_history(client):
     assert resp.status_code == 403
     async with AsyncSessionLocal() as db:
         assert (await db.execute(select(PageCorrection).where(PageCorrection.document_version_id == version.id))).first() is None
+
+
+# ---------------------------------------------------------------- fast answers on a busy model
+
+class _TimedStub:
+    def __init__(self, name, delay, ok):
+        self.model_name, self.delay, self.ok, self.calls = name, delay, ok, 0
+
+    async def generate_structured_json(self, **kw):
+        import asyncio
+        self.calls += 1
+        await asyncio.sleep(self.delay)
+        return LLMResponse(raw_content="{}", parsed_json={"by": self.model_name} if self.ok else None,
+                           token_usage=TokenUsage(), model_name=self.model_name, latency_ms=0,
+                           success=self.ok, error=None if self.ok else "busy")
+
+
+@pytest.mark.asyncio
+async def test_busy_fast_model_switches_to_the_second_model_at_once():
+    import time
+    from backend.app.modules.analysis.providers.answer_race import RacingAnswerProvider
+    busy, other = _TimedStub("fast", 0.01, False), _TimedStub("other", 0.01, True)
+    t = time.perf_counter()
+    resp = await RacingAnswerProvider(busy, other, hedge_seconds=5).generate_structured_json(system_prompt="s", user_prompt="u")
+    assert resp.parsed_json == {"by": "other"} and time.perf_counter() - t < 1
+
+
+@pytest.mark.asyncio
+async def test_slow_fast_model_is_raced_and_a_good_fast_answer_needs_one_call():
+    from backend.app.modules.analysis.providers.answer_race import RacingAnswerProvider
+    slow, other = _TimedStub("fast", 2, True), _TimedStub("other", 0.01, True)
+    resp = await RacingAnswerProvider(slow, other, hedge_seconds=0.05).generate_structured_json(system_prompt="s", user_prompt="u")
+    assert resp.parsed_json == {"by": "other"}
+    quick, spare = _TimedStub("fast", 0.01, True), _TimedStub("other", 0.01, True)
+    resp = await RacingAnswerProvider(quick, spare, hedge_seconds=1).generate_structured_json(system_prompt="s", user_prompt="u")
+    assert resp.parsed_json == {"by": "fast"} and spare.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_repeat_question_is_answered_from_memory_until_its_page_changes(client, monkeypatch):
+    tok = _tok()
+    _u, token = await make_user()
+    doc, version = await make_real_doc([f"The {tok} limit is five percent. A second sentence follows here."])
+    stub = _Stub({"answer": "The limit is five percent.", "sources": [{"quote_span_ids": ["D1.p1.s1"]}]})
+    calls = []
+    monkeypatch.setattr("backend.app.modules.research.service.get_answer_provider",
+                        lambda *a, **k: calls.append(1) or stub)
+    q = f"What is the {tok} limit?"
+    first = await ask(client, token, q)
+    again = await ask(client, token, "  what is the " + tok + "   LIMIT? ".replace("LIMIT?", "limit?"))
+    assert first["is_grounded"] and len(calls) == 1
+    assert again["citations"] == first["citations"]
+
+    async with AsyncSessionLocal() as db:  # the page is corrected: the old answer is not reused
+        page = (await db.execute(select(DocumentPage).where(DocumentPage.document_version_id == version.id))).scalar_one()
+        page.cleaned_text = f"The {tok} limit is six percent. A second sentence follows here."
+        await db.commit()
+    third = await ask(client, token, q)
+    assert len(calls) == 2
+    assert third["citations"][0]["verbatim_excerpt"] == f"The {tok} limit is six percent."
+
+
+@pytest.mark.asyncio
+async def test_answer_race_tries_the_fast_model_again_and_gives_up_on_time():
+    from backend.app.modules.analysis.providers.answer_race import RacingAnswerProvider
+
+    class Flaky(_TimedStub):
+        async def generate_structured_json(self, **kw):
+            self.ok = self.calls >= 1  # busy the first time, fine the second
+            return await super().generate_structured_json(**kw)
+
+    fast, busy = Flaky("fast", 0.01, False), _TimedStub("other", 0.01, False)
+    resp = await RacingAnswerProvider(fast, busy, hedge_seconds=5).generate_structured_json(system_prompt="s", user_prompt="u")
+    assert resp.parsed_json == {"by": "fast"} and fast.calls == 2 and busy.calls == 1
+
+    hung, hung2 = _TimedStub("fast", 5, True), _TimedStub("other", 5, True)
+    resp = await RacingAnswerProvider(hung, hung2, hedge_seconds=0.05, deadline_seconds=0.3).generate_structured_json(
+        system_prompt="s", user_prompt="u")
+    assert resp.success is False
+
+
+@pytest.mark.asyncio
+async def test_shared_library_answers_are_reused_for_other_users_but_not_private_ones(client, monkeypatch):
+    tok = _tok()
+    _a, token_a = await make_user()
+    _b, token_b = await make_user()
+    await make_real_doc([f"The {tok} limit is five percent. A second sentence follows here."])
+    stub = _Stub({"answer": "The limit is five percent.", "sources": [{"quote_span_ids": ["D1.p1.s1"]}]})
+    calls = []
+    monkeypatch.setattr("backend.app.modules.research.service.get_answer_provider",
+                        lambda *a, **k: calls.append(1) or stub)
+    q = f"What is the {tok} limit?"
+    assert (await ask(client, token_a, q))["is_grounded"]
+    assert (await ask(client, token_b, q))["is_grounded"] and len(calls) == 1
+
+    owner, token_c = await make_user()  # a user with a private upload gets an answer of their own
+    await make_real_doc([f"Our own {tok} note."], owner_id=owner.id)
+    await ask(client, token_c, q)
+    assert len(calls) == 2

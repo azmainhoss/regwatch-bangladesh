@@ -2,6 +2,7 @@ from typing import Optional
 
 from backend.app.core.config import settings
 from backend.app.modules.analysis.providers import health
+from backend.app.modules.analysis.providers.answer_race import RacingAnswerProvider
 from backend.app.modules.analysis.providers.base import BaseAIProvider
 from backend.app.modules.analysis.providers.gemini import GeminiAIProvider
 from backend.app.modules.analysis.providers.mock import MockAIProvider
@@ -93,10 +94,20 @@ def get_answer_provider() -> BaseAIProvider:
     selected = normalize_provider_name(settings.ANALYSIS_PROVIDER)
     provider = get_ai_provider(selected)
     if selected == "gemini":
-        return GeminiAIProvider(
-            model_name=settings.ANSWER_GEMINI_MODEL or configured_model("gemini"),
-            max_retries=settings.ANSWER_MAX_RETRIES,
-            timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS,
+        primary_model = settings.ANSWER_GEMINI_MODEL or configured_model("gemini")
+        fallback_model = settings.ANSWER_FALLBACK_GEMINI_MODEL
+        if not fallback_model or fallback_model == primary_model:
+            return GeminiAIProvider(
+                model_name=primary_model,
+                max_retries=settings.ANSWER_MAX_RETRIES,
+                timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS,
+            )
+        # Busy replies are common on the free tier: ask a second model at once instead of waiting.
+        return RacingAnswerProvider(
+            GeminiAIProvider(model_name=primary_model, max_retries=0, timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS),
+            GeminiAIProvider(model_name=fallback_model, max_retries=0, timeout_seconds=settings.ANSWER_TIMEOUT_SECONDS),
+            hedge_seconds=settings.ANSWER_HEDGE_SECONDS,
+            deadline_seconds=settings.ANSWER_DEADLINE_SECONDS,
         )
     if selected == "openai_compat":
         return OpenAICompatibleProvider(

@@ -78,3 +78,15 @@ source .venv/bin/activate
 pytest -v backend/app/tests/
 ```
 All 8 automated tests pass with 100% success rate.
+
+## Speed test runs: Ask a question (21 Nov 2026)
+
+Timing script: `autoresearch/ask-speed-261121/bench.py` (12 questions, one in Bangla; median seconds).
+
+| Run name | File | What was done | Matching lines | Full answer |
+|---|---|---|---|---|
+| Baseline | `autoresearch/ask-speed-261121/Baseline.json` | Code as it was (SQL text scan) | 2.36 | 6.11 |
+| Page text in memory | `.../Page text in memory.json` | Page text kept in memory, synced by database triggers | 0.52 | 7.58 (busy model) |
+| Busy-model switch | `.../Busy-model switch.json` | Busy fast model: ask a second model at once, no 5 s wait | 0.34 | 2.52 |
+| Deadline and retry order | `.../Deadline and retry order.json` | Fast, second, fast again; 20 s cap in all | 0.42 | 2.83 (max 9.7) |
+| Same questions again | `.../Same questions again.json` | Repeat questions answered from memory | 0.31 | 0.25 |
