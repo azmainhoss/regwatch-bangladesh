@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     BB_POLL_DAYS: int = 7
     # Back-off after repeated failed checks: starts here, doubles each time, stops rising at the max.
     BB_BACKOFF_START_MINUTES: int = 30
-    BB_BACKOFF_MAX_MINUTES: int = 360
+    BB_BACKOFF_MAX_MINUTES: int = 120  # a bot check rarely lasts long; never wait more than 2 h inside the working day
 
     # Monitoring schedule, in MONITOR_TIMEZONE local time.
     # The host PC is only on inside the window, so nothing is scheduled outside it.

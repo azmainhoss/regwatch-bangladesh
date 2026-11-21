@@ -145,13 +145,20 @@ async def test_poll_recent_posts_the_date_filter(monkeypatch):
 # ---------------------------------------------------------------------------
 # Failed checks are FAILED_RETRY, never "COMPLETED with 0 new"
 # ---------------------------------------------------------------------------
-async def _run_check(monkeypatch, source_id, reply=None, error=None) -> SourceRun:
+async def _run_check(monkeypatch, source_id, reply=None, error=None, list_reply=None) -> SourceRun:
     async def fake_post(self, url, **kwargs):
         if error:
             raise error
         return reply
 
+    async def fake_get(self, url, **kwargs):
+        # The full-list fallback after a bot check on the date filter. Never the real site in tests.
+        if error:
+            raise error
+        return list_reply or reply
+
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     async with AsyncSessionLocal() as db:
         return await source_monitoring_service.execute_discovery_scan(db=db, source_id=source_id, run_type="TEST")
 
@@ -181,6 +188,17 @@ async def test_failed_listing_check_is_failed_retry(monkeypatch, reply, error, o
 
 
 @pytest.mark.asyncio
+async def test_bot_check_on_date_filter_falls_back_to_full_list(monkeypatch):
+    inst = await make_institution()
+    src = await _make_source(inst.id)
+    run = await _run_check(
+        monkeypatch, src.id, _Reply(200, CHALLENGE_PAGE.encode()), list_reply=_Reply(200, DATE_FILTER_REPLY.encode())
+    )
+    assert run.status == "COMPLETED" and run.outcome == "OK"
+    assert run.valid_documents_discovered > 0
+
+
+@pytest.mark.asyncio
 async def test_repeated_failures_back_off_and_success_clears_it(monkeypatch):
     inst = await make_institution()
     src = await _make_source(inst.id)
@@ -201,8 +219,8 @@ async def test_repeated_failures_back_off_and_success_clears_it(monkeypatch):
         assert source.access_restriction_status == "CLEAR"
 
 
-def test_backoff_rises_from_30_minutes_to_6_hours():
-    assert [backoff_minutes(n) for n in (1, 2, 3, 4, 5, 6, 7, 20)] == [0, 30, 60, 120, 240, 360, 360, 360]
+def test_backoff_rises_from_30_minutes_to_2_hours():
+    assert [backoff_minutes(n) for n in (1, 2, 3, 4, 5, 6, 7, 20)] == [0, 30, 60, 120, 120, 120, 120, 120]
 
 
 @pytest.mark.asyncio

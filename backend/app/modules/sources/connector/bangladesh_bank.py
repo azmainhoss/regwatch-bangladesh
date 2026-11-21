@@ -20,6 +20,9 @@ from backend.app.modules.sources.connector.pacing import bb_request_gate
 from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
 
 MAX_REDIRECTS = 5
+# The site's own cookies are kept between checks, the way a normal visitor's browser keeps them.
+# A fresh visitor on every check (no cookies at all) is what the site's bot check is most wary of.
+_SITE_COOKIES = httpx.Cookies()
 REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 
 
@@ -186,12 +189,13 @@ class BangladeshBankConnector(BaseSourceConnector):
     async def _check_listing(self, method: str, form: Optional[Dict[str, str]] = None) -> DiscoveryResult:
         result = DiscoveryResult()
         try:
-            async with httpx.AsyncClient(timeout=120.0, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=120.0, follow_redirects=False, cookies=_SITE_COOKIES) as client:
                 if method == "POST":
                     async with bb_request_gate.slot():
                         resp = await client.post(self.base_url, data=form, headers=self._get_headers())
                 else:
                     resp = await self._safe_get(client, self.base_url)
+            _SITE_COOKIES.update(client.cookies)
         except (httpx.RequestError, httpx.TimeoutException) as req_err:
             logger.error(f"Network error checking {self.base_url}: {req_err}")
             result.outcome = ListingOutcome.NETWORK_ERROR
@@ -233,7 +237,16 @@ class BangladeshBankConnector(BaseSourceConnector):
             "to_date": today.strftime("%Y-%m-%d"),
             "search_circular": "Search",
         }
-        return await self._check_listing("POST", form)
+        result = await self._check_listing("POST", form)
+        if result.outcome == ListingOutcome.CHALLENGE:
+            # The date filter got a bot check. The plain circular list is a different page that is often still
+            # served; it holds every circular, so new ones are found there too (the same URLs are never stored twice).
+            logger.info("Date filter got a bot check; trying the full circular list instead.")
+            fallback = await self._check_listing("GET")
+            if fallback.outcome == ListingOutcome.OK:
+                fallback.pages_inspected += result.pages_inspected
+                return fallback
+        return result
 
     async def full_reconcile(self) -> DiscoveryResult:
         """Daily double-check: the full circular list (about 2.6 MB), same parser."""
@@ -277,7 +290,7 @@ class BangladeshBankConnector(BaseSourceConnector):
                 is_blocked=False, challenge_type="DISALLOWED_URL", status_code=0, details=str(url_err)
             ))
 
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=False, cookies=_SITE_COOKIES) as client:
             last_challenge = None
             for attempt in range(max_retries):
                 try:

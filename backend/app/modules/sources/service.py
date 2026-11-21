@@ -43,7 +43,7 @@ SITE_BLOCK_TYPES = ("IMPERVA_TSPD_CAPTCHA", "CLOUDFLARE_CHALLENGE", "RATE_LIMIT_
 def backoff_minutes(consecutive_failures: int) -> int:
     """Minutes to wait after this many failed checks in a row.
     One failure: no extra wait (the next scheduled check is the retry).
-    Two: 30 min, then doubling, never more than 6 h (both configurable)."""
+    Two: 30 min, then doubling, never more than 2 h (both configurable)."""
     if consecutive_failures < 2:
         return 0
     start = settings.BB_BACKOFF_START_MINUTES
