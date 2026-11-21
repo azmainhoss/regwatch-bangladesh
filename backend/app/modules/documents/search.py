@@ -57,20 +57,90 @@ def page_text_expression():
     return case((and_(cleaned.isnot(None), cleaned != ""), cleaned), else_=DocumentPage.raw_text)
 
 
+def whole_word_only(term: str) -> bool:
+    """Known short forms ("ECL", "CRR", "LC") must match as whole words, or "ECL" would match "declaration"."""
+    from backend.app.modules.topics.taxonomy import ACRONYMS
+    return term.upper() in ACRONYMS
+
+
+def word_regex(term: str) -> str:
+    # Whole word, plural "s" allowed. Works the same on SQLite (Python re) and PostgreSQL (no look-behind there).
+    return f"(^|[^A-Za-z0-9]){re.escape(term)}s?([^A-Za-z0-9]|$)"
+
+
+def _has(column, term: str):
+    """`column` contains `term`; short words only as a whole word. The LIKE runs first and is cheap."""
+    cond = column.ilike(_like(term), escape="\\")
+    if whole_word_only(term):
+        cond = and_(cond, column.regexp_match(word_regex(term), flags="i"))
+    return cond
+
+
 def page_matches_condition(terms: Sequence[str]):
+    """Pages holding every word (each word may be written any of its known ways, see term_variants)."""
     text = page_text_expression()
-    return and_(*[text.ilike(_like(t), escape="\\") for t in terms])
+    return and_(*[or_(*[_has(text, v) for v in term_variants(t)]) for t in terms])
+
+
+def page_matches_any_condition(terms: Sequence[str]):
+    """Pages holding at least one of the words, in any known spelling (used to pick snippets)."""
+    text = page_text_expression()
+    return or_(*[_has(text, v) for t in terms for v in term_variants(t)])
+
+
+def term_variants(term: str) -> List[str]:
+    """The word itself plus its other known names: "ECL" also matches "expected credit loss"."""
+    from backend.app.modules.topics.taxonomy import words_for
+    return [term] + words_for(term)
+
+
+def _meta_term(term: str):
+    return or_(*[
+        or_(
+            _has(Document.title, v),
+            _has(func.coalesce(Document.title_bn, ""), v),
+            _has(func.coalesce(Document.reference_number, ""), v),
+        )
+        for v in term_variants(term)
+    ])
 
 
 def meta_matches_condition(terms: Sequence[str]):
-    return and_(*[
-        or_(
-            Document.title.ilike(_like(t), escape="\\"),
-            func.coalesce(Document.title_bn, "").ilike(_like(t), escape="\\"),
-            func.coalesce(Document.reference_number, "").ilike(_like(t), escape="\\"),
+    return and_(*[_meta_term(t) for t in terms])
+
+
+def document_matches_condition(terms: Sequence[str]):
+    """A circular matches when every word is found somewhere in it: its title or number, any page of its
+    current files, its checked summary, or a subject category the word names ("ECL", "provision").
+    Words do not all have to be on the same page."""
+    from backend.app.modules.analysis.models import DocumentAnalysis
+    from backend.app.modules.topics.models import DocumentTopic
+    from backend.app.modules.topics.taxonomy import topics_for
+
+    live_version = DocumentVersion.status != "SUPERSEDED"
+    text = page_text_expression()
+    parts = []
+    for t in terms:
+        variants = term_variants(t)
+        on_page = exists(
+            select(1)
+            .select_from(DocumentPage)
+            .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
+            .where(DocumentVersion.document_id == Document.id, live_version,
+                   or_(*[_has(text, v) for v in variants]))
         )
-        for t in terms
-    ])
+        in_summary = exists(
+            select(1)
+            .select_from(DocumentAnalysis)
+            .where(DocumentAnalysis.document_version_id == Document.current_version_id,
+                   or_(*[_has(func.coalesce(DocumentAnalysis.executive_summary, ""), v) for v in variants]))
+        )
+        options = [_meta_term(t), on_page, in_summary]
+        codes = topics_for(t)
+        if codes:
+            options.append(exists(select(1).where(DocumentTopic.document_id == Document.id, DocumentTopic.topic.in_(codes))))
+        parts.append(or_(*options))
+    return and_(*parts)
 
 
 def _utf16_len(s: str) -> int:
@@ -83,7 +153,14 @@ def make_snippet(text: str, terms: Sequence[str]) -> Dict[str, Any]:
     The snippet is always an exact substring of `text`. `matches` holds [start, end) offsets of
     every query word inside the snippet, counted in UTF-16 units so a browser can slice with them.
     """
-    pattern = re.compile("|".join(re.escape(t) for t in sorted(terms, key=len, reverse=True)), re.IGNORECASE)
+    terms = [v for t in terms for v in term_variants(t)]
+    pattern = re.compile(
+        "|".join(
+            (rf"(?<![A-Za-z0-9]){re.escape(t)}s?(?![A-Za-z0-9])" if whole_word_only(t) else re.escape(t))
+            for t in sorted(terms, key=len, reverse=True)
+        ),
+        re.IGNORECASE,
+    )
     found = [m for _, m in zip(range(300), pattern.finditer(text))]
     if not found:
         start = 0
@@ -145,18 +222,12 @@ async def search_documents(
         return SearchResponse(query=query or "", terms=[], total=0, limit=limit, offset=offset, results=[])
 
     live_version = DocumentVersion.status != "SUPERSEDED"
-    page_match = page_matches_condition(terms)
-    has_page_match = exists(
-        select(1)
-        .select_from(DocumentPage)
-        .join(DocumentVersion, DocumentVersion.id == DocumentPage.document_version_id)
-        .where(DocumentVersion.document_id == Document.id, live_version, page_match)
-    )
+    page_match = page_matches_any_condition(terms)
 
     conditions = [
         visible_documents_condition(user),
         ~synthetic_sql_condition(),
-        or_(meta_matches_condition(terms), has_page_match),
+        document_matches_condition(terms),
     ]
     dept = (department or "").strip()
     if dept and dept.upper() != "ALL":
@@ -243,6 +314,7 @@ async def search_documents(
     results: List[SearchHit] = []
     for d in docs:
         meta = " ".join([d.title or "", d.title_bn or "", d.reference_number or ""]).lower()
+        meta_hit = all(any(v.lower() in meta for v in term_variants(t)) for t in terms)
         results.append(
             SearchHit(
                 document_id=d.id,
@@ -255,7 +327,7 @@ async def search_documents(
                 department_code=d.department.code if d.department else None,
                 current_version_id=d.current_version_id,
                 is_private=d.owner_user_id is not None,
-                title_match=all(t in meta for t in lowered),
+                title_match=meta_hit,
                 matching_pages=int(counts.get(d.id, 0)),
                 snippets=snippets.get(str(d.id), []),
             )

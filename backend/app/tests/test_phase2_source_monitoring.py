@@ -178,7 +178,8 @@ async def test_source_monitoring_run_with_mocked_network():
         mock_challenge_resp = AsyncMock()
         mock_challenge_resp.status_code = 200
         mock_challenge_resp.text = MOCK_IMPERVA_CHALLENGE_HTML
-        with patch.object(httpx.AsyncClient, "post", new=_site_only(_REAL_POST, mock_challenge_resp)):
+        # Both the date filter and its fallback (the full list) get the bot check.
+        with patch.object(httpx.AsyncClient, "post", new=_site_only(_REAL_POST, mock_challenge_resp)),                 patch.object(httpx.AsyncClient, "get", new=_site_only(_REAL_GET, mock_challenge_resp)):
 
             blocked_run_resp = await client.post(f"/api/v1/sources/{source_id}/trigger", headers=headers)
             assert blocked_run_resp.status_code == 200

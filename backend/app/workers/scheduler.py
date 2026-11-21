@@ -145,6 +145,19 @@ class ScheduledMonitoringService:
             await self.recheck_archive()
         else:
             await self.poll_active_sources(mode=kind)
+            await self.sort_new_circulars()
+
+    async def sort_new_circulars(self):
+        """New circulars get their subject categories right after the check that found them."""
+        import os
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        try:
+            from backend.app.modules.topics.classify import classify_pending
+            async with AsyncSessionLocal() as session:
+                await classify_pending(session, limit=50)
+        except Exception as ex:  # never let sorting stop the checker
+            logger.warning(f"Category sorting skipped this time: {ex}")
 
     async def _active_sources(self):
         async with AsyncSessionLocal() as session:

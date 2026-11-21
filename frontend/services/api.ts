@@ -160,6 +160,10 @@ export interface DocumentItem {
   in_force_status?: string | null;
   in_force_by_id?: string | null;
   in_force_by_reference?: string | null;
+  /** Subject category codes (several per circular), e.g. ["ECL", "PROVISION"]. */
+  topics?: string[];
+  /** Department code such as BRPD. */
+  department_code?: string | null;
 }
 
 export interface Source {

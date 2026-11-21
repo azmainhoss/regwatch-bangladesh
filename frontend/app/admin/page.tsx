@@ -1,5 +1,6 @@
 "use client";
 
+import AdminPlans from "@/components/AdminPlans";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -44,7 +45,7 @@ import { useClaimsState, useReviewPolling } from "@/services/claimsStore";
 import { inForceOf, loadPending, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
-type TabId = "queue" | "collection" | "upload" | "library" | "links" | "checks" | "engine";
+type TabId = "queue" | "collection" | "upload" | "library" | "links" | "checks" | "engine" | "plans";
 type NoticeState = { type: "success" | "warning" | "error" | "info"; text: string; status?: string } | null;
 
 /** Server times without a zone are UTC; read them that way so they show in local (Dhaka) time. */
@@ -81,7 +82,7 @@ function PanelHeading({ title, children, actions }: { title: string; children?: 
   );
 }
 
-const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "checks", "engine"];
+const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "checks", "engine", "plans"];
 const asTab = (v: string | null): TabId | null => (v && (TAB_IDS as string[]).includes(v) ? (v as TabId) : null);
 
 export default function AdminConsolePage() {
@@ -542,6 +543,7 @@ function AdminConsole() {
     { id: "links", label: "Links", count: rel.pending?.total },
     { id: "checks", label: "Points to check", count: claimsState.counts?.required },
     { id: "engine", label: "Analysis engine" },
+    { id: "plans", label: "Plans" },
   ];
 
   return (
@@ -1096,6 +1098,8 @@ function AdminConsole() {
         {tab === "links" && <AdminLinksPanel />}
 
         {tab === "checks" && <ClaimReview initialPointId={pointId} />}
+
+        {tab === "plans" && <AdminPlans />}
 
         {tab === "engine" && (
           <section className="panel">

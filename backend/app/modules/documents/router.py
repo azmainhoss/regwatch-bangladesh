@@ -47,9 +47,19 @@ MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 async def _with_in_force(db: AsyncSession, docs, user: Optional[User]) -> List[DocumentRead]:
     """DocumentRead for each document, with its in-force status (confirmed links only; one query for the whole page)."""
     statuses = await bulk_in_force(db, [d.id for d in docs], user)
+    from backend.app.modules.topics.classify import topics_by_document
+    topics = await topics_by_document(db, [d.id for d in docs])
+    dept_ids = {d.department_id for d in docs if d.department_id}
+    dept_codes = {}
+    if dept_ids:
+        dept_codes = dict((await db.execute(
+            select(InstitutionDepartment.id, InstitutionDepartment.code).where(InstitutionDepartment.id.in_(dept_ids))
+        )).all())
     out: List[DocumentRead] = []
     for d in docs:
         item = DocumentRead.model_validate(d)
+        item.topics = topics.get(str(d.id), [])
+        item.department_code = dept_codes.get(d.department_id) if d.department_id else None
         info = statuses.get(str(d.id))
         if info is not None:
             item.in_force_status = info.status

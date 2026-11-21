@@ -29,6 +29,8 @@ async def query_regulatory_assistant(
     """
     if not payload.query or len(payload.query.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query string too short.")
+    from backend.app.modules.plans.router import use_question
+    await use_question(db, current_user)  # the Free plan has a few questions a day
 
     return await ResearchService.query_regulatory_knowledge(
         db=db,

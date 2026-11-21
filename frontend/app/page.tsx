@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileSearch, Search, X } from "lucide-react";
+import { Bookmark, CalendarDays, CalendarRange, FileSearch, Search, Sun, X } from "lucide-react";
 import {
   AUTH_CHANGED_EVENT,
   AuthUser,
@@ -13,7 +13,6 @@ import {
   fetchCurrentUser,
   fetchDocument,
   fetchDocumentPages,
-  fetchDocuments,
   fetchInstitutions,
   getStoredUser,
   queryResearchAssistant,
@@ -29,15 +28,25 @@ import StatusBadge, { InForceBadge, PrivateTag } from "@/components/StatusBadge"
 import { inForceOf, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { SEARCH_INPUT_ID } from "@/components/AppHeader";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
+import DashboardAsk from "@/components/DashboardAsk";
+import AssignedPanel from "@/components/AssignedPanel";
+import { QuickSave } from "@/components/SaveButtons";
+import { fetchFeed, fetchFeedCounts, fetchTopicNames, type Choice, type FeedCounts, type Period } from "@/services/libraryApi";
+import { useLists } from "@/services/listsStore";
 
-const DEPARTMENTS = [
-  { code: "ALL", label: "All" },
-  { code: "BRPD", label: "BRPD" },
-  { code: "DOS", label: "DOS" },
-  { code: "FEPD", label: "FEPD" },
-  { code: "PSD", label: "PSD" },
-  { code: "SMESPD", label: "SMESPD" },
+const PAGE_SIZE = 30;
+type Box = Period | "later";
+const BOXES: { id: Box; label: string; hint: string; Icon: typeof Sun }[] = [
+  { id: "today", label: "Today", hint: "Issued today", Icon: Sun },
+  { id: "week", label: "This week", hint: "Since Sunday", Icon: CalendarDays },
+  { id: "month", label: "This month", hint: "Since the 1st", Icon: CalendarRange },
+  { id: "later", label: "Read later", hint: "Saved by you", Icon: Bookmark },
 ];
+
+/** "Expected credit loss (ECL)" -> "Expected credit loss", for the small tags on list rows. */
+function shortTopic(label: string) {
+  return label.replace(/ \(.*\)$/, "");
+}
 
 function shortDate(value?: string) {
   if (!value) return "";
@@ -50,6 +59,7 @@ function CircularsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const docParam = searchParams.get("doc");
+  const boxParam = searchParams.get("box");
   const pageParam = searchParams.get("page");
   const versionParam = searchParams.get("version");
   const rel = useRelState();
@@ -62,6 +72,15 @@ function CircularsPageInner() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [dept, setDept] = useState("ALL");
+  const [topic, setTopic] = useState("ALL");
+  const [filterTab, setFilterTab] = useState<"dept" | "topic">("dept");
+  const [box, setBox] = useState<Box | null>(() => (["today", "week", "month", "later"].includes(boxParam || "") ? (boxParam as Box) : null));
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [counts, setCounts] = useState<FeedCounts | null>(null);
+  const [topicNames, setTopicNames] = useState<Record<string, string>>({});
+  const feedRequest = useRef(0);
+  const lists = useLists();
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [docPages, setDocPages] = useState<DocumentPage[]>([]);
@@ -134,21 +153,57 @@ function CircularsPageInner() {
     // The checked points are read and kept fresh by the circular page itself (services/claimsStore.ts).
   };
 
+  const feedQuery = (offset: number) => ({
+    period: box && box !== "later" ? box : null,
+    saved: box === "later" ? ("READ_LATER" as const) : null,
+    department: filterTab === "dept" && dept !== "ALL" ? dept : null,
+    topic: filterTab === "topic" && topic !== "ALL" ? topic : null,
+    q: search.trim(),
+    limit: PAGE_SIZE,
+    offset,
+  });
+
+  const loadCounts = () => {
+    fetchFeedCounts()
+      .then(setCounts)
+      .catch(() => undefined);
+  };
+
+  const loadMore = async () => {
+    const id = feedRequest.current;
+    setLoadingMore(true);
+    try {
+      const page = await fetchFeed(feedQuery(documents.length));
+      if (id !== feedRequest.current) return;
+      seedDocuments(page.items);
+      setDocuments((prev) => [...prev, ...page.items.filter((d) => !prev.some((p) => p.id === d.id))]);
+      setTotal(page.total);
+    } catch (err: any) {
+      if (id === feedRequest.current) setLoadError(err.message || "Could not load more circulars.");
+    } finally {
+      if (id === feedRequest.current) setLoadingMore(false);
+    }
+  };
+
   const loadData = async () => {
+    const id = ++feedRequest.current;
     try {
       setLoading(true);
       setLoadError(null);
-      const [docs, insts] = await Promise.all([fetchDocuments({ search, corpus_type: "GENUINE" }), fetchInstitutions()]);
+      const [page, insts] = await Promise.all([fetchFeed(feedQuery(0)), institutions.length ? Promise.resolve(institutions) : fetchInstitutions()]);
+      if (id !== feedRequest.current) return;
+      const docs = page.items;
       setDocuments(docs);
+      setTotal(page.total);
       seedDocuments(docs);
       setInstitutions(insts);
       if (!selectedDoc && !deepLinkRequested.current && docs.length > 0 && typeof window !== "undefined" && window.innerWidth >= 1024) {
         handleSelectDoc(docs[0]);
       }
     } catch (err: any) {
-      setLoadError(err.message || "Failed to load circulars from the backend.");
+      if (id === feedRequest.current) setLoadError(err.message || "Failed to load circulars from the backend.");
     } finally {
-      setLoading(false);
+      if (id === feedRequest.current) setLoading(false);
     }
   };
 
@@ -182,12 +237,29 @@ function CircularsPageInner() {
     }
   };
 
-  // Reload when the search or the signed-in user changes, so private circulars appear or disappear.
+  // Reload when a filter, the search or the signed-in user changes, so private circulars appear or disappear.
   useEffect(() => {
     const t = window.setTimeout(loadData, search ? 250 : 0);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, currentUser?.id]);
+  }, [search, box, dept, topic, filterTab, currentUser?.id]);
+
+  // The numbers on the boxes: on load, when the person changes, and whenever a saved list changes
+  // (a bookmark tapped anywhere updates the Read later box at once). The Read later list itself is
+  // re-read too while it is the one showing.
+  useEffect(() => {
+    loadCounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, lists.version]);
+  useEffect(() => {
+    if (box === "later" && lists.version > 0) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lists.version]);
+  useEffect(() => {
+    fetchTopicNames()
+      .then((t) => setTopicNames(Object.fromEntries(t.map((c) => [c.code, c.label]))))
+      .catch(() => undefined);
+  }, []);
 
   // Opens "/?doc=<id>&page=<n>" (search results, links from other screens, a refresh): the circular, with its
   // source page showing. The same address then stays in the bar while the circular is open.
@@ -286,12 +358,14 @@ function CircularsPageInner() {
     }
   };
 
-  const filtered = documents.filter((doc) => {
-    if (dept === "ALL") return true;
-    const ref = (doc.reference_number || "").toUpperCase();
-    const title = (doc.title || "").toUpperCase();
-    return ref.includes(dept) || title.includes(dept);
-  });
+  // The server does the filtering; while a bookmark is being taken off, the row leaves the Read later list at once.
+  const laterList = lists.lists.find((l) => l.kind === "READ_LATER");
+  const filtered = box === "later" && laterList ? documents.filter((d) => laterList.document_ids.includes(d.id)) : documents;
+  const boxCount = (b: Box) => (counts ? (b === "later" ? (laterList ? laterList.document_ids.length : counts.read_later) : counts[b]) : null);
+  const chips: Choice[] =
+    filterTab === "dept" ? (counts?.departments ?? []).slice(0, 14) : (counts?.topics ?? []).slice().sort((a, b) => b.count - a.count);
+  const activeChip = filterTab === "dept" ? dept : topic;
+  const setChip = (code: string) => (filterTab === "dept" ? setDept(code) : setTopic(code));
 
   const renderDetail = (doc: DocumentItem) => (
     <>
@@ -340,15 +414,72 @@ function CircularsPageInner() {
         }}
       />
 
-      {/* Page heading and tools */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-[26px] font-semibold tracking-[-0.015em] text-ink">Circulars</h1>
-          <p className="mt-0.5 text-[14.5px] text-ink-3">
-            {loading ? "Loading the library..." : `${documents.length} ${documents.length === 1 ? "circular" : "circulars"} from Bangladesh Bank, newest first`}
-          </p>
+      {/* Page heading */}
+      <div>
+        <h1 className="text-[26px] font-semibold tracking-[-0.015em] text-ink">Dashboard</h1>
+        <p className="mt-0.5 text-[14.5px] text-ink-3">Bangladesh Bank circulars, newest first. Tap a box to see only those.</p>
+      </div>
+
+      {/* Today / This week / This month / Read later */}
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+        {BOXES.map(({ id, label, hint, Icon }) => {
+          const active = box === id;
+          const n = boxCount(id);
+          const locked = id === "later" && !currentUser;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                if (locked) return setAccountOpen(true);
+                setBox(active ? null : id);
+              }}
+              aria-pressed={active}
+              className={`group rounded-panel border px-3.5 py-3 text-left transition-colors ${
+                active ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-accent/50"
+              }`}
+            >
+              <span className="flex items-center justify-between">
+                <span className={`text-[13.5px] font-semibold ${active ? "text-accent" : "text-ink-2"}`}>{label}</span>
+                <Icon className={`h-4 w-4 ${active ? "text-accent" : "text-ink-3"}`} strokeWidth={1.75} />
+              </span>
+              <span className="mt-1 block text-[28px] font-semibold leading-none tracking-tight text-ink tabular-nums">
+                {locked ? "-" : n === null ? <SkeletonLine className="mt-1 h-6 w-10" /> : n}
+              </span>
+              <span className="mt-1.5 block text-[12px] text-ink-3">{locked ? "Sign in to save" : hint}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {currentUser && <AssignedPanel userId={currentUser.id} />}
+
+      <DashboardAsk signedIn={!!currentUser} onSignIn={() => setAccountOpen(true)} />
+
+      {/* Search and filters */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="inline-flex shrink-0 self-start rounded-control bg-sunken p-0.5" role="tablist" aria-label="Filter by">
+          {(
+            [
+              { id: "dept", label: "Departments" },
+              { id: "topic", label: "Categories" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              type="button"
+              aria-selected={filterTab === t.id}
+              onClick={() => setFilterTab(t.id)}
+              className={`rounded-[7px] px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                filterTab === t.id ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-        <div className="relative w-full md:w-[22rem]">
+        <div className="relative w-full md:w-[24rem]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
           <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
             Search circulars
@@ -356,7 +487,7 @@ function CircularsPageInner() {
           <input
             id={SEARCH_INPUT_ID}
             type="search"
-            placeholder="Search by number, title or topic"
+            placeholder="Search number, title or words inside (e.g. ECL)"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="field h-10 pl-9 pr-9"
@@ -374,28 +505,36 @@ function CircularsPageInner() {
         </div>
       </div>
 
-      <div role="tablist" aria-label="Filter by department" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {DEPARTMENTS.map((d) => {
-          const active = dept === d.code;
+      <div role="tablist" aria-label={filterTab === "dept" ? "Filter by department" : "Filter by category"} className="-mx-1 -mt-2 flex gap-1 overflow-x-auto px-1 pb-1">
+        {[{ code: "ALL", label: "All", count: -1 }, ...chips].map((d) => {
+          const active = activeChip === d.code;
+          const label = filterTab === "topic" && d.code !== "ALL" ? shortTopic(topicNames[d.code] || d.label) : d.label;
           return (
             <button
-              key={d.code}
+              key={`${filterTab}-${d.code}`}
               role="tab"
               aria-selected={active}
               type="button"
-              onClick={() => setDept(d.code)}
-              className={`relative shrink-0 rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
+              onClick={() => setChip(d.code)}
+              className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
                 active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
               }`}
             >
               {active && (
                 <motion.span layoutId="dept-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
               )}
-              <span className="relative">{d.label}</span>
+              <span className="relative">
+                {label}
+                {d.count > 0 && <span className={`ml-1.5 text-[12px] tabular-nums ${active ? "opacity-80" : "text-ink-3"}`}>{d.count}</span>}
+              </span>
             </button>
           );
         })}
       </div>
+
+      <p className="-mt-2 text-[13px] text-ink-3" aria-live="polite">
+        {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? " match" : " in the library"}`}
+      </p>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
         {/* List */}
@@ -427,13 +566,13 @@ function CircularsPageInner() {
                 Try again
               </button>
             </Notice>
-          ) : documents.length === 0 && !search ? (
+          ) : documents.length === 0 && !search && !box && activeChip === "ALL" ? (
             <EmptyState title="No circulars yet" icon={<FileSearch className="h-6 w-6" strokeWidth={1.5} />}>
               Circulars appear here once an administrator approves them from the review queue or uploads a PDF.
             </EmptyState>
           ) : filtered.length === 0 ? (
             <EmptyState title="Nothing matches" icon={<Search className="h-6 w-6" strokeWidth={1.5} />}>
-              Try a circular number such as &ldquo;BRPD 12&rdquo;, a different word, or the All filter.
+              {box === "later" ? "Tap the bookmark on any circular to keep it here for later." : <>Try a circular number such as &ldquo;BRPD 12&rdquo;, a different word, or the All filter.</>}
             </EmptyState>
           ) : (
             <ul className="overflow-hidden rounded-panel border border-line bg-surface">
@@ -447,8 +586,12 @@ function CircularsPageInner() {
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.22, delay: Math.min(i, 10) * 0.025, ease: EASE_OUT }}
-                    className="scroll-mt-[72px] border-b border-line last:border-0"
+                    className="relative scroll-mt-[72px] border-b border-line last:border-0"
                   >
+                    {/* Star and bookmark sit beside the row button (a button cannot hold other buttons). */}
+                    <span className="absolute right-2.5 top-2 z-10">
+                      <QuickSave documentId={doc.id} size="sm" onNeedSignIn={() => setAccountOpen(true)} />
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -476,9 +619,18 @@ function CircularsPageInner() {
                             <span className="refno truncate">{doc.reference_number || "Circular"}</span>
                             {doc.is_private && <PrivateTag />}
                           </span>
-                          <span className="shrink-0 text-[12.5px] text-ink-3 tabular-nums">{shortDate(doc.publication_date)}</span>
+                          <span className="shrink-0 pr-[60px] text-[12.5px] text-ink-3 tabular-nums">{shortDate(doc.publication_date)}</span>
                         </span>
                         <span className="mt-1.5 line-clamp-3 block text-[14.5px] font-medium leading-snug text-ink">{titleWithoutRef(doc.title, doc.reference_number)}</span>
+                        {doc.topics && doc.topics.length > 0 && (
+                          <span className="mt-1.5 flex flex-wrap gap-1">
+                            {doc.topics.filter((t) => t !== "OTHER").slice(0, 3).map((t) => (
+                              <span key={t} className="rounded-full bg-sunken px-2 py-0.5 text-[11.5px] font-medium text-ink-2">
+                                {shortTopic(topicNames[t] || t)}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                         <span className="mt-2.5 flex items-center justify-between gap-2">
                           <span className="shrink-0 whitespace-nowrap text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}` : "No pages yet"}</span>
                           <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
@@ -507,6 +659,11 @@ function CircularsPageInner() {
                 );
               })}
             </ul>
+          )}
+          {!loading && documents.length > 0 && documents.length < total && (
+            <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-secondary w-full">
+              {loadingMore ? "Loading..." : `Show more (${total - documents.length} left)`}
+            </button>
           )}
         </div>
 

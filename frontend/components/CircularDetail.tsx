@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowUpRight, BookOpenText, CheckCircle2, EyeOff, FileDown, GitBranch, ListPlus, Lock, RefreshCw, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowUpRight, BookOpenText, CheckCircle2, EyeOff, FileDown, FileText, GitBranch, ListPlus, Lock, Mail, Network, RefreshCw, Send, ShieldCheck, Sparkles, UserPlus, X } from "lucide-react";
 import {
   AuthUser,
   ClaimItem,
@@ -30,7 +30,13 @@ import PagePanel, { type PageHighlight } from "./PagePanel";
 import AddToRegisterModal from "./workspace/AddToRegisterModal";
 import { rememberOrg, useAddRights } from "./workspace/useAddRights";
 import { ensureWorkspace, orgItems, useWorkspace } from "@/services/workspaceStore";
-import { EASE_OUT, Notice, SkeletonLine, hasBangla, titleWithoutRef } from "./ui";
+import { EASE_OUT, Modal, ModalHeader, Notice, SkeletonLine, hasBangla, titleWithoutRef } from "./ui";
+import { AddToList, QuickSave } from "./SaveButtons";
+import PdfPanel from "./PdfPanel";
+import Backtrail, { type BackLink } from "./Backtrail";
+import MindMap, { buildBranches, type MindLeaf } from "./MindMap";
+import ShareModal from "./ShareModal";
+import { canUse, usePlan } from "@/services/planStore";
 
 export interface QaResponse {
   answer: string;
@@ -191,6 +197,20 @@ export default function CircularDetail(props: Props) {
 
   const isAdmin = !!currentUser?.is_superuser;
   const [addOpen, setAddOpen] = useState(false);
+  // What the side panel shows: the original PDF, the source pages (text and image) or the mind map.
+  const [panelTab, setPanelTab] = useState<"pdf" | "pages">("pages");
+  const [mapOpen, setMapOpen] = useState(false);
+  const plan = usePlan();
+  const mapAllowed = canUse(plan, "mind_map");
+  const [shareMode, setShareMode] = useState<"email" | "assign" | null>(null);
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const read = () => setIsDark(document.documentElement.classList.contains("dark"));
+    read();
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
   const [added, setAdded] = useState<{ orgId: string; registerId: string; count: number } | null>(null);
   const rights = useAddRights(!!currentUser);
   const wsState = useWorkspace();
@@ -247,6 +267,18 @@ export default function CircularDetail(props: Props) {
     setPageNumber(n);
     const hasBoxes = !!boxes && boxes.length > 0;
     setHighlight(quote || hasBoxes ? { text: quote ?? "", boxes: boxes ?? null, key: `${Date.now()}` } : null);
+    setPanelTab("pages");
+    setPagePanelOpen(true);
+  };
+
+  /** Opens the side panel on one tab; a second tap on the tab already showing closes it. */
+  const showPanel = (tab: "pdf" | "pages") => {
+    if (pagePanelOpen && panelTab === tab) {
+      setPagePanelOpen(false);
+      return;
+    }
+    if (tab === "pages") setHighlight(null);
+    setPanelTab(tab);
     setPagePanelOpen(true);
   };
 
@@ -789,6 +821,21 @@ export default function CircularDetail(props: Props) {
     </div>
   );
 
+  const branches = buildBranches(doc, shownOf, entityLabel);
+  const backLinks: BackLink[] = shownOf("links").map((i) => ({
+    id: i.id,
+    docId: i.link?.target_document_id ?? null,
+    label: `${readable(i.link?.shown_type || "mentions")} ${i.link?.target_reference || i.fields.target_hint || "a circular"}`,
+    quote: i.quote,
+  }));
+  const openLeaf = (leaf: MindLeaf) => {
+    setMapOpen(false);
+    if (leaf.page) openPage(leaf.page, leaf.item?.quote, leaf.item?.quote_boxes);
+    else if (leaf.docId) window.location.href = `/?doc=${leaf.docId}`;
+  };
+  const panelBtn = (tab: "pdf" | "pages") =>
+    pagePanelOpen && panelTab === tab ? "btn-secondary border-accent/50 bg-accent-soft text-accent hover:bg-accent-soft" : "btn-secondary";
+
   return (
     <article className="rounded-panel border border-line bg-surface shadow-panel">
       {/* Document header */}
@@ -830,8 +877,18 @@ export default function CircularDetail(props: Props) {
           {pageCount > 0 && <span className="tabular-nums">{pageCount} {pageCount === 1 ? "page" : "pages"}</span>}
           <span>Bangladesh Bank</span>
         </div>
+        <Backtrail documentId={doc.id} status={relStatus} back={backLinks} />
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          {pdfButton}
+          <button type="button" onClick={() => showPanel("pdf")} aria-pressed={pagePanelOpen && panelTab === "pdf"} className={panelBtn("pdf")}>
+            <FileText className="h-4 w-4" strokeWidth={1.75} />
+            Original PDF
+          </button>
+          {pages.length > 0 && (
+            <button type="button" onClick={() => showPanel("pages")} aria-pressed={pagePanelOpen && panelTab === "pages"} className={panelBtn("pages")}>
+              <BookOpenText className="h-4 w-4" strokeWidth={1.75} />
+              Source pages
+            </button>
+          )}
           <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button">
             <GitBranch className="h-4 w-4" strokeWidth={1.75} />
             History &amp; links
@@ -843,24 +900,20 @@ export default function CircularDetail(props: Props) {
               Add to register
             </button>
           )}
-          {pages.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                if (pagePanelOpen) {
-                  setPagePanelOpen(false);
-                } else {
-                  setHighlight(null);
-                  setPagePanelOpen(true);
-                }
-              }}
-              aria-pressed={pagePanelOpen}
-              className={pagePanelOpen ? "btn-secondary border-accent/50 bg-accent-soft text-accent hover:bg-accent-soft" : "btn-secondary"}
-            >
-              <BookOpenText className="h-4 w-4" strokeWidth={1.75} />
-              {pagePanelOpen ? "Hide source pages" : "Source pages"}
-            </button>
-          )}
+          <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("assign") : props.onSignIn())}>
+            <UserPlus className="h-4 w-4" strokeWidth={1.75} />
+            Assign to team
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("email") : props.onSignIn())}>
+            <Mail className="h-4 w-4" strokeWidth={1.75} />
+            Email
+          </button>
+          <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
+          <QuickSave documentId={doc.id} onNeedSignIn={props.onSignIn} />
+          <button type="button" onClick={() => setMapOpen(true)} className="btn-secondary" data-testid="mind-map-button">
+            <Network className="h-4 w-4" strokeWidth={1.75} />
+            Mind map
+          </button>
         </div>
 
         {props.viewingVersionId && props.viewingVersionId !== doc.current_version_id && (
@@ -928,7 +981,7 @@ export default function CircularDetail(props: Props) {
         )}
       </header>
 
-      <div className={`px-5 pb-7 sm:px-7 ${pagePanelOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)] xl:gap-6" : ""}`}>
+      <div className={`px-5 pb-7 sm:px-7 ${pagePanelOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(420px,1.15fr)] xl:gap-6" : ""}`}>
         <div className="min-w-0">{analysisBody}</div>
         {pagePanelOpen && (
           <motion.div
@@ -937,7 +990,43 @@ export default function CircularDetail(props: Props) {
             transition={{ duration: 0.25, ease: EASE_OUT }}
             className="fixed inset-x-0 bottom-0 z-50 h-[75dvh] px-2 pb-2 xl:sticky xl:top-[72px] xl:z-auto xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
           >
-            <div className="h-full shadow-pop xl:shadow-none">
+            <div className="flex h-full flex-col overflow-hidden rounded-panel border border-line bg-surface shadow-pop xl:shadow-none">
+              <div role="tablist" aria-label="Side panel" className="flex items-center gap-1 border-b border-line px-2 py-1.5">
+                {(
+                  [
+                    { id: "pdf", label: "Original PDF" },
+                    { id: "pages", label: "Source pages", hide: pages.length === 0 },
+                  ] as const
+                )
+                  .filter((t) => !("hide" in t && t.hide))
+                  .map((t) => (
+                    <button
+                      key={t.id}
+                      role="tab"
+                      type="button"
+                      aria-selected={panelTab === t.id}
+                      onClick={() => setPanelTab(t.id)}
+                      className={`rounded-control px-2.5 py-1 text-[13px] font-semibold transition-colors ${
+                        panelTab === t.id ? "bg-accent-soft text-accent" : "text-ink-3 hover:bg-sunken hover:text-ink"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                <span className="flex-1" />
+                {panelTab === "pages" && (
+                  <button type="button" onClick={() => setPanelTab("pdf")} className="hidden rounded-control px-2 py-1 text-[12.5px] font-semibold text-accent hover:bg-sunken sm:inline">
+                    Open circular
+                  </button>
+                )}
+                <button type="button" onClick={() => setPagePanelOpen(false)} aria-label="Close the side panel" className="grid h-8 w-8 place-items-center rounded-control text-ink-3 hover:bg-sunken hover:text-ink">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1">
+              {panelTab === "pdf" ? (
+                <PdfPanel documentId={doc.id} page={pageNumber} />
+              ) : (
               <PagePanel
                 documentId={doc.id}
                 versionId={props.viewingVersionId || doc.current_version_id || doc.versions?.[0]?.id}
@@ -951,11 +1040,52 @@ export default function CircularDetail(props: Props) {
                 highlight={highlight}
                 canEdit={!!currentUser?.is_superuser}
                 onPageSaved={props.onPageSaved}
+                bare
               />
+              )}
+              </div>
             </div>
           </motion.div>
         )}
       </div>
+      <Modal open={mapOpen} onClose={() => setMapOpen(false)} labelledBy={`map-${doc.id}`} width="max-w-6xl">
+        <ModalHeader
+          id={`map-${doc.id}`}
+          title="Mind map"
+          subtitle={`${doc.reference_number || "Circular"}: made from the checked points. Tap a point to open its page.`}
+          onClose={() => setMapOpen(false)}
+        />
+        <div className="max-h-[75dvh] overflow-auto p-4">
+          {mapAllowed ? (
+            <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} />
+          ) : (
+            <div className="space-y-3 p-2 text-[14.5px] text-ink-2">
+              <p>The mind map shows the whole circular on one page: what it says, what banks must do, by when, and for whom.</p>
+              <p>It comes with the Pro and Enterprise plans.</p>
+              <Link href="/plans" className="btn-primary inline-flex">
+                See plans
+              </Link>
+            </div>
+          )}
+        </div>
+        {branches.length > 0 && mapAllowed && (
+          <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setMapOpen(false);
+                currentUser ? setShareMode("email") : props.onSignIn();
+              }}
+            >
+              <Mail className="h-4 w-4" /> Email with mind map
+            </button>
+          </div>
+        )}
+      </Modal>
+      {shareMode && (
+        <ShareModal mode={shareMode} doc={doc} branches={branches} currentUser={currentUser} onClose={() => setShareMode(null)} onSwitch={setShareMode} />
+      )}
       {canAddToRegister && rights.active && (
         <AddToRegisterModal
           open={addOpen}

@@ -30,6 +30,8 @@ interface Props {
   onPageSaved?: (page: DocumentPage) => void;
   /** A number that goes up each time a screen asks for the text editor to open on this page. */
   editRequest?: number;
+  /** Inside the circular's side panel, which has its own frame and close button. */
+  bare?: boolean;
 }
 
 /** The text a reader sees: a person's correction when there is one, else the extracted text. */
@@ -189,7 +191,7 @@ function ToolbarButton({
  * marked, or the extracted text. The text view is used when the image cannot be loaded
  * or when a quote has no position on the page.
  */
-export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight, canEdit, onPageSaved, editRequest }: Props) {
+export default function PagePanel({ documentId, versionId, pages, pageNumber, onPageChange, onClose, highlight, canEdit, onPageSaved, editRequest, bare }: Props) {
   const reduceMotion = useReducedMotion();
   const sorted = useMemo(() => [...pages].sort((a, b) => a.page_number - b.page_number), [pages]);
   const page = sorted.find((p) => p.page_number === pageNumber) ?? sorted[0];
@@ -295,8 +297,23 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
 
   const quoteNotOnImage = !!highlight && view === "image" && boxes.length === 0;
 
+  // Left and right arrow keys turn the page (not while typing or editing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (editing || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      if (e.key === "ArrowLeft" && idx > 0) onPageChange(sorted[idx - 1].page_number);
+      else if (e.key === "ArrowRight" && idx >= 0 && idx < sorted.length - 1) onPageChange(sorted[idx + 1].page_number);
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editing, idx, sorted, onPageChange]);
+
   return (
-    <section aria-label="Source page" className="flex h-full min-h-0 flex-col rounded-panel border border-line bg-surface">
+    <section aria-label="Source page" className={`flex h-full min-h-0 flex-col bg-surface ${bare ? "" : "rounded-panel border border-line"}`}>
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <button
           type="button"
@@ -327,9 +344,11 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
               <PenLine className="h-3 w-3" /> Corrected
             </Tag>
           )}
-          <button type="button" onClick={onClose} aria-label="Close source page" className="btn-ghost h-8 w-8 p-0">
-            <X className="h-4 w-4" />
-          </button>
+          {!bare && (
+            <button type="button" onClick={onClose} aria-label="Close source page" className="btn-ghost h-8 w-8 p-0">
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </header>
 

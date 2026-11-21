@@ -17,6 +17,10 @@ from backend.app.modules.identity.models import User, UserProfile
 from backend.app.modules.organizations.models import Organization, Department, OrganizationMember
 from backend.app.modules.compliance.models import ComplianceRegister, ComplianceItem, ComplianceItemReview, ComplianceTask, TaskEvidence, TaskReview, TaskEvent
 from backend.app.modules.audit.models import AuditEvent
+from backend.app.modules.topics.models import DocumentTopic
+from backend.app.modules.library.models import UserList, UserListItem
+from backend.app.modules.share.models import CircularAssignment
+from backend.app.modules.plans.models import Subscription, DailyUsage
 from backend.app.modules.alerts.models import AlertEvent, AlertNotification, AlertPreference, EmailOutbox, EmailDeliveryAttempt
 
 __all__ = [

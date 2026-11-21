@@ -131,6 +131,10 @@ class DocumentRead(DocumentBase):
     in_force_status: Optional[str] = None
     in_force_by_id: Optional[UUID] = None
     in_force_by_reference: Optional[str] = None
+    # Subject categories (topics/taxonomy.py codes), several per circular. Empty until sorted.
+    topics: List[str] = []
+    # Department code such as BRPD, when known.
+    department_code: Optional[str] = None
 
     @computed_field
     @property

@@ -3,6 +3,7 @@ import { JetBrains_Mono, Noto_Sans_Bengali, Source_Sans_3 } from "next/font/goog
 import "./globals.css";
 import AppHeader from "../components/AppHeader";
 import Providers from "../components/Providers";
+import InstallApp from "../components/InstallApp";
 
 const latin = Source_Sans_3({
   subsets: ["latin"],
@@ -29,6 +30,9 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "RegWatch Bangladesh",
   description: "Bangladesh Bank circulars with page-cited analysis for bank compliance teams.",
+  applicationName: "RegWatch",
+  appleWebApp: { capable: true, title: "RegWatch", statusBarStyle: "black-translucent" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
@@ -57,6 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <span>Source: Bangladesh Bank circulars</span>
             </div>
           </footer>
+          <InstallApp />
         </Providers>
       </body>
     </html>

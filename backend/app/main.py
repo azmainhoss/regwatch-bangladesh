@@ -25,6 +25,10 @@ from backend.app.modules.relationships.router import router as relationships_rou
 from backend.app.modules.claims.router import router as claims_router
 from backend.app.modules.alerts.router import router as alerts_router
 from backend.app.modules.documents.summary import router as summary_router
+from backend.app.modules.library.router import router as lists_router
+from backend.app.modules.library.feed import router as feed_router
+from backend.app.modules.share.router import router as share_router
+from backend.app.modules.plans.router import router as plans_router
 from backend.app.modules.alerts.worker import alerts_worker
 from backend.app.modules.alerts.mailer import email_configured
 from backend.app.workers.scheduler import monitoring_scheduler
@@ -68,8 +72,13 @@ async def lifespan(app: FastAPI):
     # Fill the Summary screen's numbers in the background so its first visit is instant.
     from backend.app.modules.documents.summary import warm_summary_cache
     warm_task = asyncio.create_task(warm_summary_cache())
+    # Load the page text the Ask screen searches, so the first question is fast too.
+    from backend.app.modules.research import page_cache
+    search_warm = asyncio.create_task(asyncio.to_thread(page_cache.page_cache.sync)) if page_cache.enabled() else None
     yield
     warm_task.cancel()
+    if search_warm:
+        search_warm.cancel()
     logger.info("Shutting down application...")
     if run_alerts:
         await alerts_worker.stop()
@@ -146,6 +155,10 @@ app.include_router(relationships_router, prefix=settings.API_V1_STR)
 app.include_router(claims_router, prefix=settings.API_V1_STR)
 app.include_router(alerts_router, prefix=settings.API_V1_STR)
 app.include_router(summary_router, prefix=settings.API_V1_STR)
+app.include_router(lists_router, prefix=settings.API_V1_STR)
+app.include_router(feed_router, prefix=settings.API_V1_STR)
+app.include_router(share_router, prefix=settings.API_V1_STR)
+app.include_router(plans_router, prefix=settings.API_V1_STR)
 
 
 @app.exception_handler(ConflictError)
