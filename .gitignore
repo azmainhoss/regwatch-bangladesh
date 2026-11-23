@@ -92,7 +92,6 @@ data/*.out
 private/
 
 # Agent configuration and memory
-CLAUDE.md
 CLAUDE.local.md
 MEMORY.md
 .agents/
