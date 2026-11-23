@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.app.database.session import get_async_db
-from backend.app.modules.identity.deps import get_current_superuser
+from backend.app.modules.identity.deps import get_current_superuser, get_current_user
 from backend.app.modules.identity.models import User
 from backend.app.modules.institutions.models import Institution, InstitutionDepartment
 from backend.app.modules.institutions.schemas import DepartmentCreate, DepartmentRead, InstitutionCreate, InstitutionRead
@@ -14,7 +14,7 @@ from backend.app.modules.institutions.schemas import DepartmentCreate, Departmen
 router = APIRouter(prefix="/institutions", tags=["Institutions"])
 
 
-@router.get("", response_model=List[InstitutionRead])
+@router.get("", response_model=List[InstitutionRead], dependencies=[Depends(get_current_user)])
 async def list_institutions(db: AsyncSession = Depends(get_async_db)):
     result = await db.execute(
         select(Institution)

@@ -325,14 +325,15 @@ function CircularsPageInner() {
     // Again once the row above has finished collapsing.
     const t2 = window.setTimeout(() => {
       go();
-      wantScroll.current = false;
+      // A link opened before the list arrived: keep the wish until the row exists.
+      if (document.getElementById(`circular-${id}`) || document.getElementById("circular-standalone")) wantScroll.current = false;
     }, 420);
     return () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDoc?.id]);
+  }, [selectedDoc?.id, loading]);
 
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -367,7 +368,49 @@ function CircularsPageInner() {
   const activeChip = filterTab === "dept" ? dept : topic;
   const setChip = (code: string) => (filterTab === "dept" ? setDept(code) : setTopic(code));
 
-  const renderDetail = (doc: DocumentItem) => (
+  // The circulars before and after the open one in the list, for the arrows and the J / K keys.
+  const openIdx = selectedDoc ? filtered.findIndex((d) => d.id === selectedDoc.id) : -1;
+  const stepTo = (d: DocumentItem | undefined) =>
+    d ? { label: d.reference_number || titleWithoutRef(d.title, d.reference_number), open: () => handleSelectDoc(d) } : null;
+  const prevDoc = openIdx > 0 ? stepTo(filtered[openIdx - 1]) : null;
+  const nextDoc = openIdx >= 0 && openIdx < filtered.length - 1 ? stepTo(filtered[openIdx + 1]) : null;
+  const stepRef = useRef<{ prev: typeof prevDoc; next: typeof nextDoc }>({ prev: null, next: null });
+  stepRef.current = { prev: prevDoc, next: nextDoc };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (e.key === "j") stepRef.current.next?.open();
+      else if (e.key === "k") stepRef.current.prev?.open();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Phones: the source page opens as a sheet over the page, so the page behind it must not scroll.
+  useEffect(() => {
+    if (!pagePanelOpen || window.innerWidth >= 1280) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [pagePanelOpen]);
+
+  // Wide screens: while the source page is open the list steps aside, so the page has room to be read.
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const on = () => setWide(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const focusReading = wide && pagePanelOpen && !!selectedDoc;
+
+  const renderDetail = (doc: DocumentItem, inRow = false) => (
     <>
       {detailError && (
         <Notice kind="error" className="mb-3">
@@ -394,6 +437,9 @@ function CircularsPageInner() {
         currentUser={currentUser}
         onSignIn={() => setAccountOpen(true)}
         onRefresh={() => refreshDocument(doc)}
+        inRow={inRow}
+        prevDoc={prevDoc}
+        nextDoc={nextDoc}
         onPageSaved={(saved) => {
           setDocPages((prev) => prev.map((p) => (p.id === saved.id ? { ...p, ...saved } : p)));
           pageCorrected(doc.id, undefined, saved);
@@ -536,9 +582,9 @@ function CircularsPageInner() {
         {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? " match" : " in the library"}`}
       </p>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+      <div className={`grid grid-cols-1 gap-6 ${focusReading ? "" : "lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"}`}>
         {/* List */}
-        <div className="space-y-3 lg:sticky lg:top-[72px] lg:max-h-[calc(100dvh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1">
+        <div className={`space-y-3 lg:sticky lg:top-[72px] lg:max-h-[calc(100dvh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1 ${focusReading ? "lg:hidden" : ""}`}>
           {currentUser && !currentUser.is_superuser && <MyCircularUpload institutions={institutions} onUploaded={loadData} />}
 
           {/* Phone and tablet: a circular opened by a link that is not in the list below still shows here. */}
@@ -651,7 +697,7 @@ function CircularsPageInner() {
                           transition={{ duration: 0.28, ease: EASE_OUT }}
                           className="overflow-hidden bg-sunken/60 lg:hidden"
                         >
-                          <div className="p-2 sm:p-3">{renderDetail(doc)}</div>
+                          <div className="p-2 sm:p-3">{renderDetail(doc, true)}</div>
                         </motion.div>
                       )}
                     </AnimatePresence>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { AlignLeft, ChevronLeft, ChevronRight, FileImage, PenLine, Pencil, X, ZoomIn, ZoomOut } from "lucide-react";
+import { AlignLeft, ChevronLeft, ChevronRight, Crosshair, FileImage, Maximize2, Minimize2, PenLine, Pencil, X, ZoomIn, ZoomOut } from "lucide-react";
 import { submitPageCorrection, type Box2D, type DocumentPage, type QuoteBox } from "@/services/api";
 import { loadPageImage, peekPageImage } from "@/services/pageImages";
 import StatusBadge, { Tag } from "./StatusBadge";
@@ -49,7 +49,29 @@ function correctionDate(value: string) {
 
 type View = "image" | "text";
 
-const ZOOMS = [1, 1.5, 2] as const;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(z * 100) / 100));
+
+/**
+ * The zoom that makes a marked quote readable: wide enough that the page text is a comfortable size
+ * (about 1000 px of page width), but never so far that the quote no longer fits across the panel
+ * on a wide screen. On a phone the text size wins, and the panel scrolls sideways to the quote.
+ */
+function readingZoom(containerWidth: number, boxes: Box2D[]): number {
+  if (!containerWidth) return 1;
+  const left = Math.min(...boxes.map((b) => b[1]));
+  const right = Math.max(...boxes.map((b) => b[3]));
+  const quoteWidth = Math.max(0.15, (right - left) / 1000 + 0.04);
+  const fitQuote = 1 / quoteWidth;
+  const readable = Math.min(2.2, 1000 / containerWidth);
+  return clampZoom(Math.max(fitQuote > 1.05 ? Math.min(fitQuote, 2.5) : 1, readable));
+}
+
+/** Joins the line breaks that only come from the PDF's line wrapping, so the text reads as paragraphs. */
+function reflow(text: string): string {
+  return text.replace(/([^\n.:;!?।)\]|])\n(?!\s*\n)(?=\s*(?![([]?[a-zA-Z0-9]{1,3}[.)\]]\s)(?![•\-–*]\s)\S)/g, "$1 ");
+}
 
 function normalise(s: string) {
   return s.replace(/\s+/g, " ").trim();
@@ -198,7 +220,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
   const idx = page ? sorted.indexOf(page) : -1;
   const text = pageText(page);
   const quote = highlight?.text ?? null;
-  const body = useMemo(() => markQuote(text, quote), [text, quote]);
+  const body = useMemo(() => markQuote(reflow(text), quote), [text, quote]);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -243,7 +265,8 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
     }
   };
 
-  const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>(1);
+  const [zoom, setZoomState] = useState(1);
+  const [full, setFull] = useState(false);
   const [chosenView, setChosenView] = useState<View | null>(null);
   const image = usePageImage(documentId, versionId, page?.page_number, zoom > 1 ? 192 : 144);
 
@@ -267,26 +290,59 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
   const [imgReady, setImgReady] = useState(false);
   useEffect(() => setImgReady(false), [image.src]);
 
+  // Zoom keeps the point under the cursor or fingers in place: the scroll position is corrected right after the redraw.
+  const anchor = useRef<{ x: number; y: number; from: number } | null>(null);
+  const setZoom = useCallback((next: number, at?: { x: number; y: number }) => {
+    setZoomState((prev) => {
+      const z = clampZoom(next);
+      if (z === prev) return prev;
+      const box = scrollRef.current;
+      anchor.current = box ? { x: at?.x ?? box.clientWidth / 2, y: at?.y ?? box.clientHeight / 2, from: prev } : null;
+      return z;
+    });
+  }, []);
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    const a = anchor.current;
+    if (!box || !a) return;
+    anchor.current = null;
+    const k = zoom / a.from;
+    box.scrollLeft = (box.scrollLeft + a.x) * k - a.x;
+    box.scrollTop = (box.scrollTop + a.y) * k - a.y;
+  }, [zoom]);
+
   // Bring the first marked line into view once the image has its size.
   const scrollToFirst = useCallback(() => {
     const box = scrollRef.current;
     const img = imgRef.current;
     if (!box || !img || boxes.length === 0) return;
     const first = boxes.reduce((a, b) => (b[0] < a[0] ? b : a));
+    const leftMost = Math.min(...boxes.map((b) => b[1]));
     const imgRect = img.getBoundingClientRect();
     const boxRect = box.getBoundingClientRect();
     const top = imgRect.top - boxRect.top + box.scrollTop + (first[0] / 1000) * imgRect.height;
-    const left = imgRect.left - boxRect.left + box.scrollLeft + (first[1] / 1000) * imgRect.width;
+    const left = imgRect.left - boxRect.left + box.scrollLeft + (leftMost / 1000) * imgRect.width;
     box.scrollTo({
-      top: Math.max(0, top - box.clientHeight * 0.3),
-      left: zoom > 1 ? Math.max(0, left - 24) : 0,
+      top: Math.max(0, top - box.clientHeight * 0.25),
+      left: zoom > 1 ? Math.max(0, left - 16) : 0,
       behavior: reduceMotion ? "auto" : "smooth",
     });
   }, [boxes, zoom, reduceMotion]);
 
+  // A new quote: zoom in until it is readable, then scroll to it.
+  const zoomedFor = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (view !== "image" || !highlight || boxes.length === 0 || zoomedFor.current === highlight.key) return;
+    zoomedFor.current = highlight.key;
+    anchor.current = null;
+    setZoomState(readingZoom(scrollRef.current?.clientWidth ?? 0, boxes));
+  }, [view, highlight, boxes]);
+
   useLayoutEffect(() => {
     if (view === "image" && imgReady) scrollToFirst();
-  }, [view, imgReady, highlight?.key, scrollToFirst]);
+    // Zoom is left out on purpose: zooming by hand must not jump back to the quote.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, imgReady, highlight?.key, zoomedFor.current]);
 
   // In the text view, scroll the marked passage into view.
   useEffect(() => {
@@ -294,6 +350,103 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
     const mark = scrollRef.current?.querySelector("mark");
     mark?.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
   }, [view, quote, highlight?.key, page?.page_number, reduceMotion]);
+
+  // Trackpad pinch and Ctrl + wheel zoom the page (not the whole browser window).
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || view !== "image") return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = box.getBoundingClientRect();
+      setZoomState((prev) => {
+        const z = clampZoom(prev * Math.exp(-e.deltaY * 0.01));
+        if (z !== prev) anchor.current = { x: e.clientX - r.left, y: e.clientY - r.top, from: prev };
+        return z;
+      });
+    };
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
+  }, [view]);
+
+  // Two-finger pinch on a phone zooms the page; one finger scrolls it as usual.
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || view !== "image") return;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) pinch.current = { dist: dist(e.touches), zoom: zoomRef.current };
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !pinch.current) return;
+      e.preventDefault();
+      const r = box.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top;
+      const target = clampZoom(pinch.current.zoom * (dist(e.touches) / pinch.current.dist));
+      setZoomState((prev) => {
+        if (target !== prev) anchor.current = { x: cx, y: cy, from: prev };
+        return target;
+      });
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinch.current = null;
+    };
+    box.addEventListener("touchstart", onStart, { passive: true });
+    box.addEventListener("touchmove", onMove, { passive: false });
+    box.addEventListener("touchend", onEnd);
+    return () => {
+      box.removeEventListener("touchstart", onStart);
+      box.removeEventListener("touchmove", onMove);
+      box.removeEventListener("touchend", onEnd);
+    };
+  }, [view]);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  // With a mouse: drag to move around a zoomed page, double-click to zoom in or back out.
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (zoom <= 1 || e.button !== 0 || !scrollRef.current) return;
+    drag.current = { x: e.clientX, y: e.clientY, left: scrollRef.current.scrollLeft, top: scrollRef.current.scrollTop };
+    setDragging(true);
+    e.preventDefault();
+  };
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: MouseEvent) => {
+      const d = drag.current;
+      const box = scrollRef.current;
+      if (!d || !box) return;
+      box.scrollLeft = d.left - (e.clientX - d.x);
+      box.scrollTop = d.top - (e.clientY - d.y);
+    };
+    const up = () => {
+      drag.current = null;
+      setDragging(false);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [dragging]);
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const r = scrollRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setZoom(zoom > 1.2 ? 1 : 2, { x: e.clientX - r.left, y: e.clientY - r.top });
+  };
+
+  // Full screen: Escape goes back to the side panel.
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
 
   const quoteNotOnImage = !!highlight && view === "image" && boxes.length === 0;
 
@@ -305,55 +458,118 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
       if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
       if (e.key === "ArrowLeft" && idx > 0) onPageChange(sorted[idx - 1].page_number);
       else if (e.key === "ArrowRight" && idx >= 0 && idx < sorted.length - 1) onPageChange(sorted[idx + 1].page_number);
+      else if ((e.key === "+" || e.key === "=") && view === "image") setZoom(zoomRef.current * 1.25);
+      else if (e.key === "-" && view === "image") setZoom(zoomRef.current / 1.25);
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editing, idx, sorted, onPageChange]);
+  }, [editing, idx, sorted, onPageChange, view, setZoom]);
 
   return (
-    <section aria-label="Source page" className={`flex h-full min-h-0 flex-col bg-surface ${bare ? "" : "rounded-panel border border-line"}`}>
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <button
-          type="button"
-          onClick={() => idx > 0 && onPageChange(sorted[idx - 1].page_number)}
-          disabled={idx <= 0 || editing}
-          aria-label="Previous page"
-          className="btn-ghost h-8 w-8 p-0"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <p className="text-[14px] font-semibold text-ink tabular-nums">
-          {page ? `Page ${page.page_number}` : "No pages"}
-          {sorted.length > 0 && <span className="font-normal text-ink-3"> of {sorted.length}</span>}
-        </p>
-        <button
-          type="button"
-          onClick={() => idx >= 0 && idx < sorted.length - 1 && onPageChange(sorted[idx + 1].page_number)}
-          disabled={idx < 0 || idx >= sorted.length - 1 || editing}
-          aria-label="Next page"
-          className="btn-ghost h-8 w-8 p-0"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-        <div className="ml-auto flex items-center gap-1.5">
-          {page?.quality_status && !page.quality_status.startsWith("SUCCESS") && <StatusBadge status={page.quality_status} size="sm" />}
-          {page?.is_human_corrected && (
-            <Tag tone="ok" title="A person corrected this page's text">
-              <PenLine className="h-3 w-3" /> Corrected
-            </Tag>
-          )}
-          {!bare && (
-            <button type="button" onClick={onClose} aria-label="Close source page" className="btn-ghost h-8 w-8 p-0">
-              <X className="h-4 w-4" />
-            </button>
-          )}
+    <section
+      aria-label="Source page"
+      className={`flex min-h-0 flex-col bg-surface ${
+        full ? "fixed inset-0 z-[70] sm:inset-4 sm:rounded-panel sm:border sm:border-line sm:shadow-pop" : `h-full ${bare ? "" : "rounded-panel border border-line"}`
+      }`}
+    >
+      <header className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line px-2 py-1.5 sm:px-3">
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => idx > 0 && onPageChange(sorted[idx - 1].page_number)}
+            disabled={idx <= 0 || editing}
+            aria-label="Previous page"
+            title="Previous page (left arrow)"
+            className="btn-ghost h-9 w-9 p-0"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <p className="whitespace-nowrap px-0.5 text-[14px] font-semibold text-ink tabular-nums">
+            {page ? `Page ${page.page_number}` : "No pages"}
+            {sorted.length > 0 && <span className="font-normal text-ink-3"> of {sorted.length}</span>}
+          </p>
+          <button
+            type="button"
+            onClick={() => idx >= 0 && idx < sorted.length - 1 && onPageChange(sorted[idx + 1].page_number)}
+            disabled={idx < 0 || idx >= sorted.length - 1 || editing}
+            aria-label="Next page"
+            title="Next page (right arrow)"
+            className="btn-ghost h-9 w-9 p-0"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
+        {page && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <div role="group" aria-label="Show the page as" className="inline-flex rounded-control bg-sunken p-0.5">
+              <ToolbarButton active={view === "image"} onClick={() => setChosenView("image")} label="Original page" disabled={!canShowImage || editing}>
+                <FileImage className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <span className="hidden sm:inline">Page</span>
+              </ToolbarButton>
+              <ToolbarButton active={view === "text"} onClick={() => setChosenView("text")} label="Extracted text">
+                <AlignLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <span className="hidden sm:inline">Text</span>
+              </ToolbarButton>
+            </div>
+            {view === "image" && (
+              <div role="group" aria-label="Zoom" className="inline-flex items-center rounded-control bg-sunken p-0.5">
+                <ToolbarButton onClick={() => setZoom(zoom / 1.25)} label="Zoom out (-)" disabled={zoom <= MIN_ZOOM}>
+                  <ZoomOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </ToolbarButton>
+                <ToolbarButton onClick={() => setZoom(1)} label="Fit the page to the panel" active={zoom === 1}>
+                  <span className="min-w-[2.4rem] tabular-nums">{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</span>
+                </ToolbarButton>
+                <ToolbarButton onClick={() => setZoom(zoom * 1.25)} label="Zoom in (+)" disabled={zoom >= MAX_ZOOM}>
+                  <ZoomIn className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </ToolbarButton>
+              </div>
+            )}
+            {highlight && view === "image" && boxes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const z = readingZoom(scrollRef.current?.clientWidth ?? 0, boxes);
+                  if (z !== zoom) {
+                    anchor.current = null;
+                    setZoomState(z);
+                    window.setTimeout(scrollToFirst, 30);
+                  } else scrollToFirst();
+                }}
+                className="inline-flex h-8 items-center gap-1 rounded-control px-2 text-[12.5px] font-semibold text-accent ring-1 ring-inset ring-accent/30 hover:bg-accent-soft"
+                title="Zoom to the highlighted lines"
+              >
+                <Crosshair className="h-3.5 w-3.5" strokeWidth={1.75} />
+                <span className="hidden sm:inline">Highlight</span>
+              </button>
+            )}
+            {canEdit && view === "text" && !editing && (
+              <button type="button" onClick={startEdit} className="btn-secondary h-8 px-2.5 text-[12.5px]">
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Edit text
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setFull((f) => !f)}
+              aria-label={full ? "Leave full screen" : "Full screen"}
+              title={full ? "Leave full screen (Esc)" : "Full screen"}
+              className="btn-ghost h-9 w-9 p-0"
+            >
+              {full ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+            {!bare && !full && (
+              <button type="button" onClick={onClose} aria-label="Close source page" className="btn-ghost h-9 w-9 p-0">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       {sorted.length > 1 && (
-        <nav aria-label="Pages" className="flex gap-1 overflow-x-auto border-b border-line px-3 py-2">
+        <nav aria-label="Pages" className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5 sm:px-3">
           {sorted.map((p) => {
             const active = p.page_number === page?.page_number;
             return (
@@ -363,68 +579,43 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                 onClick={() => onPageChange(p.page_number)}
                 disabled={editing}
                 aria-current={active ? "page" : undefined}
-                className={`relative min-w-[2rem] rounded-control px-2 py-1 text-[13px] font-semibold tabular-nums transition-colors ${
-                  active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken"
+                ref={
+                  active
+                    ? (el) => {
+                        // Keep the current page's chip in view inside the strip (never scrolls the page itself).
+                        const strip = el?.parentElement;
+                        if (el && strip && (el.offsetLeft < strip.scrollLeft || el.offsetLeft + el.offsetWidth > strip.scrollLeft + strip.clientWidth))
+                          strip.scrollLeft = el.offsetLeft - strip.clientWidth / 2;
+                      }
+                    : undefined
+                }
+                className={`min-w-[2rem] shrink-0 rounded-control px-2 py-1 text-[13px] font-semibold tabular-nums transition-colors ${
+                  active ? "bg-accent text-accent-ink" : "text-ink-2 hover:bg-sunken"
                 }`}
               >
-                {active && (
-                  <motion.span layoutId="page-chip" className="absolute inset-0 rounded-control bg-accent" transition={{ duration: 0.2, ease: EASE_OUT }} />
-                )}
-                <span className="relative">{p.page_number}</span>
+                {p.page_number}
               </button>
             );
           })}
         </nav>
       )}
 
-      {page?.is_human_corrected && (page.corrected_by_name || page.corrected_at || page.correction_reason) && (
-        <p className="border-b border-line bg-sunken/50 px-3 py-1.5 text-[12.5px] leading-snug text-ink-2" data-testid="correction-line">
-          Corrected{page.corrected_by_name ? ` by ${page.corrected_by_name}` : ""}
-          {page.corrected_at ? ` on ${correctionDate(page.corrected_at)}` : ""}
-          {page.correction_reason ? `: ${page.correction_reason}` : ""}
-        </p>
-      )}
-
-      {page && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-1.5">
-          <div role="group" aria-label="Show the page as" className="inline-flex rounded-control bg-sunken p-0.5">
-            <ToolbarButton active={view === "image"} onClick={() => setChosenView("image")} label="Original page" disabled={!canShowImage || editing}>
-              <FileImage className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Page
-            </ToolbarButton>
-            <ToolbarButton active={view === "text"} onClick={() => setChosenView("text")} label="Extracted text">
-              <AlignLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Text
-            </ToolbarButton>
-          </div>
-          {view === "image" && (
-            <div role="group" aria-label="Zoom" className="inline-flex items-center rounded-control bg-sunken p-0.5">
-              <ToolbarButton onClick={() => setZoom(ZOOMS[Math.max(0, ZOOMS.indexOf(zoom) - 1)])} label="Zoom out" disabled={zoom === ZOOMS[0]}>
-                <ZoomOut className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </ToolbarButton>
-              <ToolbarButton onClick={() => setZoom(1)} label="Fit to width" active={zoom === 1}>
-                <span className="min-w-[2.6rem] tabular-nums">{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</span>
-              </ToolbarButton>
-              <ToolbarButton
-                onClick={() => setZoom(ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + 1)])}
-                label="Zoom in"
-                disabled={zoom === ZOOMS[ZOOMS.length - 1]}
-              >
-                <ZoomIn className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </ToolbarButton>
-            </div>
-          )}
-          {canEdit && view === "text" && !editing && (
-            <button type="button" onClick={startEdit} className="btn-secondary ml-auto h-7 px-2.5 text-[12.5px]">
-              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Edit text
-            </button>
-          )}
-          {highlight && view === "image" && boxes.length > 0 && (
-            <span className="ml-auto hidden items-center gap-1.5 text-[12.5px] text-ink-3 sm:flex">
-              <span aria-hidden className="h-2.5 w-3.5 rounded-[2px] bg-marker/60 ring-1 ring-inset ring-marker-edge/50" />
-              Quote marked
-            </span>
+      {((page?.quality_status && !page.quality_status.startsWith("SUCCESS")) || page?.is_human_corrected) && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-sunken/50 px-3 py-1.5 text-[12.5px] leading-snug text-ink-2" data-testid="correction-line">
+          {page?.quality_status && !page.quality_status.startsWith("SUCCESS") && <StatusBadge status={page.quality_status} size="sm" />}
+          {page?.is_human_corrected && (
+            <>
+              <Tag tone="ok" title="A person corrected this page's text">
+                <PenLine className="h-3 w-3" /> Corrected
+              </Tag>
+              {(page.corrected_by_name || page.corrected_at || page.correction_reason) && (
+                <span>
+                  {page.corrected_by_name ? `by ${page.corrected_by_name}` : ""}
+                  {page.corrected_at ? ` on ${correctionDate(page.corrected_at)}` : ""}
+                  {page.correction_reason ? `: ${page.correction_reason}` : ""}
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
@@ -437,7 +628,15 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
         </p>
       )}
 
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        onMouseDown={view === "image" ? onMouseDown : undefined}
+        onDoubleClick={view === "image" ? onDoubleClick : undefined}
+        className={`relative min-h-0 flex-1 overflow-auto overscroll-contain ${
+          view === "image" ? (zoom > 1 ? (dragging ? "cursor-grabbing select-none" : "cursor-grab") : "cursor-zoom-in") : ""
+        }`}
+        style={view === "image" ? { touchAction: "pan-x pan-y" } : undefined}
+      >
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={`${page?.id ?? "empty"}:${view}`}
@@ -471,7 +670,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
                             animate={{ opacity: 1, scaleX: 1 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: reduceMotion ? 0 : 0.35, delay: reduceMotion ? 0 : Math.min(i, 10) * 0.035, ease: EASE_OUT }}
-                            className="absolute origin-left rounded-[2px] bg-marker/45 mix-blend-multiply ring-1 ring-inset ring-marker-edge/40"
+                            className="absolute origin-left rounded-[2px] bg-marker/55 mix-blend-multiply ring-2 ring-inset ring-marker-edge/60"
                             style={{
                               top: `${(b[0] - 3) / 10}%`,
                               left: `${(b[1] - 4) / 10}%`,

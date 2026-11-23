@@ -262,7 +262,7 @@ async def sync_rows(db, claims: Iterable[Any]) -> None:
                 row.applicability_summary = f.get("who") or ""
                 deadline = _parse(f.get("deadline"))
                 row.explicit_deadline = deadline
-                row.deadline_description = f.get("deadline")
+                row.deadline_description = f.get("deadline_text") or f.get("deadline")
                 if f.get("frequency"):
                     row.frequency = f["frequency"]
         else:

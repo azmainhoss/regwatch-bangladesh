@@ -29,7 +29,7 @@ from backend.app.modules.relationships.models import DocumentRelationship
 router = APIRouter(prefix="/documents", tags=["Analysis"])
 
 
-@router.get("/provider-status")
+@router.get("/provider-status", dependencies=[Depends(get_current_user)])
 async def get_provider_status():
     """
     Returns the active Analysis provider, model identifier, and configuration health.

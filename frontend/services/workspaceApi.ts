@@ -263,6 +263,7 @@ export interface AddableObligation {
   page_number: number | null;
   quote: string;
   regulatory_deadline: string | null;
+  deadline_text?: string | null;
   verification_status: string;
   addable: boolean;
   reason_not_addable: string | null;

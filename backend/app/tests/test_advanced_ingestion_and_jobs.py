@@ -2,6 +2,7 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 from backend.app.main import app
+from backend.app.tests.factories import make_user
 from backend.app.modules.sources.connector.bangladesh_bank import BangladeshBankConnector
 
 
@@ -29,7 +30,10 @@ def test_date_parser_variations():
 async def test_unauthorized_source_actions():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        sources_resp = await client.get("/api/v1/sources")
+        # Reading the sources list needs a signed-in user; changing them needs no one signed in to fail with 401.
+        assert (await client.get("/api/v1/sources")).status_code == 401
+        _user, reader_token = await make_user()
+        sources_resp = await client.get("/api/v1/sources", headers={"Authorization": f"Bearer {reader_token}"})
         assert sources_resp.status_code == 200
         source_id = sources_resp.json()[0]["id"]
 
@@ -56,7 +60,7 @@ async def test_oversized_and_corrupt_pdf_rejection():
         token = user_resp.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
-        inst_resp = await client.get("/api/v1/institutions")
+        inst_resp = await client.get("/api/v1/institutions", headers=headers)
         bb_id = inst_resp.json()[0]["id"]
 
         data = {

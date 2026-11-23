@@ -51,6 +51,18 @@ export function formatDate(iso: string | null | undefined): string {
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+/** The regulator's deadline in words ("within 14 days of issuance") when the circular gives no calendar date. */
+export function deadlineWords(item: { deadline_description?: string | null }): string | null {
+  const w = (item.deadline_description ?? "").trim();
+  if (!w || /^\d{4}-\d{2}-\d{2}/.test(w)) return null;
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+
+/** The deadline as shown in lists: the date when there is one, else the circular's words, else "Not set". */
+export function deadlineLabel(item: { effective_deadline?: string | null; deadline_description?: string | null }): string {
+  return item.effective_deadline ? formatDate(item.effective_deadline) : deadlineWords(item) ?? "None stated";
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: DHAKA });

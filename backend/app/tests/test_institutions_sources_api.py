@@ -1,12 +1,14 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 from backend.app.main import app
+from backend.app.tests.factories import signed_in_reader
 
 
 @pytest.mark.asyncio
 async def test_institutions_and_sources_api():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await signed_in_reader(client)
         # 1. List institutions (already seeded with BB)
         resp = await client.get("/api/v1/institutions")
         assert resp.status_code == 200
@@ -28,7 +30,7 @@ async def test_institutions_and_sources_api():
             "is_active": True
         }
         # Anonymous callers cannot create institutions
-        anon_resp = await client.post("/api/v1/institutions", json=nbr_payload)
+        anon_resp = await client.post("/api/v1/institutions", json=nbr_payload, headers={"Authorization": ""})
         assert anon_resp.status_code == 401
 
         from backend.app.tests.factories import make_user

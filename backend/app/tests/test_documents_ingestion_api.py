@@ -21,7 +21,7 @@ async def test_document_ingestion_and_provenance():
         auth_headers = {"Authorization": f"Bearer {token}"}
 
         # Get BB institution ID
-        inst_resp = await client.get("/api/v1/institutions")
+        inst_resp = await client.get("/api/v1/institutions", headers=auth_headers)
         bb = next(i for i in inst_resp.json() if i["code"] == "BB")
         bb_id = bb["id"]
         brpd_dept = next(d for d in bb["departments"] if d["code"] == "BRPD")

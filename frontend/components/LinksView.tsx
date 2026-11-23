@@ -184,7 +184,18 @@ const STATUS_STYLE: Record<string, { fill: string; stroke: string; label: string
 const NOT_IN_LIBRARY = { fill: "rgb(var(--muted-soft))", stroke: "rgb(var(--line-strong))", label: "Not in library" };
 
 function clip(text: string, n: number) {
-  return text.length > n ? `${text.slice(0, n - 1)}…` : text;
+  if (text.length <= n) return text;
+  const cut = text.slice(0, n - 1);
+  const atWord = cut.lastIndexOf(" ");
+  return `${(atWord > n * 0.6 ? cut.slice(0, atWord) : cut).replace(/[\s,.;:–-]+$/, "")}…`;
+}
+
+/** "FEID Circular No. 01 dated 27 January 2025" -> number and date, so neither is cut off in a small box. */
+function splitCitation(text: string): { ref: string; when: string } {
+  const m = text.match(/^(.*?)(?:,?\s+(?:dated|dt\.?|of|issued on)\s+)(.+)$/i);
+  const short = (w: string) =>
+    w.replace(/\b(January|February|March|April|June|July|August|September|October|November|December)\b/gi, (mo) => mo.slice(0, 3)).replace(/\b0(\d)\b/, "$1");
+  return m ? { ref: m[1].trim(), when: short(m[2].trim()) } : { ref: text.trim(), when: "" };
 }
 
 interface Placed {
@@ -374,12 +385,22 @@ export function LinksGraph({ graph, selectedEdgeId, onSelectEdge }: { graph: Rel
                 strokeDasharray={node.in_library ? undefined : "5 4"}
                 style={{ fill: style.fill, stroke: node.is_center ? "rgb(var(--accent))" : style.stroke }}
               />
-              <text x={12} y={22} fontSize={13} fontWeight={700} style={{ fill: node.in_library ? "rgb(var(--ink))" : "rgb(var(--ink-3))" }}>
-                {clip(node.reference_number || node.title, 25)}
+              <text x={12} y={22} fontSize={13} fontWeight={700} style={{ fill: node.in_library ? "rgb(var(--ink))" : "rgb(var(--ink-2))" }}>
+                {clip(node.in_library ? node.reference_number || node.title : splitCitation(node.reference_number || node.title).ref, 25)}
               </text>
               <text x={12} y={39} fontSize={11.5} style={{ fill: "rgb(var(--ink-2))" }}>
-                {style.label}
-                {node.in_library && node.publication_date ? ` · ${shortDate(node.publication_date)}` : ""}
+                {clip(
+                  `${style.label}${
+                    node.in_library
+                      ? node.publication_date
+                        ? ` · ${shortDate(node.publication_date)}`
+                        : ""
+                      : splitCitation(node.reference_number || node.title).when
+                        ? ` · ${splitCitation(node.reference_number || node.title).when}`
+                        : ""
+                  }`,
+                  31,
+                )}
               </text>
               {node.is_center && (
                 <text x={12} y={53} fontSize={10.5} fontWeight={600} style={{ fill: "rgb(var(--accent))" }}>

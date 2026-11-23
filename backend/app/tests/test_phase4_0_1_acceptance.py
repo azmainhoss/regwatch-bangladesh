@@ -11,6 +11,7 @@ Verifies:
 import pytest
 from httpx import ASGITransport, AsyncClient
 from backend.app.main import app
+from backend.app.tests.factories import signed_in_reader
 from backend.app.core.config import settings
 from backend.app.modules.documents.schemas import DocumentRead
 
@@ -19,6 +20,7 @@ from backend.app.modules.documents.schemas import DocumentRead
 async def test_api_level_genuine_corpus_isolation():
     """Confirms that default /documents returns ONLY genuine publications."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         # Default request (no corpus_type passed) must default to GENUINE
         res = await client.get("/api/v1/documents")
         assert res.status_code == 200
@@ -41,6 +43,7 @@ async def test_api_level_genuine_corpus_isolation():
 async def test_synthetic_test_area_isolation():
     """Confirms that synthetic fixtures are segregated into SYNTHETIC_SAMPLE corpus."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         res = await client.get("/api/v1/documents?corpus_type=SYNTHETIC_SAMPLE&limit=10")
         assert res.status_code == 200
         docs = res.json()
@@ -54,6 +57,7 @@ async def test_synthetic_test_area_isolation():
 async def test_stats_truthfulness_and_department_deduplication():
     """Confirms stats counts distinguish genuine vs synthetic and deduplicates department codes."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         res = await client.get("/api/v1/documents/stats")
         assert res.status_code == 200
         data = res.json()
@@ -69,6 +73,7 @@ async def test_stats_truthfulness_and_department_deduplication():
 async def test_plain_language_provider_status_telemetry():
     """Confirms provider status separates professional service state from admin diagnostics."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         res = await client.get("/api/v1/documents/provider-status")
         assert res.status_code == 200
         data = res.json()

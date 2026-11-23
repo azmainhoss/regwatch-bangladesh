@@ -15,12 +15,13 @@ from backend.app.modules.analysis.service import AnalysisService
 from backend.app.modules.documents import page_images
 from backend.app.modules.documents.models import DocumentPage, DocumentVersion
 from backend.app.modules.extraction.page_router import has_word_boxes, route_page, text_layer_lines_by_page
-from backend.app.tests.factories import make_institution, make_user
+from backend.app.tests.factories import make_institution, make_user, signed_in_reader
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

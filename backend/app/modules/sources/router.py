@@ -24,7 +24,7 @@ from backend.app.modules.sources.service import source_monitoring_service
 router = APIRouter(prefix="/sources", tags=["Sources & Crawling"])
 
 
-@router.get("", response_model=List[SourceRead])
+@router.get("", response_model=List[SourceRead], dependencies=[Depends(get_current_user)])
 async def list_sources(db: AsyncSession = Depends(get_async_db)):
     result = await db.execute(select(Source).order_by(Source.name))
     return result.scalars().all()
@@ -53,7 +53,7 @@ async def create_source(
     return source
 
 
-@router.get("/runs", response_model=List[SourceRunRead])
+@router.get("/runs", response_model=List[SourceRunRead], dependencies=[Depends(get_current_user)])
 async def list_source_runs(
     source_id: Optional[UUID] = Query(None),
     limit: int = 50,
@@ -66,7 +66,7 @@ async def list_source_runs(
     return result.scalars().all()
 
 
-@router.get("/discoveries", response_model=List[SourceDiscoveryRead])
+@router.get("/discoveries", response_model=List[SourceDiscoveryRead], dependencies=[Depends(get_current_user)])
 async def list_discoveries(
     status_filter: Optional[str] = Query(None),
     limit: int = 50,
@@ -188,7 +188,7 @@ async def backfill_source_publications(
         raise HTTPException(status_code=500, detail=f"Backfill batch failed: {str(e)}")
 
 
-@router.get("/{source_id}", response_model=SourceRead)
+@router.get("/{source_id}", response_model=SourceRead, dependencies=[Depends(get_current_user)])
 async def get_source(source_id: UUID, db: AsyncSession = Depends(get_async_db)):
     source = await db.get(Source, source_id)
     if not source:

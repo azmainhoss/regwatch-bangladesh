@@ -26,7 +26,7 @@ from backend.app.modules.sources.models import Source, SourceDiscovery, SourceRu
 from backend.app.modules.sources.schemas import SourceCreate, SourceUpdate
 from backend.app.modules.sources.service import source_monitoring_service
 from backend.app.modules.sources.url_policy import DisallowedSourceURL, validate_source_url
-from backend.app.tests.factories import make_document, make_institution, make_user
+from backend.app.tests.factories import make_document, make_institution, make_user, signed_in_reader
 
 BB_LIST_URL = "https://www.bb.org.bd/en/index.php/mediaroom/circular"
 
@@ -34,6 +34,7 @@ BB_LIST_URL = "https://www.bb.org.bd/en/index.php/mediaroom/circular"
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

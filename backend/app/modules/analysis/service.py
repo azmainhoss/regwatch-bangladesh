@@ -311,7 +311,7 @@ class AnalysisService:
                 quote_boxes=obl_data.get("quote_boxes") or [],
                 applicability_summary=obl_data.get("responsible_entity") or "",
                 explicit_deadline=explicit_date,
-                deadline_description=obl_data.get("explicit_deadline"),
+                deadline_description=obl_data.get("deadline_text") or obl_data.get("explicit_deadline"),
                 frequency=obl_data.get("reporting_frequency") or "ONE_TIME",
                 verification_status="PENDING_REVIEW",
             )

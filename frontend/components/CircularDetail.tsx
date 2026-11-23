@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowUpRight, BookOpenText, CheckCircle2, EyeOff, FileDown, FileText, GitBranch, ListPlus, Lock, Mail, Network, RefreshCw, Send, ShieldCheck, Sparkles, UserPlus, X } from "lucide-react";
+import { ArrowUpRight, BookOpenText, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, EyeOff, MoreHorizontal, FileDown, FileText, GitBranch, ListPlus, Lock, Mail, Network, RefreshCw, Send, ShieldCheck, Sparkles, UserPlus, X } from "lucide-react";
 import {
   AuthUser,
   ClaimItem,
@@ -12,7 +12,6 @@ import {
   DocumentPage,
   QuoteBox,
   type ResearchCitation,
-  documentPdfUrl,
   fetchAnalysisStatus,
   fetchReadingStatus,
   type ReadingStatus,
@@ -36,7 +35,6 @@ import PdfPanel from "./PdfPanel";
 import Backtrail, { type BackLink } from "./Backtrail";
 import MindMap, { buildBranches, type MindLeaf } from "./MindMap";
 import ShareModal from "./ShareModal";
-import { canUse, usePlan } from "@/services/planStore";
 
 export interface QaResponse {
   answer: string;
@@ -66,6 +64,11 @@ interface Props {
   onPageSaved: (page: DocumentPage) => void;
   /** Set when the pages shown are those of an older version (opened from a register item). */
   viewingVersionId?: string | null;
+  /** The circulars before and after this one in the list, for stepping through them. */
+  prevDoc?: { label: string; open: () => void } | null;
+  nextDoc?: { label: string; open: () => void } | null;
+  /** Opened right under its own row in the list (phones), which already shows the title. */
+  inRow?: boolean;
 }
 
 function formatDate(value?: string | null) {
@@ -75,18 +78,79 @@ function formatDate(value?: string | null) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function Section({ title, count, children, aside }: { title: string; count?: number; children: React.ReactNode; aside?: React.ReactNode }) {
+/** Which sections are folded, shared by every section of one circular (so "Collapse all" can fold them all). */
+const FoldContext = createContext<{ folded: Record<string, boolean>; toggle: (id: string) => void }>({ folded: {}, toggle: () => undefined });
+
+function Section({ id, title, count, children, aside }: { id?: string; title: string; count?: number; children: React.ReactNode; aside?: React.ReactNode }) {
+  const { folded, toggle } = useContext(FoldContext);
+  const key = id ?? title;
+  const open = !folded[key];
   return (
-    <section className="border-t border-line pt-5">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="section-title">
-          {title}
-          {typeof count === "number" && <span className="ml-1.5 font-normal text-ink-3 tabular-nums">{count}</span>}
-        </h3>
+    <section className="border-t border-line pt-4">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => toggle(key)}
+          aria-expanded={open}
+          className="-ml-1.5 flex min-h-[40px] flex-1 items-center gap-1.5 rounded-control px-1.5 text-left hover:bg-sunken/70"
+        >
+          <ChevronDown className={`h-4 w-4 shrink-0 text-ink-3 transition-transform duration-200 ${open ? "" : "-rotate-90"}`} strokeWidth={2} aria-hidden />
+          <h3 className="section-title">
+            {title}
+            {typeof count === "number" && <span className="ml-1.5 font-normal text-ink-3 tabular-nums">{count}</span>}
+          </h3>
+        </button>
         {aside}
       </div>
-      {children}
+      {open && <div className="pb-1 pt-2">{children}</div>}
     </section>
+  );
+}
+
+/** Long lists show their first few items; the rest open with one tap. */
+function useShowAll(total: number, first: number) {
+  const [all, setAll] = useState(false);
+  const hidden = all ? 0 : Math.max(0, total - first);
+  const limit = all ? total : first;
+  const more =
+    total > first ? (
+      <button
+        type="button"
+        onClick={() => setAll((a) => !a)}
+        className="mt-3 inline-flex min-h-[36px] items-center gap-1 rounded-control px-2 text-[13.5px] font-semibold text-accent ring-1 ring-inset ring-accent/30 hover:bg-accent-soft"
+      >
+        <ChevronDown className={`h-4 w-4 transition-transform ${all ? "rotate-180" : ""}`} aria-hidden />
+        {all ? "Show fewer" : `Show ${hidden} more`}
+      </button>
+    ) : null;
+  return { limit, more };
+}
+
+/** A long passage shows a few lines, with "Read more" to open the rest. */
+function Clamp({ lines = 4, className = "", lang, children }: { lines?: number; className?: string; lang?: string; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || open) return;
+    const check = () => setLong(el.scrollHeight > el.clientHeight + 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, children]);
+  return (
+    <div>
+      <div ref={ref} lang={lang} className={`${className} break-words`} style={open ? undefined : { display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+        {children}
+      </div>
+      {(long || open) && (
+        <button type="button" onClick={() => setOpen((o) => !o)} className="mt-1 text-[13px] font-semibold text-accent hover:underline">
+          {open ? "Show less" : "Read more"}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -160,7 +224,7 @@ function readingLine(total: number, waiting: number, r: ReadingStatus | null) {
   if (!r) return `Reading the page images: ${ready}. The text appears here by itself as each page is read.`;
   if (r.state === "PAUSED_DAILY_LIMIT") {
     const at = r.resumes_at ? new Date(r.resumes_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
-    return `Page reading is paused: today's free reading limit is used up. It starts again${at ? ` at about ${at}` : " tomorrow"}. ${ready}.${next}`;
+    return `Page reading resumes${at ? ` at about ${at}` : " shortly"}. ${ready}.${next}`;
   }
   if (r.state === "PAUSED_NO_KEY" || r.state === "PAUSED_NOT_RUNNING")
     return `Page reading is not running right now, so these pages are waiting. ${ready}.${next}`;
@@ -192,6 +256,12 @@ export default function CircularDetail(props: Props) {
   } = props;
 
   const [analyzing, setAnalyzing] = useState(false);
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  const fold = { folded, toggle: (id: string) => setFolded((f) => ({ ...f, [id]: !f[id] })) };
+  const FOLDABLE = ["summary", "changes", "requirements", "applies", "dates", "exemptions", "links", "ask"];
+  const allFolded = FOLDABLE.every((k) => folded[k]);
+  const [moreOpen, setMoreOpen] = useState(false);
+  useEffect(() => setMoreOpen(false), [doc.id]);
   const [reextracting, setReextracting] = useState(false);
   const [adminMessage, setAdminMessage] = useState<{ type: "success" | "error" | "info"; text: string; canForce?: boolean } | null>(null);
 
@@ -200,8 +270,6 @@ export default function CircularDetail(props: Props) {
   // What the side panel shows: the original PDF, the source pages (text and image) or the mind map.
   const [panelTab, setPanelTab] = useState<"pdf" | "pages">("pages");
   const [mapOpen, setMapOpen] = useState(false);
-  const plan = usePlan();
-  const mapAllowed = canUse(plan, "mind_map");
   const [shareMode, setShareMode] = useState<"email" | "assign" | null>(null);
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
@@ -380,20 +448,11 @@ export default function CircularDetail(props: Props) {
   const badge = view && view.state !== "NO_ANALYSIS" && counts && (status.startsWith("PUBLISHED") || status === "AWAITING_REVIEW") ? checkedBadge(counts, anyByTeam) : null;
   const dateOf = (kind: string) => shownOf("dates").find((i) => i.fields.date_kind === kind)?.fields.date as string | undefined;
   const hasHeld = !!counts && counts.shown < counts.total;
-
-  const pdfButton =
-    doc.is_private && !doc.source_url ? (
-      <button type="button" onClick={() => openDocumentPdf(doc.id).catch((err) => alert(err.message))} className="btn-secondary">
-        <FileDown className="h-4 w-4" strokeWidth={1.75} />
-        Open PDF
-      </button>
-    ) : (
-      <a href={doc.source_url || documentPdfUrl(doc.id)} target="_blank" rel="noreferrer" className="btn-secondary">
-        <FileDown className="h-4 w-4" strokeWidth={1.75} />
-        Original PDF
-        <ArrowUpRight className="h-3.5 w-3.5 text-ink-3" />
-      </a>
-    );
+  const summaryList = useShowAll(shownOf("summary").length, 4);
+  const changesList = useShowAll(shownOf("changes").length, 3);
+  const reqList = useShowAll(shownOf("requirements").length, 5);
+  const exList = useShowAll(shownOf("exemptions").length, 3);
+  const linkList = useShowAll(shownOf("links").length, 4);
 
   const askButton = (item: ClaimItem) =>
     isAdmin ? (
@@ -475,19 +534,26 @@ export default function CircularDetail(props: Props) {
   const placeholders = (s: ClaimSection) =>
     linesOf(s).map((l) => <Placeholder key={l.key} line={l} onOpen={(n, boxes) => openPage(n, "", boxes)} />);
 
-  const bulletList = (s: ClaimSection) =>
+  const bulletList = (s: ClaimSection, list: { limit: number; more: React.ReactNode }) =>
     shownOf(s).length > 0 && (
-      <ul className="max-w-prose space-y-3">
-        {shownOf(s).map((i) => (
-          <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2 text-[15px] leading-relaxed text-ink" data-testid="shown-point">
-            <span aria-hidden className="mt-[0.7em] h-1.5 w-1.5 rounded-full bg-accent" />
-            <div className="space-y-1.5">
-              <span lang={hasBangla(i.fields.text) ? "bn" : undefined}>{i.fields.text}</span>
-              {foot(i)}
-            </div>
-          </li>
-        ))}
-      </ul>
+      <>
+        <ul className="max-w-prose space-y-3">
+          {shownOf(s)
+            .slice(0, list.limit)
+            .map((i) => (
+              <li key={i.id} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 text-[15px] leading-relaxed text-ink" data-testid="shown-point">
+                <span aria-hidden className="mt-[0.7em] h-1.5 w-1.5 rounded-full bg-accent" />
+                <div className="min-w-0 space-y-1.5">
+                  <Clamp lines={8} lang={hasBangla(i.fields.text) ? "bn" : undefined}>
+                    {i.fields.text}
+                  </Clamp>
+                  {foot(i)}
+                </div>
+              </li>
+            ))}
+        </ul>
+        {list.more}
+      </>
     );
 
   const analysisBody = claimsLoading ? (
@@ -522,7 +588,17 @@ export default function CircularDetail(props: Props) {
       </div>
     </div>
   ) : (
-    <div className="space-y-6">
+    <FoldContext.Provider value={fold}>
+    <div className="space-y-3">
+      <div className="-mb-1 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setFolded(allFolded ? {} : Object.fromEntries(FOLDABLE.map((k) => [k, true])))}
+          className="rounded-control px-2 py-1 text-[13px] font-semibold text-ink-3 hover:bg-sunken hover:text-ink"
+        >
+          {allFolded ? "Expand all" : "Collapse all"}
+        </button>
+      </div>
       {view.state === "ANALYSING" && !analyzing && (
         <Notice kind="info">Analysing this circular. This page updates by itself when it is done.</Notice>
       )}
@@ -536,29 +612,29 @@ export default function CircularDetail(props: Props) {
         <Notice kind="info">
           {counts.checking} {counts.checking === 1 ? "point is" : "points are"} still being checked against the page image,{" "}
           {view.checking.paused_until
-            ? "checking is paused until today's free limit resets."
+            ? "checking resumes shortly."
             : `${minutesText(view.checking.minutes_left)} left. This page updates by itself.`}
         </Notice>
       )}
 
-      <Section title="Summary">
-        {bulletList("summary")}
+      <Section id="summary" title="Summary" count={shownOf("summary").length || undefined}>
+        {bulletList("summary", summaryList)}
         {heldPoints("summary", (i) => i.fields.text ?? "")}
         {placeholders("summary")}
         {sectionHint("summary", "No summary points are available yet.")}
       </Section>
 
-      <Section title="What has changed">
-        {bulletList("changes")}
+      <Section id="changes" title="What has changed">
+        {bulletList("changes", changesList)}
         {heldPoints("changes", (i) => i.fields.text ?? "")}
         {placeholders("changes")}
         {sectionHint("changes", "No changes to earlier circulars are listed. The requirements below are what this circular asks for.")}
       </Section>
 
-      <Section title="Requirements" count={shownOf("requirements").length}>
+      <Section id="requirements" title="Requirements" count={shownOf("requirements").length}>
         {shownOf("requirements").length > 0 && (
           <ol className="divide-y divide-line">
-            {shownOf("requirements").map((item, i) => {
+            {shownOf("requirements").slice(0, reqList.limit).map((item, i) => {
               const f = item.fields;
               return (
                 <motion.li
@@ -570,7 +646,7 @@ export default function CircularDetail(props: Props) {
                   data-testid="shown-point"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
-                    <h4 className="max-w-prose text-[15.5px] font-semibold leading-snug text-ink">{f.title || "Requirement"}</h4>
+                    <h4 className="min-w-0 max-w-prose break-words text-[15.5px] font-semibold leading-snug text-ink">{f.title || "Requirement"}</h4>
                     <span className="flex flex-wrap items-center gap-1.5">
                       {inYourRegister(item) && (
                         <span data-testid="in-register-tag">
@@ -582,10 +658,14 @@ export default function CircularDetail(props: Props) {
                       {f.obligation_type && <Tag tone="accent">{readable(f.obligation_type)}</Tag>}
                     </span>
                   </div>
-                  {f.description && <p className="max-w-prose text-[15px] leading-relaxed text-ink-2">{f.description}</p>}
+                  {f.description && (
+                    <Clamp lines={4} className="max-w-prose text-[15px] leading-relaxed text-ink-2">
+                      {f.description}
+                    </Clamp>
+                  )}
                   {item.quote && (
                     <blockquote className="quote max-w-prose" lang={hasBangla(item.quote) ? "bn" : undefined}>
-                      &ldquo;{item.quote}&rdquo;
+                      <Clamp lines={3}>&ldquo;{item.quote}&rdquo;</Clamp>
                     </blockquote>
                   )}
                   {foot(
@@ -604,18 +684,19 @@ export default function CircularDetail(props: Props) {
             })}
           </ol>
         )}
+        {reqList.more}
         {heldPoints("requirements", (i) => i.fields.title ?? "Requirement")}
         {placeholders("requirements")}
         {sectionHint("requirements", "No requirements have been extracted for this circular yet.")}
       </Section>
 
-      <Section title="Who it applies to">
+      <Section id="applies" title="Who it applies to">
         {shownOf("applies_to").length > 0 && (
           <ul className="max-w-prose space-y-2 text-[15px] text-ink">
             {shownOf("applies_to").map((i) => (
-              <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2" data-testid="shown-point">
+              <li key={i.id} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2" data-testid="shown-point">
                 <span aria-hidden className="mt-[0.65em] h-1.5 w-1.5 rounded-full bg-ink-3" />
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <span>{entityLabel(i.fields.entity)}</span>
                   {foot(i)}
                 </div>
@@ -628,7 +709,7 @@ export default function CircularDetail(props: Props) {
         {sectionHint("applies_to", "Not identified yet. Read the circular text for who it applies to.")}
       </Section>
 
-      <Section title="Dates">
+      <Section id="dates" title="Dates">
         <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
           <div>
             <dt className="text-[13px] text-ink-3">Issued</dt>
@@ -665,30 +746,33 @@ export default function CircularDetail(props: Props) {
         {placeholders("dates")}
       </Section>
 
-      <Section title="Exceptions and conditions">
+      <Section id="exemptions" title="Exceptions and conditions" count={shownOf("exemptions").length || undefined}>
         {shownOf("exemptions").length > 0 && (
           <ul className="max-w-prose space-y-3 text-[15px] text-ink">
-            {shownOf("exemptions").map((i) => (
-              <li key={i.id} className="grid grid-cols-[1rem_1fr] gap-2" data-testid="shown-point">
+            {shownOf("exemptions").slice(0, exList.limit).map((i) => (
+              <li key={i.id} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2" data-testid="shown-point">
                 <span aria-hidden className="mt-[0.65em] h-1.5 w-1.5 rounded-full bg-ink-3" />
-                <div className="space-y-1.5">
-                  <span lang={hasBangla(i.fields.text) ? "bn" : undefined}>{i.fields.text}</span>
+                <div className="min-w-0 space-y-1.5">
+                  <Clamp lines={4} lang={hasBangla(i.fields.text) ? "bn" : undefined}>
+                    {i.fields.text}
+                  </Clamp>
                   {foot(i)}
                 </div>
               </li>
             ))}
           </ul>
         )}
+        {exList.more}
         {heldPoints("exemptions", (i) => i.fields.text ?? "")}
         {placeholders("exemptions")}
         {sectionHint("exemptions", "No exceptions or special conditions identified yet.")}
       </Section>
 
       {(shownOf("links").length > 0 || heldOf("links").length > 0 || linesOf("links").length > 0) && (
-        <Section title="Related circulars" count={shownOf("links").length}>
+        <Section id="links" title="Related circulars" count={shownOf("links").length}>
           {shownOf("links").length > 0 && (
             <ul className="divide-y divide-line">
-              {shownOf("links").map((item) => {
+              {shownOf("links").slice(0, linkList.limit).map((item) => {
                 const link = item.link;
                 const label = link?.target_reference || "Cited circular";
                 return (
@@ -710,7 +794,7 @@ export default function CircularDetail(props: Props) {
                     </div>
                     {item.quote && (
                       <blockquote className="quote max-w-prose" lang={hasBangla(item.quote) ? "bn" : undefined}>
-                        &ldquo;{item.quote}&rdquo;
+                        <Clamp lines={3}>&ldquo;{item.quote}&rdquo;</Clamp>
                       </blockquote>
                     )}
                     {foot(item)}
@@ -719,12 +803,13 @@ export default function CircularDetail(props: Props) {
               })}
             </ul>
           )}
+          {linkList.more}
           {heldPoints("links", (i) => i.link?.target_reference || i.fields.target_hint || "Cited circular")}
           {placeholders("links")}
         </Section>
       )}
 
-      <Section title="Ask this circular">
+      <Section id="ask" title="Ask this circular">
         {currentUser ? (
           <>
             <p className="mb-3 max-w-prose text-[14px] text-ink-3">Answers come only from this circular, with the page each quote is on.</p>
@@ -819,6 +904,7 @@ export default function CircularDetail(props: Props) {
         )}
       </Section>
     </div>
+    </FoldContext.Provider>
   );
 
   const branches = buildBranches(doc, shownOf, entityLabel);
@@ -855,8 +941,32 @@ export default function CircularDetail(props: Props) {
           <InForceBadge info={inForce} />
           {awaiting > 0 && <AwaitingReviewTag count={awaiting} />}
           {doc.is_private && <PrivateTag />}
+          {(props.prevDoc || props.nextDoc) && (
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => props.prevDoc?.open()}
+                disabled={!props.prevDoc}
+                title={props.prevDoc ? `Newer: ${props.prevDoc.label} (K)` : undefined}
+                aria-label="Previous circular"
+                className="grid h-9 w-9 place-items-center rounded-control text-ink-2 ring-1 ring-inset ring-line hover:bg-sunken disabled:opacity-35"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => props.nextDoc?.open()}
+                disabled={!props.nextDoc}
+                title={props.nextDoc ? `Older: ${props.nextDoc.label} (J)` : undefined}
+                aria-label="Next circular"
+                className="grid h-9 w-9 place-items-center rounded-control text-ink-2 ring-1 ring-inset ring-line hover:bg-sunken disabled:opacity-35"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </span>
+          )}
         </div>
-        <h2 className="max-w-[60ch] text-[22px] font-semibold leading-[1.3] tracking-[-0.01em] text-ink [text-wrap:balance] sm:text-[24px]">
+        <h2 className={`${props.inRow ? "sr-only" : ""} max-w-[60ch] break-words text-[20px] font-semibold leading-[1.3] tracking-[-0.01em] text-ink [text-wrap:balance] sm:text-[24px]`}>
           {titleWithoutRef(doc.title, doc.reference_number)}
         </h2>
         {doc.title_bn && (
@@ -889,31 +999,49 @@ export default function CircularDetail(props: Props) {
               Source pages
             </button>
           )}
-          <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button">
-            <GitBranch className="h-4 w-4" strokeWidth={1.75} />
-            History &amp; links
-          </Link>
-          <CompareButtons doc={doc} outgoing={relStatus?.outgoing ?? []} />
-          {canAddToRegister && (
-            <button type="button" className="btn-secondary" onClick={() => setAddOpen(true)} data-testid="add-to-register-button">
-              <ListPlus className="h-4 w-4" strokeWidth={1.75} />
-              Add to register
-            </button>
-          )}
-          <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("assign") : props.onSignIn())}>
-            <UserPlus className="h-4 w-4" strokeWidth={1.75} />
-            Assign to team
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("email") : props.onSignIn())}>
-            <Mail className="h-4 w-4" strokeWidth={1.75} />
-            Email
-          </button>
-          <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
           <QuickSave documentId={doc.id} onNeedSignIn={props.onSignIn} />
-          <button type="button" onClick={() => setMapOpen(true)} className="btn-secondary" data-testid="mind-map-button">
-            <Network className="h-4 w-4" strokeWidth={1.75} />
-            Mind map
+          <button
+            type="button"
+            onClick={() => setMoreOpen((o) => !o)}
+            aria-expanded={moreOpen}
+            className="btn-secondary sm:hidden"
+          >
+            <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+            {moreOpen ? "Less" : "More"}
           </button>
+          {/* On a phone these sit behind "More" so the circular itself is not pushed below the fold. */}
+          <div className={moreOpen ? "flex w-full flex-wrap gap-2 sm:contents" : "hidden sm:contents"}>
+            <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button">
+              <GitBranch className="h-4 w-4" strokeWidth={1.75} />
+              History &amp; links
+            </Link>
+            <CompareButtons doc={doc} outgoing={relStatus?.outgoing ?? []} />
+            {canAddToRegister && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setAddOpen(true)}
+                title="Add this circular's requirements to your bank's checklist, with owners, due dates and evidence"
+                data-testid="add-to-register-button"
+              >
+                <ListPlus className="h-4 w-4" strokeWidth={1.75} />
+                Add to register
+              </button>
+            )}
+            <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("assign") : props.onSignIn())}>
+              <UserPlus className="h-4 w-4" strokeWidth={1.75} />
+              Assign to team
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("email") : props.onSignIn())}>
+              <Mail className="h-4 w-4" strokeWidth={1.75} />
+              Email
+            </button>
+            <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
+            <button type="button" onClick={() => setMapOpen(true)} className="btn-secondary" data-testid="mind-map-button">
+              <Network className="h-4 w-4" strokeWidth={1.75} />
+              Mind map
+            </button>
+          </div>
         </div>
 
         {props.viewingVersionId && props.viewingVersionId !== doc.current_version_id && (
@@ -984,13 +1112,21 @@ export default function CircularDetail(props: Props) {
       <div className={`px-5 pb-7 sm:px-7 ${pagePanelOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(420px,1.15fr)] xl:gap-6" : ""}`}>
         <div className="min-w-0">{analysisBody}</div>
         {pagePanelOpen && (
+          <div
+            aria-hidden
+            onClick={() => setPagePanelOpen(false)}
+            className="fixed inset-0 z-[49] bg-black/40 backdrop-blur-[1px] xl:hidden"
+          />
+        )}
+        {pagePanelOpen && (
           <motion.div
-            initial={{ opacity: 0, x: 12 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: EASE_OUT }}
-            className="fixed inset-x-0 bottom-0 z-50 h-[75dvh] px-2 pb-2 xl:sticky xl:top-[72px] xl:z-auto xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
+            className="fixed inset-x-0 bottom-0 z-50 h-[88dvh] px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:sticky xl:top-[72px] xl:z-auto xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
           >
             <div className="flex h-full flex-col overflow-hidden rounded-panel border border-line bg-surface shadow-pop xl:shadow-none">
+              <div aria-hidden className="mx-auto mt-1.5 h-1 w-10 rounded-full bg-line-strong xl:hidden" />
               <div role="tablist" aria-label="Side panel" className="flex items-center gap-1 border-b border-line px-2 py-1.5">
                 {(
                   [
@@ -1014,10 +1150,30 @@ export default function CircularDetail(props: Props) {
                     </button>
                   ))}
                 <span className="flex-1" />
-                {panelTab === "pages" && (
-                  <button type="button" onClick={() => setPanelTab("pdf")} className="hidden rounded-control px-2 py-1 text-[12.5px] font-semibold text-accent hover:bg-sunken sm:inline">
-                    Open circular
-                  </button>
+                {(props.prevDoc || props.nextDoc) && (
+                  <span className="flex items-center gap-0.5" aria-label="Other circulars">
+                    <button
+                      type="button"
+                      onClick={() => props.prevDoc?.open()}
+                      disabled={!props.prevDoc}
+                      title={props.prevDoc ? `Newer: ${props.prevDoc.label}` : undefined}
+                      aria-label="Previous circular"
+                      className="grid h-8 w-8 place-items-center rounded-control text-ink-3 hover:bg-sunken hover:text-ink disabled:opacity-35"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="hidden max-w-[9rem] truncate text-[12.5px] font-semibold text-ink-3 sm:inline">{doc.reference_number || "Circular"}</span>
+                    <button
+                      type="button"
+                      onClick={() => props.nextDoc?.open()}
+                      disabled={!props.nextDoc}
+                      title={props.nextDoc ? `Older: ${props.nextDoc.label}` : undefined}
+                      aria-label="Next circular"
+                      className="grid h-8 w-8 place-items-center rounded-control text-ink-3 hover:bg-sunken hover:text-ink disabled:opacity-35"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </span>
                 )}
                 <button type="button" onClick={() => setPagePanelOpen(false)} aria-label="Close the side panel" className="grid h-8 w-8 place-items-center rounded-control text-ink-3 hover:bg-sunken hover:text-ink">
                   <X className="h-4 w-4" />
@@ -1056,19 +1212,9 @@ export default function CircularDetail(props: Props) {
           onClose={() => setMapOpen(false)}
         />
         <div className="max-h-[75dvh] overflow-auto p-4">
-          {mapAllowed ? (
-            <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} />
-          ) : (
-            <div className="space-y-3 p-2 text-[14.5px] text-ink-2">
-              <p>The mind map shows the whole circular on one page: what it says, what banks must do, by when, and for whom.</p>
-              <p>It comes with the Pro and Enterprise plans.</p>
-              <Link href="/plans" className="btn-primary inline-flex">
-                See plans
-              </Link>
-            </div>
-          )}
+          <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} />
         </div>
-        {branches.length > 0 && mapAllowed && (
+        {branches.length > 0 && (
           <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
             <button
               type="button"

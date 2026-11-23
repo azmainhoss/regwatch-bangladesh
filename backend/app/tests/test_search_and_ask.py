@@ -16,12 +16,13 @@ from backend.app.main import app
 from backend.app.modules.analysis.providers.base import LLMResponse, TokenUsage
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion, PageCorrection
 from backend.app.modules.documents.search import make_snippet, query_terms
-from backend.app.tests.factories import make_institution, make_user
+from backend.app.tests.factories import make_institution, make_user, signed_in_reader
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 
@@ -276,7 +277,7 @@ async def test_ask_never_uses_another_users_private_circular(client):
 
 @pytest.mark.asyncio
 async def test_ask_requires_sign_in(client):
-    resp = await client.post("/api/v1/research/query", json={"query": "What is the reserve rule?"})
+    resp = await client.post("/api/v1/research/query", json={"query": "What is the reserve rule?"}, headers={"Authorization": ""})
     assert resp.status_code == 401
 
 

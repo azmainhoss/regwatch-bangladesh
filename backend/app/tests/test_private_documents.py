@@ -11,12 +11,13 @@ from backend.app.database.session import AsyncSessionLocal
 from backend.app.main import app
 from backend.app.modules.analysis.providers.base import LLMResponse
 from backend.app.modules.research.service import ResearchService
-from backend.app.tests.factories import make_document, make_institution, make_user
+from backend.app.tests.factories import make_document, make_institution, make_user, signed_in_reader
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

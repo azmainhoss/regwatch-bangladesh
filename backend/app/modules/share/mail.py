@@ -51,10 +51,11 @@ def points(view: Dict[str, Any]) -> Dict[str, List[str]]:
     }
     for i in s.get("requirements", []):
         f = i.get("fields", {})
-        dl = _fmt(f.get("deadline")) or f.get("deadline_text") or ""
+        date = _fmt(f.get("deadline"))
+        dl = f"by {date}" if date else (f.get("deadline_text") or "").strip()  # words are shown as written
         page = i.get("page_number")
         out["requirements"].append(
-            f"{f.get('title') or 'Requirement'}{f' (by {dl})' if dl else ''}{f' [page {page}]' if page else ''}"
+            f"{f.get('title') or 'Requirement'}{f' ({dl})' if dl else ''}{f' [page {page}]' if page else ''}"
         )
     for i in s.get("dates", []):
         f = i.get("fields", {})

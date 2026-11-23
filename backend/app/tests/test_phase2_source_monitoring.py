@@ -117,7 +117,7 @@ async def test_source_monitoring_run_with_mocked_network():
         headers = {"Authorization": f"Bearer {token}"}
 
         # 2. Get existing Bangladesh Bank source from database
-        sources_resp = await client.get("/api/v1/sources")
+        sources_resp = await client.get("/api/v1/sources", headers=plain_headers)
         assert sources_resp.status_code == 200
         sources = sources_resp.json()
         assert len(sources) >= 1
@@ -190,7 +190,7 @@ async def test_source_monitoring_run_with_mocked_network():
             assert blocked_data["access_restriction_details"]["challenge_type"] == "IMPERVA_TSPD_CAPTCHA"
 
         # 7. Verify source record updated with restriction status
-        source_detail = await client.get(f"/api/v1/sources/{source_id}")
+        source_detail = await client.get(f"/api/v1/sources/{source_id}", headers=headers)
         assert source_detail.status_code == 200
         assert source_detail.json()["access_restriction_status"] == "IMPERVA_TSPD_CAPTCHA"
 

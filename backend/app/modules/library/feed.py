@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from backend.app.core.config import settings
 from backend.app.database.session import get_async_db
 from backend.app.modules.documents.access import get_document_reader, visible_documents_condition
+from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.documents.models import Document
 from backend.app.modules.documents.schemas import DocumentRead
 from backend.app.modules.documents.search import _like, document_matches_condition, meta_matches_condition, query_terms
@@ -178,7 +179,7 @@ async def feed_counts(user: Optional[User] = Depends(get_document_reader), db: A
     )
 
 
-@router.get("/topics", response_model=List[Choice])
+@router.get("/topics", response_model=List[Choice], dependencies=[Depends(get_current_user)])
 async def topic_names():
     """Every subject category with its label (count 0: the list is fixed)."""
     return [Choice(code=t.code, label=t.label, count=0) for t in TOPICS]

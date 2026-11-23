@@ -10,12 +10,13 @@ from backend.app.modules.analysis import jobs
 from backend.app.modules.analysis.providers import factory
 from backend.app.modules.analysis.providers.base import BaseAIProvider, LLMResponse, TokenUsage
 from backend.app.modules.analysis.providers import health
-from backend.app.tests.factories import make_document, make_user
+from backend.app.tests.factories import make_document, make_user, signed_in_reader
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

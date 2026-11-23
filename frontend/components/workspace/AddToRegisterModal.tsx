@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { Modal, ModalHeader, Notice, hasBangla } from "../ui";
+import { Modal, ModalHeader, Notice, hasBangla, titleWithoutRef } from "../ui";
 import { Tag } from "../StatusBadge";
 import { searchCirculars, type SearchHit } from "@/services/api";
 import { fetchAddable, type AddableObligations, type MyOrg } from "@/services/workspaceApi";
@@ -140,7 +140,11 @@ export default function AddToRegisterModal({
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={`${id}-title`} width="max-w-2xl">
-      <ModalHeader id={`${id}-title`} title="Add to a register" subtitle={doc ? `${doc.reference_number ?? ""} ${doc.title}`.trim() : "Pick a circular, then the obligations to track"} onClose={onClose} />
+      <ModalHeader id={`${id}-title`} title="Add to a register" subtitle={
+          doc
+            ? `${doc.reference_number ? `${doc.reference_number}: ` : ""}${titleWithoutRef(doc.title, doc.reference_number)}. A register is your bank's checklist of requirements to track, with owners, due dates and evidence.`
+            : "A register is your bank's checklist of requirements to track, with owners, due dates and evidence. Pick a circular, then the requirements to add."
+        } onClose={onClose} />
       <div className="max-h-[72dvh] space-y-4 overflow-y-auto px-5 py-4">
         {orgOptions && orgOptions.length > 1 && !registerId && (
           <div>
@@ -275,7 +279,11 @@ export default function AddToRegisterModal({
                           <button type="button" className="min-h-[32px] font-semibold text-accent" onClick={() => setExpanded((x) => ({ ...x, [o.id]: !x[o.id] }))}>
                             {expanded[o.id] ? "Show less" : "Show all"}
                           </button>
-                          {o.regulatory_deadline && <span className="font-semibold text-warn">Deadline {formatDate(o.regulatory_deadline)}</span>}
+                          {o.regulatory_deadline ? (
+                            <span className="font-semibold text-warn">Deadline {formatDate(o.regulatory_deadline)}</span>
+                          ) : o.deadline_text ? (
+                            <span className="font-semibold text-warn">Deadline: {o.deadline_text}</span>
+                          ) : null}
                           {reason && <span className="font-semibold text-ink-2">{reason}</span>}
                         </div>
                       </div>

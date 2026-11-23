@@ -1,4 +1,5 @@
 """Bank compliance workspace: registers and items (tasks, evidence, audit and report live next to this file)."""
+import re
 from datetime import date, datetime
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -75,6 +76,7 @@ from backend.app.modules.compliance.workflow import (
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.identity.models import User
 from backend.app.modules.obligations.models import Obligation
+from backend.app.modules.analysis.models import AnalysisClaim
 from backend.app.modules.organizations.deps import get_workspace_membership
 from backend.app.modules.organizations.models import Department, OrganizationMember
 from backend.app.modules.compliance.routes_tasks import router as tasks_router
@@ -128,6 +130,31 @@ async def _obligations_with_pages(db: AsyncSession, doc: Document, ids: Optional
     return (await db.execute(query)).all()
 
 
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+async def deadline_words(db: AsyncSession, obligations: List[Obligation]) -> Dict[str, str]:
+    """The deadline in words for each obligation ("within 14 days of issuance"), when it has no calendar date.
+
+    The words live on the obligation's checked point; older rows only kept the date (or nothing) on the
+    obligation itself, so the point is the source of truth."""
+    ids = [o.id for o in obligations]
+    out: Dict[str, str] = {}
+    if ids:
+        rows = (await db.execute(
+            select(AnalysisClaim.obligation_id, AnalysisClaim.fields).where(AnalysisClaim.obligation_id.in_(ids))
+        )).all()
+        for oid, fields in rows:
+            words = (fields or {}).get("deadline_text") if isinstance(fields, dict) else None
+            if isinstance(words, str) and words.strip():
+                out[str(oid)] = words.strip()
+    for o in obligations:
+        own = (o.deadline_description or "").strip()
+        if str(o.id) not in out and own and not _ISO_DATE.match(own):
+            out[str(o.id)] = own
+    return out
+
+
 def make_source_key(obl: Obligation, version: DocumentVersion, page_number: int) -> str:
     return rules.source_key(str(version.id), page_number, obl.supporting_text)
 
@@ -155,6 +182,7 @@ async def _create_items(
     }
     items: List[ComplianceItem] = []
     skipped: List[Skipped] = []
+    words = await deadline_words(db, [r[0] for r in rows])
     for obl, page_number, version in rows:
         reason = not_addable_reason(doc, version.id, doc.current_version_id, obl.verification_status)
         if reason:
@@ -186,7 +214,7 @@ async def _create_items(
             obligation_type=obl.obligation_type,
             applicability_summary=obl.applicability_summary,
             regulatory_deadline=obl.explicit_deadline,
-            deadline_description=obl.deadline_description,
+            deadline_description=words.get(str(obl.id)),
             frequency=obl.frequency,
             source_ack_signature=signature,
             lock_version=1,
@@ -230,11 +258,12 @@ async def addable_obligations(
         for k, rid in found:
             in_registers.setdefault(k, []).append(rid)
     obligations = []
+    words = await deadline_words(db, [r[0] for r in rows])
     for obl, page_number, version in rows:
         reason = not_addable_reason(doc, version.id, doc.current_version_id, obl.verification_status)
         obligations.append(AddableObligation(
             id=obl.id, title=obl.title, obligation_type=obl.obligation_type, page_number=page_number,
-            quote=obl.supporting_text, regulatory_deadline=obl.explicit_deadline,
+            quote=obl.supporting_text, regulatory_deadline=obl.explicit_deadline, deadline_text=words.get(str(obl.id)),
             verification_status=obl.verification_status, addable=reason is None, reason_not_addable=reason,
             already_in_register_ids=in_registers.get(make_source_key(obl, version, page_number), []),
         ))
@@ -356,7 +385,11 @@ async def create_register_from_document(
     require(perms.can_add_items(membership), "Only compliance staff can add items to a register.")
     doc = await _shared_document_or_404(db, payload.document_id)
     rows, skipped = await _addable_rows(db, doc, payload.obligation_ids)
-    title = (payload.title or f"{doc.reference_number or 'Circular'}: {doc.title}")[:255]
+    ref = (doc.reference_number or "").strip()
+    subject = (doc.title or "").strip()
+    if ref and subject.lower().startswith(ref.lower()):
+        subject = subject[len(ref):].lstrip(" :.-")  # titles often repeat the number: "FEID Circular No. 04: ..."
+    title = (payload.title or (f"{ref}: {subject}" if ref and subject else ref or subject or "Circular"))[:255]
     register = ComplianceRegister(organization_id=organization_id, title=title)
     db.add(register)
     await db.flush()

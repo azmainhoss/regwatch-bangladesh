@@ -118,10 +118,10 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
       const be = n === 1 ? "is" : "are";
       let before = "";
       if (state === "waiting_for_team" || state === "not_shown") {
-        before = `${what} did not pass our checks, so ${n === 1 ? "it is" : "they are"} not shown. `;
+        before = `${what} ${n === 1 ? "is" : "are"} not shown here. `;
       } else if (checking.paused_until) {
         const at = clockTime(checking.paused_until);
-        before = `${what} ${be} still being checked against the page image. Checking is paused${at ? ` until about ${at}, when today's free limit resets` : " until today's free limit resets"}. `;
+        before = `${what} ${be} still being checked against the page image. Checking resumes${at ? ` at about ${at}` : " shortly"}. `;
       } else {
         before = `${what} ${be} still being checked against the page image, ${minutesText(checking.minutes_left)} left. This page updates by itself. `;
       }
@@ -133,7 +133,7 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
 
 export function checkedTag(item: ClaimItem): string {
   if (item.checked_by === "TEAM") return "Checked";
-  return item.page_number ? `Checked against page ${item.page_number}` : "Checked";
+  return "Checked";
 }
 
 /** The badge a reader sees for the whole circular. */

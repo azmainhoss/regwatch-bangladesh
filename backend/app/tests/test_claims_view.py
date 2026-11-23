@@ -21,7 +21,7 @@ from backend.app.modules.obligations.models import Obligation
 from backend.app.modules.relationships.models import DocumentRelationship
 from backend.app.tests import test_claim_checks as cc
 from backend.app.tests import test_compliance_workspace as cw
-from backend.app.tests.factories import make_document, make_institution, make_user
+from backend.app.tests.factories import make_document, make_institution, make_user, signed_in_reader
 from backend.scripts import backfill_claims
 
 TODAY = cc.TODAY
@@ -30,6 +30,7 @@ TODAY = cc.TODAY
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

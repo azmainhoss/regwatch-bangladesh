@@ -14,13 +14,14 @@ from backend.app.modules.library.feed import period_start
 from backend.app.modules.topics.classify import parse_reply
 from backend.app.modules.topics.models import DocumentTopic
 from backend.app.modules.topics.taxonomy import topics_for, words_for
-from backend.app.tests.factories import make_user
+from backend.app.tests.factories import make_user, signed_in_reader
 from backend.app.tests.test_search_and_ask import make_real_doc
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
 
 

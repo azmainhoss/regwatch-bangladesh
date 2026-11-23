@@ -204,7 +204,7 @@ export default function CircularLinksPage() {
       <section className="space-y-3" aria-labelledby="graph-title">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 id="graph-title" className="section-title">
-            Links graph
+            Links<span className="hidden sm:inline"> graph</span>
           </h2>
           <div className="hidden items-center gap-2 text-[13px] text-ink-2 sm:flex">
             <label htmlFor="graph-depth">How far to follow links</label>
@@ -215,10 +215,19 @@ export default function CircularLinksPage() {
             </select>
           </div>
         </div>
-        {/* Phone: the graph would be too small to read, so the history above is the view. */}
-        <p className="rounded-panel border border-dashed border-line-strong px-4 py-3 text-[13.5px] text-ink-3 sm:hidden" data-testid="graph-phone-note">
-          The graph needs a wider screen. The history above lists the same links with their quotes.
-        </p>
+        {/* Phone: the graph would be too small to read, so every link is listed as a card with its quote. */}
+        <div className="space-y-2 sm:hidden" data-testid="graph-phone-list">
+          {!graph ? (
+            <SkeletonLine className="h-20 w-full" />
+          ) : graph.edges.length === 0 ? (
+            <EmptyState title="Nothing to show">This circular has no links to other circulars yet.</EmptyState>
+          ) : (
+            graph.edges
+              .map((e) => edgeToLink(e, graph.nodes))
+              .filter((l): l is NonNullable<typeof l> => !!l)
+              .map((l) => <LinkCard key={l.id} link={l} isAdmin={isAdmin} />)
+          )}
+        </div>
         <div className="hidden space-y-3 sm:block">
           {!graph ? (
             <SkeletonLine className="h-40 w-full" />

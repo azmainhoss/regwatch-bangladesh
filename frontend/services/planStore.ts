@@ -77,9 +77,9 @@ export function usePlan(): State {
   );
 }
 
-/** True when the person may use a feature. Signed-out people and Free get false for paid features. */
-export function canUse(s: State, feature: string): boolean {
-  return !!s.me?.allows.includes(feature);
+/** Everything is open to everyone who is signed in (the app launches free). */
+export function canUse(_s: State, _feature: string): boolean {
+  return true;
 }
 
 /** Counts one question at once on screen (the server counts it too). */

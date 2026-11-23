@@ -1,4 +1,5 @@
 """Builds the status, graph and timeline views of a circular's links for one caller."""
+import re
 from typing import Dict, List, Optional, Set
 from uuid import UUID
 
@@ -60,8 +61,12 @@ async def build_status(db: AsyncSession, doc: Document, user: Optional[User]) ->
 
 
 def _hint_key(hint: Optional[str]) -> str:
+    """One node per cited circular that is not in the library. Bangladesh Bank restarts its numbers every
+    year, so "FEID Circular No. 01 dated 27 January 2025" and "... dated 08 March 2026" are two circulars:
+    the year is part of the key when the citation gives one."""
     text = (hint or "").strip()
-    return "hint:" + (normalize_reference(text) or text.lower())
+    years = re.findall(r"\b(19[5-9]\d|20\d\d)\b", text)
+    return "hint:" + (normalize_reference(text) or text.lower()) + (f"@{years[-1]}" if years else "")
 
 
 async def build_graph(db: AsyncSession, doc: Document, user: Optional[User], depth: int) -> GraphRead:

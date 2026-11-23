@@ -8,7 +8,7 @@ import { Tag } from "../StatusBadge";
 import { ItemStatusBadge } from "./badges";
 import { DepartmentSelect, LeadSelect } from "./AssignControls";
 import type { DepartmentRead, ItemRead, MemberRead } from "@/services/workspaceApi";
-import { Me, daysLeftText, formatDate } from "@/services/workspaceRules";
+import { Me, daysLeftText, deadlineLabel, deadlineWords } from "@/services/workspaceRules";
 import { changeItem } from "@/services/workspaceStore";
 
 function circularLabel(item: ItemRead) {
@@ -87,8 +87,11 @@ function ItemRow({
 
       <div className="min-w-0 text-[13.5px]">
         <span className="mb-0.5 block text-2xs font-semibold uppercase tracking-wide text-ink-3 lg:hidden">Deadline</span>
-        <span className={`font-semibold tabular-nums ${passed ? "text-bad" : "text-ink"}`} data-testid="item-deadline">
-          {formatDate(item.effective_deadline)}
+        <span
+          className={`break-words tabular-nums ${item.effective_deadline || !deadlineWords(item) ? "font-semibold" : "text-[13px] text-ink-2"} ${passed ? "text-bad" : item.effective_deadline ? "text-ink" : ""}`}
+          data-testid="item-deadline"
+        >
+          {deadlineLabel(item)}
         </span>
         {item.effective_deadline && <span className={`block text-[12.5px] ${passed ? "text-bad" : "text-ink-3"}`}>{dayText}</span>}
       </div>

@@ -13,13 +13,17 @@ from backend.app.modules.documents.compare import compare_page_texts, split_para
 from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
 from backend.app.modules.relationships.linking import link_relationship_targets, normalize_reference
 from backend.app.modules.relationships.models import DocumentRelationship
-from backend.app.tests.factories import make_institution, make_user
+from backend.app.tests.factories import make_institution, make_user, signed_in_reader
 
 
 @pytest.fixture
 async def client():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await signed_in_reader(ac)
         yield ac
+
+
+NO_AUTH = {"Authorization": ""}  # this one request goes out with no one signed in
 
 
 def _auth(token: str) -> dict:
@@ -440,7 +444,7 @@ async def test_review_is_admin_only_and_updates_status(client):
     rel = await make_link(new, old, rel_type="REPLACES", status="PENDING_REVIEW", page=pages[0])
     url = f"/api/v1/relationships/{rel.id}/review"
 
-    assert (await client.post(url, json={"decision": "VERIFIED"})).status_code == 401
+    assert (await client.post(url, json={"decision": "VERIFIED"}, headers=NO_AUTH)).status_code == 401
     assert (await client.post(url, json={"decision": "VERIFIED"}, headers=_auth(user_token))).status_code == 403
     assert (await reload_rel(rel.id)).verification_status == "PENDING_REVIEW"
     assert (await client.post(url, json={"decision": "MAYBE"}, headers=_auth(admin_token))).status_code == 422
@@ -472,7 +476,7 @@ async def test_pending_list_and_relink_are_admin_only(client):
     new, _, _ = await make_doc(f"{dept} Circular No. 2/2024")
     rel = await make_link(new, None, rel_type="AMENDS", status="PENDING_REVIEW", hint=f"{dept} Circular No. 1/2020")
 
-    assert (await client.get("/api/v1/relationships/pending")).status_code == 401
+    assert (await client.get("/api/v1/relationships/pending", headers=NO_AUTH)).status_code == 401
     assert (await client.get("/api/v1/relationships/pending", headers=_auth(user_token))).status_code == 403
     assert (await client.post("/api/v1/relationships/relink", headers=_auth(user_token))).status_code == 403
 

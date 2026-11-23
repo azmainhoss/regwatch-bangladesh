@@ -20,9 +20,11 @@ from backend.app.modules.identity.models import User
 async def get_document_reader(
     user: Optional[User] = Depends(get_current_user_optional),
 ) -> Optional[User]:
-    """The caller for read endpoints: an active signed-in user, or None for anonymous reads."""
-    if user is None or not user.is_active:
-        return None
+    """The caller for read endpoints. Everyone must be signed in; anonymous callers get 401."""
+    if user is None:
+        raise HTTPException(status_code=401, detail="Sign in to read circulars", headers={"WWW-Authenticate": "Bearer"})
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Inactive user account")
     return user
 
 

@@ -15,7 +15,7 @@ import SourceQuote from "@/components/workspace/SourceQuote";
 import TaskList from "@/components/workspace/TaskList";
 import { ItemStatusBadge } from "@/components/workspace/badges";
 import { LoadError } from "@/components/workspace/Shell";
-import { ItemMove, allowedItemMoves, canEditItem, daysLeftText, formatDate } from "@/services/workspaceRules";
+import { ItemMove, allowedItemMoves, canEditItem, daysLeftText, deadlineWords, formatDate } from "@/services/workspaceRules";
 import { changeItem, itemReviewsOf, itemTasks, loadItemDetail, meOf, moveItem, useWorkspace, departmentsOf, membersOf } from "@/services/workspaceStore";
 
 export default function ItemPage() {
@@ -136,8 +136,8 @@ export default function ItemPage() {
               <div>
                 <span className="field-label">Regulator&apos;s deadline</span>
                 <p className="flex min-h-[44px] flex-col justify-center text-[14.5px] font-semibold tabular-nums text-ink sm:min-h-[36px]">
-                  {formatDate(item.regulatory_deadline)}
-                  {item.deadline_description && item.deadline_description !== item.regulatory_deadline && <span className="text-[12.5px] font-normal text-ink-3">{item.deadline_description}</span>}
+                  {item.regulatory_deadline ? formatDate(item.regulatory_deadline) : deadlineWords(item) ?? "Not set"}
+                  {item.regulatory_deadline && deadlineWords(item) && <span className="text-[12.5px] font-normal text-ink-3">{deadlineWords(item)}</span>}
                 </p>
               </div>
             </div>

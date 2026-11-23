@@ -208,6 +208,7 @@ class AddableObligation(BaseModel):
     page_number: Optional[int] = None
     quote: str
     regulatory_deadline: Optional[date] = None
+    deadline_text: Optional[str] = None
     verification_status: str
     addable: bool
     reason_not_addable: Optional[str] = None

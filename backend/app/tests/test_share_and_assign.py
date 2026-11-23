@@ -108,9 +108,9 @@ async def test_plans_limit_free_and_open_up_once_confirmed(client, monkeypatch):
     doc, _ = await make_real_doc(["Text."])
 
     me = (await client.get("/api/v1/plans/me", headers=_auth(token))).json()
-    assert me["plan"] == "FREE" and me["questions_per_day"] == 5
+    assert me["plan"] == "FREE" and me["questions_per_day"] == 0 and "email" in me["allows"]
     r = await client.post("/api/v1/share/email/file", json={"document_id": str(doc.id), "to": ["a@example.com"]}, headers=_auth(token))
-    assert r.status_code == 402
+    assert r.status_code == 200  # launch: every feature is free for everyone
 
     # Enterprise needs at least 20 seats and a name.
     r = await client.post("/api/v1/plans/request", json={"plan": "ENTERPRISE", "seats": 5, "organization_name": "ABC"}, headers=_auth(token))

@@ -6,7 +6,7 @@ import { Download, Printer } from "lucide-react";
 import { ItemStatusBadge } from "@/components/workspace/badges";
 import { LoadError, ListSkeleton } from "@/components/workspace/Shell";
 import { fetchReport, downloadReportCsv, type ItemRead, type UserMini } from "@/services/workspaceApi";
-import { countItems, daysLeftText, formatDate, formatDateTime, summarize } from "@/services/workspaceRules";
+import { countItems, daysLeftText, deadlineLabel, formatDate, formatDateTime, summarize } from "@/services/workspaceRules";
 import { orgItems, orgRegisters, orgTasks, seedItems, setNotice, useWorkspace, departmentsOf } from "@/services/workspaceStore";
 
 function Stat({ label, value }: { label: string; value: number }) {
@@ -32,7 +32,7 @@ function ItemLines({ items, empty }: { items: ItemRead[]; empty: string }) {
             </span>
           </span>
           <span className={`tabular-nums ${i.display_status === "OVERDUE" ? "font-semibold text-bad" : "text-ink"}`}>
-            {formatDate(i.effective_deadline)} <span className="text-ink-3">{daysLeftText(i.days_left)}</span>
+            {deadlineLabel(i)} <span className="text-ink-3">{daysLeftText(i.days_left)}</span>
           </span>
         </li>
       ))}
@@ -209,7 +209,7 @@ export default function ReportPage() {
                 {i.source.page_number ? `, p. ${i.source.page_number}` : ""}
                 {deptName(i.department_id) ? `, ${deptName(i.department_id)}` : ""}
                 {i.assigned_lead ? `, lead ${i.assigned_lead.full_name}` : ""}
-                {`, deadline ${formatDate(i.effective_deadline)}`}
+                {`, deadline ${deadlineLabel(i).replace(/^./, (c) => c.toLowerCase())}`}
                 {i.signed_off_by ? `, signed off by ${i.signed_off_by.full_name}` : ""}
               </p>
               {i.source.quote && <p className="text-[12.5px] leading-relaxed text-ink-2">&ldquo;{i.source.quote}&rdquo;</p>}

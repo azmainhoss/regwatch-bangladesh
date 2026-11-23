@@ -32,15 +32,15 @@ class Plan:
 
 PLANS: Dict[str, Plan] = {
     FREE: Plan(
-        FREE, "Free", 0, "person", 1, questions_per_day=5, custom_lists=1,
+        FREE, "Free", 0, "person", 1, questions_per_day=0, custom_lists=0,
         features=[
             "Every Bangladesh Bank circular, searchable",
             "Checked summaries with page sources",
             "Original PDF side by side",
             "Favourites and read later",
-            "5 questions a day",
+            "Unlimited questions",
         ],
-        allows=[],
+        allows=["mind_map", "email", "lists", "assign", "workspace"],  # launch: everything is free for everyone
     ),
     PRO: Plan(
         PRO, "Pro", 2500, "person", 1, questions_per_day=0, custom_lists=0,

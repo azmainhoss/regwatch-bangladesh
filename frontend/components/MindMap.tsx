@@ -7,7 +7,8 @@
  *
  * The same drawing is used on screen (`MindMap`) and turned into a picture for emails (`mindMapPng`).
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, LayoutList, Network } from "lucide-react";
 import type { ClaimItem, ClaimSection, DocumentItem } from "@/services/api";
 
 export interface MindLeaf {
@@ -52,8 +53,9 @@ export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => C
       label: "What banks must do",
       color: BRANCH_COLORS.requirements,
       leaves: shownOf("requirements").map((i) => {
-        const dl = i.fields.deadline ? fmtDate(i.fields.deadline) : i.fields.deadline_text || "";
-        return leaf(i, `${i.fields.title || "Requirement"}${dl ? ` (by ${dl})` : ""}`);
+        // "by 31 Dec 2024" for a date; a deadline in words is shown as written ("within 14 days of issuance").
+        const dl = i.fields.deadline ? `by ${fmtDate(i.fields.deadline)}` : (i.fields.deadline_text || "").trim();
+        return leaf(i, `${i.fields.title || "Requirement"}${dl ? ` (${dl})` : ""}`);
       }),
     },
     { key: "applies_to", label: "Who it applies to", color: BRANCH_COLORS.applies_to, leaves: shownOf("applies_to").map((i) => leaf(i, entityLabel(i.fields.entity))) },
@@ -95,7 +97,7 @@ const LINE = 17;
 const LEAF_GAP = 10;
 const BRANCH_GAP = 22;
 const CHARS_PER_LINE = 62;
-const MAX_LINES = 3;
+const MAX_LINES = 4;
 const MAX_LEAVES = 8;
 
 function wrap(text: string, width = CHARS_PER_LINE, maxLines = MAX_LINES): string[] {
@@ -110,7 +112,12 @@ function wrap(text: string, width = CHARS_PER_LINE, maxLines = MAX_LINES): strin
     } else cur = (cur + " " + w).trim();
   }
   if (lines.length < maxLines && cur) lines.push(cur);
-  if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) lines[maxLines - 1] = lines[maxLines - 1].replace(/.{0,2}$/, "") + "…";
+  if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) {
+    // Cut at a word, never inside one.
+    const last = lines[maxLines - 1];
+    const room = last.length > width - 2 ? last.slice(0, last.lastIndexOf(" ")) : last;
+    lines[maxLines - 1] = room.replace(/[\s,;:.\-–]+$/, "") + "…";
+  }
   return lines;
 }
 
@@ -163,17 +170,32 @@ export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette
   const { placed, height } = layout(branches);
   const rootLines = wrap(doc.title.replace(doc.reference_number || "", "").replace(/^[\s:–-]+/, ""), 34, 5);
   const rootH = 34 + rootLines.length * 18 + 14;
-  const rootY = Math.max(12, height / 2 - rootH / 2);
+  // Centred on short maps; on tall ones it stays near the top so it is in view when the map opens.
+  const rootY = Math.max(12, Math.min(height / 2 - rootH / 2, 150));
   const rootMid = rootY + rootH / 2;
   const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${height}" width="${W}" height="${height}" font-family="Segoe UI, Roboto, Arial, sans-serif">`);
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${height}" width="${W}" height="${height}" font-family="Source Sans 3, Segoe UI, Roboto, Noto Sans Bengali, Arial, sans-serif">`);
   parts.push(`<rect width="${W}" height="${height}" fill="${p.bg}"/>`);
+  // One trunk from the circular down (and up) past every branch, with a short coloured arm to each:
+  // no bundle of overlapping curves on tall maps.
+  const trunkX = ROOT_X + ROOT_W + 36;
+  const mids = placed.map((pb) => pb.y + pb.h / 2);
+  const top = Math.min(rootMid, ...mids);
+  const bottom = Math.max(rootMid, ...mids);
+  parts.push(`<path d="M ${ROOT_X + ROOT_W} ${rootMid} H ${trunkX}" fill="none" stroke="${p.ink2}" stroke-width="2" opacity="0.55"/>`);
+  if (bottom - top > 1) {
+    parts.push(`<path d="M ${trunkX} ${top + 10} V ${bottom - 10}" fill="none" stroke="${p.ink2}" stroke-width="2" opacity="0.55"/>`);
+  }
   for (const pb of placed) {
     const bMid = pb.y + pb.h / 2;
     const c = pb.branch.color;
-    parts.push(
-      `<path d="M ${ROOT_X + ROOT_W} ${rootMid} C ${ROOT_X + ROOT_W + 50} ${rootMid}, ${BRANCH_X - 50} ${bMid}, ${BRANCH_X} ${bMid}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.8"/>`,
-    );
+    const r = Math.min(10, Math.abs(bMid - rootMid));
+    const dir = bMid < rootMid ? -1 : 1;
+    const arm =
+      r < 1
+        ? `M ${trunkX} ${bMid} H ${BRANCH_X}`
+        : `M ${trunkX} ${bMid - dir * r} Q ${trunkX} ${bMid}, ${trunkX + r} ${bMid} H ${BRANCH_X}`;
+    parts.push(`<path d="${arm}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.85"/>`);
     parts.push(`<rect x="${BRANCH_X}" y="${bMid - 17}" width="${BRANCH_W}" height="34" rx="17" fill="${c}"/>`);
     parts.push(`<text x="${BRANCH_X + BRANCH_W / 2}" y="${bMid + 5}" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">${esc(pb.branch.label)}</text>`);
     for (const l of pb.leaves) {
@@ -232,6 +254,76 @@ export async function mindMapPng(doc: DocumentItem, branches: MindBranch[]): Pro
   }
 }
 
+/** Phones: the same branches as a readable outline of tappable cards, nothing cut short. */
+function Outline({ doc, branches, onOpenLeaf }: { doc: DocumentItem; branches: MindBranch[]; onOpenLeaf: (leaf: MindLeaf) => void }) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const title = doc.title.replace(doc.reference_number || "", "").replace(/^[\s:–-]+/, "");
+  return (
+    <div className="space-y-4">
+      <div className="rounded-panel bg-[#1f5c47] px-4 py-3 text-white dark:bg-[#2f7d63]">
+        <p className="text-[14px] font-bold">{doc.reference_number || "Circular"}</p>
+        <p className="mt-0.5 text-[14px] leading-snug opacity-95">{title}</p>
+      </div>
+      {branches.map((b) => {
+        const all = !!open[b.key];
+        const shown = all ? b.leaves : b.leaves.slice(0, 5);
+        return (
+          <section key={b.key} className="relative border-l-[3px] pl-3" style={{ borderColor: b.color }}>
+            <h4 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-ink">
+              <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold text-white" style={{ background: b.color }}>
+                {b.label}
+              </span>
+              <span className="text-[12.5px] font-normal text-ink-3 tabular-nums">{b.leaves.length}</span>
+            </h4>
+            <ul className="space-y-1.5">
+              {shown.map((l, i) => {
+                const can = !!(l.page || l.docId);
+                const body = (
+                  <>
+                    <span className="min-w-0 flex-1 break-words text-[14px] leading-snug text-ink" lang={/[\u0980-\u09FF]/.test(l.text) ? "bn" : undefined}>
+                      {l.text}
+                    </span>
+                    {l.page ? (
+                      <span className="shrink-0 rounded-control px-1.5 py-0.5 text-[11.5px] font-semibold text-ink-3 ring-1 ring-inset ring-line">p. {l.page}</span>
+                    ) : can ? (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+                    ) : null}
+                  </>
+                );
+                const cls = "flex w-full items-start gap-2 rounded-control px-2.5 py-2 text-left";
+                const tint = { background: `${b.color}14`, boxShadow: `inset 0 0 0 1px ${b.color}40` };
+                return (
+                  <li key={i}>
+                    {can ? (
+                      <button type="button" onClick={() => onOpenLeaf(l)} className={`${cls} active:opacity-80`} style={tint}>
+                        {body}
+                      </button>
+                    ) : (
+                      <div className={cls} style={tint}>
+                        {body}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {b.leaves.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setOpen((o) => ({ ...o, [b.key]: !all }))}
+                className="mt-1.5 inline-flex items-center gap-1 text-[13px] font-semibold text-accent"
+              >
+                <ChevronDown className={`h-4 w-4 transition-transform ${all ? "rotate-180" : ""}`} aria-hidden />
+                {all ? "Show fewer" : `Show ${b.leaves.length - 5} more`}
+              </button>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function MindMap({
   doc,
   branches,
@@ -245,6 +337,8 @@ export default function MindMap({
 }) {
   const palette: Palette = dark ? { bg: "transparent", ink: "#e6ece9", ink2: "#9aa7a1", line: "#33403a", rootBg: "#2f7d63", rootInk: "#ffffff" } : { ...LIGHT, bg: "transparent" };
   const svg = useMemo(() => mindMapSvg(doc, branches, palette, true), [doc, branches, dark]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Phones get the outline first: the full diagram is too wide to read at phone size.
+  const [view, setView] = useState<"outline" | "diagram">(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "outline" : "diagram"));
 
   if (branches.length === 0) {
     return (
@@ -262,13 +356,40 @@ export default function MindMap({
     if (leaf) onOpenLeaf(leaf);
   };
 
+  const tab = (id: "outline" | "diagram", label: string, Icon: typeof Network) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={view === id}
+      onClick={() => setView(id)}
+      className={`inline-flex items-center gap-1.5 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+        view === id ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+      {label}
+    </button>
+  );
+
   return (
-    <div
-      className="mind-map w-full [&_svg]:h-auto [&_svg]:w-full"
-      onClick={pick}
-      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick(e)}
-      aria-label="Mind map of this circular. Tap a point to open its source page."
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <div className="space-y-3">
+      <div role="tablist" aria-label="Show the mind map as" className="inline-flex rounded-control bg-sunken p-0.5">
+        {tab("diagram", "Diagram", Network)}
+        {tab("outline", "Outline", LayoutList)}
+      </div>
+      {view === "outline" ? (
+        <Outline doc={doc} branches={branches} onOpenLeaf={onOpenLeaf} />
+      ) : (
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <div
+            className="mind-map min-w-[760px] [&_svg]:h-auto [&_svg]:w-full"
+            onClick={pick}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick(e)}
+            aria-label="Mind map of this circular. Tap a point to open its source page."
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
+      )}
+    </div>
   );
 }

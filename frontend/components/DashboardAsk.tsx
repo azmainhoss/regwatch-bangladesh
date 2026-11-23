@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Loader2, MessageSquareText, X } from "lucide-react";
 import { fetchResearchMatches, queryResearchAssistant, type ResearchAnswer, type ResearchCitation } from "@/services/api";
 import { Notice } from "@/components/ui";
-import { noteQuestionAsked, reloadPlan, usePlan } from "@/services/planStore";
 
 const hasBangla = (s?: string | null) => !!s && /[ঀ-৿]/.test(s);
 const openHref = (docId: string, page: number) => `/?doc=${docId}&page=${page}`;
@@ -42,8 +41,6 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
   const [matches, setMatches] = useState<ResearchCitation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const id = useRef(0);
-  const { me } = usePlan();
-  const left = me && me.questions_per_day ? Math.max(0, me.questions_per_day - me.questions_today) : null;
 
   const ask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,13 +55,11 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
     fetchResearchMatches(text)
       .then((m) => mine === id.current && setMatches(m))
       .catch(() => undefined);
-    noteQuestionAsked();
     try {
       const res = await queryResearchAssistant(text);
       if (mine === id.current) setAnswer(res);
     } catch (err: any) {
       if (mine === id.current) setError(err?.message || "Could not answer that question.");
-      reloadPlan();
     } finally {
       if (mine === id.current) setAsking(false);
     }
@@ -101,15 +96,6 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
           {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Sign in to ask"}
         </button>
       </form>
-
-      {left !== null && (
-        <p className="mt-2 text-[12.5px] text-ink-3">
-          {left > 0 ? `${left} of ${me?.questions_per_day} free questions left today.` : "Today's free questions are used up."}{" "}
-          <Link href="/plans" className="font-semibold text-accent hover:underline">
-            Unlimited with Pro
-          </Link>
-        </p>
-      )}
 
       {shown && (
         <div className="mt-3 space-y-2.5" aria-live="polite">

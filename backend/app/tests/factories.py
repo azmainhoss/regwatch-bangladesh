@@ -162,3 +162,10 @@ async def make_workspace(roles: Dict[str, Optional[str]], departments=("A", "B")
         ws.users[role] = user
         ws.tokens[role] = token
     return ws
+
+
+async def signed_in_reader(client) -> None:
+    """Every read needs a signed-in user now. Gives a test client an ordinary user with no special rights,
+    so calls that used to be anonymous read as "someone else"; a request's own Authorization header still wins."""
+    _user, token = await make_user()
+    client.headers["Authorization"] = f"Bearer {token}"

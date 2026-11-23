@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, UserRound } from "lucide-react";
+import { Activity, Briefcase, LayoutDashboard, Search, Shield, UserRound } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
 import BellButton from "./alerts/BellButton";
@@ -26,7 +26,8 @@ function Mark() {
 export default function AppHeader() {
   const pathname = usePathname();
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  // The header only mounts after the sign-in gate has read the saved user, so it can show that user at once (no "Sign in" flash).
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => (typeof window !== "undefined" ? getStoredUser() : null));
   const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
@@ -58,12 +59,11 @@ export default function AppHeader() {
   };
 
   const nav = [
-    { href: "/", label: "Dashboard", show: true },
-    { href: "/summary", label: "Summary", show: true },
-    { href: "/search", label: "Search", show: true },
-    { href: "/workspace", label: "Workspace", show: !!currentUser },
-    { href: "/plans", label: "Plans", show: true },
-    { href: "/admin", label: "Admin", show: !!currentUser?.is_superuser },
+    { href: "/", label: "Dashboard", Icon: LayoutDashboard, show: true },
+    { href: "/search", label: "Search", Icon: Search, show: true },
+    { href: "/workspace", label: "Workspace", Icon: Briefcase, show: !!currentUser },
+    { href: "/admin", label: "Admin", Icon: Shield, show: !!currentUser?.is_superuser },
+    { href: "/summary", label: "Status", Icon: Activity, show: !!currentUser?.is_superuser },
   ].filter((n) => n.show);
 
   const initials = currentUser?.full_name
@@ -85,7 +85,7 @@ export default function AppHeader() {
             </span>
           </Link>
 
-          <nav className="flex min-w-0 items-center gap-0 overflow-x-auto text-[14px] font-semibold sm:gap-1 sm:overflow-visible" aria-label="Main">
+          <nav className="hidden min-w-0 items-center gap-1 text-[14px] font-semibold sm:flex" aria-label="Main">
             {nav.map((item) => {
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
               return (
@@ -108,7 +108,18 @@ export default function AppHeader() {
             })}
           </nav>
 
-          <div className="ml-auto flex items-center gap-2">
+          {/* Phones: the free space in the bar is a search field that opens the Search screen. */}
+          {pathname !== "/search" && (
+            <Link
+              href="/search"
+              className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-control border border-line bg-surface px-3 text-[14px] text-ink-3 sm:hidden"
+            >
+              <Search className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              <span className="truncate">Search circulars</span>
+            </Link>
+          )}
+
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {pathname !== "/" && pathname !== "/search" && (
             <>
             <button
@@ -157,6 +168,31 @@ export default function AppHeader() {
           </div>
         </div>
       </header>
+
+      {/* Phones: the main sections as a bar at the bottom, in thumb reach. */}
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
+      >
+        <div className="flex items-stretch justify-around">
+          {nav.map(({ href, label, Icon }) => {
+            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            return (
+              <Link
+                key={href}
+                href={href}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11.5px] font-semibold transition-colors ${
+                  active ? "text-accent" : "text-ink-3 active:text-ink"
+                }`}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden />
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
 
       <AccountModal
         isOpen={accountOpen}

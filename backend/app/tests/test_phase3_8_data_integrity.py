@@ -5,6 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from backend.app.database.session import AsyncSessionLocal
 from backend.app.main import app
+from backend.app.tests.factories import signed_in_reader
 from backend.app.modules.analysis.models import DocumentAnalysis
 from backend.app.modules.analysis.service import AnalysisService
 from backend.app.modules.documents.models import Document, DocumentVersion
@@ -185,6 +186,7 @@ async def test_publication_allowed_when_citations_verified(db_session):
 async def test_document_stats_endpoint_truthfulness():
     """Verify that GET /api/v1/documents/stats returns truthful live data."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         response = await client.get("/api/v1/documents/stats")
         assert response.status_code == 200
         data = response.json()
@@ -204,6 +206,7 @@ async def test_document_stats_endpoint_truthfulness():
 async def test_documents_list_corpus_filtering():
     """Verify that /api/v1/documents correctly filters by corpus_type."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await signed_in_reader(client)
         # 1. Genuine only
         resp_genuine = await client.get("/api/v1/documents?corpus_type=GENUINE")
         assert resp_genuine.status_code == 200

@@ -329,7 +329,7 @@ export default function SearchPage() {
                 id="f-from"
                 inputMode="numeric"
                 maxLength={4}
-                placeholder="2020"
+                placeholder="Any year"
                 className="field h-10"
                 value={filters.year_from}
                 onChange={(e) => setFilter("year_from", e.target.value.replace(/\D/g, ""))}
@@ -343,7 +343,7 @@ export default function SearchPage() {
                 id="f-to"
                 inputMode="numeric"
                 maxLength={4}
-                placeholder="2026"
+                placeholder="Any year"
                 className="field h-10"
                 value={filters.year_to}
                 onChange={(e) => setFilter("year_to", e.target.value.replace(/\D/g, ""))}

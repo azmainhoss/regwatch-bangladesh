@@ -136,7 +136,7 @@ async def require(db: AsyncSession, user: User, feature: str, what: str) -> None
         raise HTTPException(status_code=402, detail=f"{what} is part of the {need} plan.")
 
 
-@router.get("", response_model=List[PlanRead])
+@router.get("", response_model=List[PlanRead], dependencies=[Depends(get_current_user)])
 async def list_plans():
     return [PlanRead(code=p.code, name=p.name, price_bdt_month=p.price_bdt_month, per=p.per, min_seats=p.min_seats,
                      questions_per_day=p.questions_per_day, features=p.features) for p in PLANS.values()]
