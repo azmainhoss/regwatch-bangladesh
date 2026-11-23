@@ -90,3 +90,12 @@ data/*.out
 
 # Personal overview files, not for the repo
 private/
+
+# Agent configuration and memory
+CLAUDE.md
+CLAUDE.local.md
+MEMORY.md
+.agents/
+.claude/
+skills-lock.json
+
