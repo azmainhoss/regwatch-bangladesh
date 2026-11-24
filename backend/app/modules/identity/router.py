@@ -221,6 +221,12 @@ async def request_password_reset(payload: ResetRequest, request: Request, db: As
 
     ratelimit.enforce(f"reset-ip:{ratelimit.client_ip(request)}", *RESET_PER_IP,
                       detail="Too many reset requests from this network. Please try again later.")
+    from backend.app.modules.alerts import mailer
+
+    if not mailer.email_configured():
+        # Email is switched off (owner, 2026-11-25): say so instead of promising a link that never comes.
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Password reset by email is not available yet. Please write to insights@amarcircular.com and we will help you.")
     email = payload.email.lower()
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is not None and user.is_active and ratelimit.limiter.count(f"reset-email:{email}", RESET_PER_EMAIL[1]) < RESET_PER_EMAIL[0]:

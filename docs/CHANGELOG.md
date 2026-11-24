@@ -27,7 +27,9 @@ is in the commits (`git log`) and the linked documents.
   "Amar Circular Alerts" <alerts@amarcircular.com>.
 - **One-click unsubscribe** from the daily digest: mail apps' "Unsubscribe" button works without signing in, and
   the footer link opens a one-button page. It turns off only the digest.
-- Sending starts once the Brevo SMTP key is on the server.
+- **Email is on hold (owner, 25 Nov):** Brevo's phone verification did not arrive, so no SMTP key is on the server
+  and nothing is sent. While it is off, "Forgot password?" is hidden and the reset page asks people to write to
+  insights@amarcircular.com. To switch email on later: `ssh -t amarcircular 'sudo bash /opt/regwatch/app/deploy/set-smtp.sh'`.
 
 ---
 

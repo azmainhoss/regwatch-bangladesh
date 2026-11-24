@@ -24,7 +24,15 @@ async def _register(client, password="Sunrise#2026"):
 
 
 @pytest.mark.asyncio
-async def test_reset_request_answers_the_same_for_unknown_emails(client):
+async def test_reset_request_says_so_while_email_is_off(client):
+    email, _ = await _register(client)
+    r = await client.post(f"{API}/auth/password-reset/request", json={"email": email})
+    assert r.status_code == 503 and "insights@amarcircular.com" in r.text
+
+
+@pytest.mark.asyncio
+async def test_reset_request_answers_the_same_for_unknown_emails(client, monkeypatch):
+    monkeypatch.setattr(mailer, "email_configured", lambda: True)
     email, _ = await _register(client)
     a = await client.post(f"{API}/auth/password-reset/request", json={"email": email})
     b = await client.post(f"{API}/auth/password-reset/request", json={"email": "nobody_" + email})
