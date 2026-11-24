@@ -84,7 +84,7 @@ function Home() {
             <span className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] font-semibold text-accent">BRPD-1 Circular Letter No. 40</span>
               <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[12px] font-semibold text-accent">In force</span>
-              <span className="rounded-full bg-warn-soft px-2 py-0.5 text-[12px] font-semibold text-warn">Checked</span>
+              <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[12px] font-semibold text-ok">AI verified</span>
             </span>
             <span className="flex items-baseline justify-between gap-3">
               <span className="text-[17px] font-bold leading-[1.3] text-ink">Borrowers with court stay orders are loan-eligible</span>

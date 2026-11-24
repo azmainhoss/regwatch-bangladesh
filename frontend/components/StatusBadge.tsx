@@ -35,13 +35,15 @@ interface StatusSpec {
  */
 const STATUSES: Record<string, StatusSpec> = {
   // Documents
-  PUBLISHED_HUMAN_REVIEWED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
-  PUBLISHED_MACHINE_VERIFIED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
-  PUBLISHED_MACHINE_PROCESSED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "Its points have not been checked yet" },
-  // Read and searchable, not analysed yet (most archive circulars).
-  EXTRACTED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "This circular has not been analysed yet; its pages can be read and searched" },
+  // Reader trust words (owner, 2026-11-24): only "AI verified" and "AI draft", no tooltips.
+  PUBLISHED_HUMAN_REVIEWED: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
+  PUBLISHED_MACHINE_VERIFIED: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
+  PUBLISHED_MACHINE_PROCESSED: { label: "AI draft", tone: "info", icon: Eye },
+  // Read and searchable, not analysed yet (most archive circulars). Readers see no trust badge for these
+  // (READER_HIDDEN below): there is no AI output to vouch for. Admin screens still show this label.
+  EXTRACTED: { label: "Not analysed", tone: "muted", icon: CircleDashed },
   EXTRACTING: { label: "Reading pages", tone: "info", icon: Loader2, spin: true },
-  AWAITING_REVIEW: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
+  AWAITING_REVIEW: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
   NEEDS_REVISION: { label: "Needs revision", tone: "warn", icon: AlertTriangle },
   ANALYZING: { label: "Analysing", tone: "info", icon: Loader2, spin: true },
   EXTRACTION_FAILED: { label: "Extraction failed", tone: "bad", icon: AlertTriangle },
@@ -100,7 +102,11 @@ export function describeStatus(status?: string | null): StatusSpec {
   return STATUSES[status] ?? { label: readable(status), tone: "muted", icon: CircleDashed };
 }
 
-export default function StatusBadge({ status, size = "md" }: { status?: string | null; size?: "sm" | "md" }) {
+/** Statuses readers do not get a badge for (see EXTRACTED above). */
+const READER_HIDDEN = new Set(["EXTRACTED"]);
+
+export default function StatusBadge({ status, size = "md", reader = false }: { status?: string | null; size?: "sm" | "md"; reader?: boolean }) {
+  if (reader && status && READER_HIDDEN.has(status)) return null;
   const spec = describeStatus(status);
   const Icon = spec.icon;
   return (

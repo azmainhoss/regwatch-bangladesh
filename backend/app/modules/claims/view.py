@@ -239,7 +239,9 @@ async def build_view(db, doc: Document, user, admin: bool = False) -> Dict[str, 
         ).all()
     }
     shown_claims = [c for c in claims if (admin or c.kind != "PROVISION") and (admin or S.is_shown(c))]
-    targets = await _link_targets(db, [c for c in shown_claims if c.kind == "LINK"], user)
+    # Every link the reader may see, including the unconfirmed ones shown with "Check page N" (they need the name of
+    # the circular they cite too; without it the reader saw "References a circular").
+    targets = await _link_targets(db, [c for c in claims if c.kind == "LINK"], user)
 
     sections: Dict[str, List[Dict[str, Any]]] = {s: [] for s in SECTIONS}
     hidden: List[Dict[str, Any]] = []

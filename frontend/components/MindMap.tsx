@@ -344,7 +344,7 @@ export default function MindMap({
   if (branches.length === 0) {
     return (
       <p className="p-4 text-[14px] text-ink-3">
-        The mind map is made from the checked summary and requirements. This circular has none yet, so there is nothing to draw.
+        The mind map is made from the AI verified summary and requirements. This circular has none yet, so there is nothing to draw.
       </p>
     );
   }

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { AuthUser, OPEN_REGISTER_EVENT, quickRegister } from "../services/api";
-import { FREE_VIEWS_EVENT, freeExhausted } from "../services/freeViews";
+import { FREE_LIMIT, FREE_VIEWS_EVENT, freeExhausted } from "../services/freeViews";
 import { Modal, ModalHeader, Notice } from "./ui";
 import AuthForm from "./AuthForm";
 
@@ -95,8 +95,8 @@ function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onS
 }
 
 /**
- * Visitors read freely: the dashboard, search and up to 3 circulars (services/freeViews.ts). After that,
- * any click opens this dialog. The header buttons and "Register to ..." prompts open it at any time.
+ * Visitors read freely for their first week, then up to FREE_LIMIT circulars (services/freeViews.ts). After
+ * that, any click opens this dialog. The header buttons and "Register to ..." prompts open it at any time.
  */
 export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
   const [open, setOpen] = useState(false);
@@ -158,7 +158,7 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
             title="Register now"
             subtitle={
               exhausted
-                ? "You have read your 3 free circulars. Register free to keep reading."
+                ? `You have read your ${FREE_LIMIT} free circulars. Register free to keep reading.`
                 : "Free access to every Bangladesh Bank circular, with summaries, search and alerts."
             }
             onClose={() => setOpen(false)}

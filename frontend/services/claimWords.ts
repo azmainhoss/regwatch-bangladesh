@@ -134,21 +134,17 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
   return out;
 }
 
-export function checkedTag(item: ClaimItem): string {
-  if (item.checked_by === "TEAM") return "Checked";
-  return "Checked";
+export function checkedTag(_item: ClaimItem): string {
+  return "AI verified";
 }
 
 /** The badge a reader sees for the whole circular. */
 export function checkedBadge(counts: { total: number; shown: number; checking?: number }, anyByTeam: boolean): { label: string; hint: string; tone: "ok" | "info" } | null {
   if (counts.total === 0) return null;
-  // Nothing shown yet: "Checked" would promise points the reader cannot see.
-  if (counts.shown === 0)
-    return counts.checking
-      ? { label: "Being checked", hint: "Its points are still being checked against the page image", tone: "info" }
-      : { label: "Not checked yet", hint: "None of its points has passed every check yet", tone: "info" };
-  if (anyByTeam) return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
-  return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
+  // Only two words for readers (owner, 2026-11-24): "AI verified" when points passed the checks, else "AI draft".
+  void anyByTeam;
+  if (counts.shown === 0) return { label: "AI draft", hint: "", tone: "info" };
+  return { label: "AI verified", hint: "", tone: "ok" };
 }
 
 /** An administrator's plain line for a point that is not shown. */

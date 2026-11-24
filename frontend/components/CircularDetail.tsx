@@ -20,7 +20,7 @@ import {
   triggerDocumentAnalysis,
   openRegister,
 } from "@/services/api";
-import { FREE_LIMIT, FREE_VIEWS_EVENT, canViewFree, countFreeView, freeLeft } from "@/services/freeViews";
+import { FREE_LIMIT, FREE_VIEWS_EVENT, canViewFree, countFreeView, freeLeft, inOpenPeriod } from "@/services/freeViews";
 import StatusBadge, { AwaitingReviewTag, InForceBadge, PrivateTag, Tag } from "./StatusBadge";
 import CompareButtons from "./CompareButtons";
 import { loadStatus, inForceOf, useRelState } from "@/services/relationshipsStore";
@@ -306,7 +306,8 @@ export default function CircularDetail(props: Props) {
   // The checked points of this circular: from the shared copy at once, kept fresh while the page is visible.
   const { view, error: claimsError, loading: claimsLoading, state: claimsState } = useDocClaims(doc.id, isAdmin);
 
-  // Visitors without an account read FREE_LIMIT circulars in full (services/freeViews.ts), then are asked to register.
+  // Visitors: everything is open for the first week; then FREE_LIMIT circulars in full, then register
+  // (services/freeViews.ts). No meter is shown during the open week.
   const [freeOk, setFreeOk] = useState(true);
   const [left, setLeft] = useState(FREE_LIMIT);
   useEffect(() => {
@@ -519,7 +520,7 @@ export default function CircularDetail(props: Props) {
           className="rounded-control border border-line px-2 py-0.5 font-semibold text-accent hover:bg-sunken"
           data-testid="check-page"
         >
-          Check page {item.page_number}
+          Page {item.page_number} · AI draft
         </button>
       ) : (
         <>
@@ -586,7 +587,7 @@ export default function CircularDetail(props: Props) {
       </>
     );
 
-  const freeBar = !currentUser && freeOk ? (
+  const freeBar = !currentUser && freeOk && !inOpenPeriod() ? (
     <div data-free-click className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-panel bg-accent-soft px-4 py-2.5">
       <p className="text-[14px] text-ink-2">
         {left > 0
@@ -973,12 +974,14 @@ export default function CircularDetail(props: Props) {
   );
 
   const branches = buildBranches(doc, shownOf, entityLabel);
-  const backLinks: BackLink[] = shownOf("links").map((i) => ({
-    id: i.id,
-    docId: i.link?.target_document_id ?? null,
-    label: `${readable(i.link?.shown_type || "mentions")} ${i.link?.target_reference || i.fields.target_hint || "a circular"}`,
-    quote: i.quote,
-  }));
+  // "Cites": the circulars this one names, by their number (or the name the circular gives, shortened). A link
+  // whose target has no name at all is left out rather than shown as a generic "a circular".
+  const backLinks: BackLink[] = shownOf("links").flatMap((i) => {
+    const name = (i.link?.target_reference || i.fields.target_hint || "").trim();
+    if (!name) return [];
+    const short = name.length > 60 ? `${name.slice(0, 57).trimEnd()}…` : name;
+    return [{ id: i.id, docId: i.link?.target_document_id ?? null, label: short, quote: name.length > 60 ? `${name}\n\n${i.quote ?? ""}` : i.quote }];
+  });
   const openLeaf = (leaf: MindLeaf) => {
     setMapOpen(false);
     if (leaf.page) openPage(leaf.page, leaf.item?.quote, leaf.item?.quote_boxes);
@@ -995,14 +998,14 @@ export default function CircularDetail(props: Props) {
           <span className="refno">{doc.reference_number || "Circular"}</span>
           {badge ? (
             <span data-testid="checked-badge">
-              <Tag tone={badge.tone} title={badge.hint}>
+              <Tag tone={badge.tone}>
                 {badge.tone === "ok" ? <CheckCircle2 className="h-3 w-3" strokeWidth={2} aria-hidden /> : <Eye className="h-3 w-3" strokeWidth={2} aria-hidden />}
                 {badge.label}
               </Tag>
             </span>
           ) : claimsLoading && doc.publication_status.startsWith("PUBLISHED") ? null : (
             // While the points load, "Checked" from the status alone could turn into "Not checked yet" a moment later.
-            <StatusBadge status={doc.publication_status} />
+            <StatusBadge status={doc.publication_status} reader />
           )}
           <InForceBadge info={inForce} />
           {awaiting > 0 && <AwaitingReviewTag count={awaiting} />}

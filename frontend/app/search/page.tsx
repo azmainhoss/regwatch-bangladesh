@@ -33,7 +33,7 @@ const DOC_TYPES = [
 ];
 const STATUS_OPTIONS = [
   { value: "PUBLISHED", label: "Any published" },
-  { value: "PUBLISHED_MACHINE_VERIFIED", label: "Checked" },
+  { value: "PUBLISHED_MACHINE_VERIFIED", label: "AI verified" },
 ];
 
 interface Filters {
@@ -432,7 +432,7 @@ export default function SearchPage() {
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="refno">{hit.reference_number || "Circular"}</span>
                           {hit.is_private && <PrivateTag />}
-                          <StatusBadge status={hit.publication_status} size="sm" />
+                          <StatusBadge status={hit.publication_status} size="sm" reader />
                           {hit.title_match && <Tag tone="accent">Title match</Tag>}
                           <span className="ml-auto text-[12.5px] tabular-nums text-ink-3">{shortDate(hit.publication_date)}</span>
                         </span>

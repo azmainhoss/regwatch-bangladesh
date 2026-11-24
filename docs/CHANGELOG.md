@@ -15,6 +15,19 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 24 November 2026 (late): access rule, trust words, cited names
+
+- **Visitor access:** a device's first 7 days are completely open, with no counter and no register prompts. From
+  day 8, 5 more circulars can be read in full, then a free registration is asked. (Before: 3 free circulars.)
+  Read later, lists and assigning always need an account.
+- **Trust words:** readers now see only **AI verified** (points passed the automated checks against the page) or
+  **AI draft**. No tooltips. Points not yet confirmed show "Page N · AI draft". Circulars with no analysis at all
+  get no trust badge.
+- **Cites:** the circulars a circular cites now show by name or number (for example "Guidelines for Foreign
+  Exchange Transactions 2018…"). Before, unconfirmed links showed only "References a circular".
+
+---
+
 ## 24 November 2026 (night): first audit fixes
 
 - **Reader: "Back links" is now "Cites"**, and a new **"Cited by"** row lists newer circulars that cite this one
