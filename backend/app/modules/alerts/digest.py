@@ -74,6 +74,14 @@ async def build_digests(db: AsyncSession, now: Optional[datetime] = None) -> int
         return 0
     today = local.date().isoformat()
     since = now - timedelta(days=7)
+    if settings.ALERTS_DIGEST_SINCE:
+        try:
+            start = datetime.fromisoformat(str(settings.ALERTS_DIGEST_SINCE).replace("Z", "+00:00"))
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            since = max(since, start)
+        except ValueError:
+            pass
     user_ids = [str(r[0]) for r in (await db.execute(
         select(AN.user_id).where(
             AN.email_mode == "DIGEST", AN.emailed_at.is_(None), AN.read_at.is_(None), AN.created_at >= since,

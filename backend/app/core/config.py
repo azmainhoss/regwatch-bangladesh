@@ -175,6 +175,9 @@ class Settings(BaseSettings):
     ALERTS_ON_POLL_SWEEP_MINUTES: int = 10
     # Days before a deadline that raise a "due soon" alert, comma separated (each 0-90).
     ALERTS_DUE_SOON_DAYS: str = "7,1"
+    # Digests only include alerts created after this moment (ISO time, UTC). Set when email is switched on, so
+    # the first digest does not carry days of older alerts.
+    ALERTS_DIGEST_SINCE: Optional[str] = None
     ALERTS_DIGEST_TIME: str = "10:30"  # Dhaka time, inside the window the host PC is on
     ALERTS_EMAIL_MAX_ATTEMPTS: int = 6
     ALERTS_EMAIL_MAX_AGE_HOURS: int = 48
