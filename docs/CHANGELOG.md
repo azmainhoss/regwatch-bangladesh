@@ -54,6 +54,25 @@ is in the commits (`git log`) and the linked documents.
 - **Circular numbers for new departments:** new circulars from departments the checker did not know (BRD, FDIPP, …)
   now get their number, e.g. "BRD Circular No. 04".
 
+### History & links (now automatic)
+- **How it works:** when a circular is analysed, every other circular it mentions becomes a link (amends,
+  repeals, supersedes, replaces, clarifies, implements or references). The app finds that circular in the library.
+  It shows the links under "History & links" and marks older circulars as "Amended", "Replaced" or "Repealed".
+- **Before:** every amends/repeals/supersedes link waited for a person, so no circular was ever marked as
+  changed. Many cited circulars were not found because citations write the number differently.
+- **Now, matching:** a citation that leaves out the department's section number ("ACD Circular No. 03" for
+  "ACD-1 Circular No. 03/2026") or uses the old department name ("FE" for "FEPD") is matched when the date it gives
+  agrees. The date also picks between two candidates. Never a guess.
+- **Now, confirmation:** a change link is confirmed by the machine when the quote uses change words (also
+  "replaced by", "extended", "relaxed", প্রতিস্থাপিত, বর্ধিত, শিথিল) and names the circular, exactly one older
+  library circular matches, and the cited date agrees. The older circular's status changes by itself.
+- **Live result:** 172 more citations matched; 68 change links confirmed (from 0); 63 circulars now show
+  "Amended by" / "Replaced by" / "Repealed by" with a link to the newer circular; 172 circulars show links
+  (from 66). Example: BRPD Circular No. 14/2012 shows "Amended by BRPD Circular No. 15/2024".
+- **Still mentions only:** links whose quote is not yet confirmed by the page reading, whose quote has no
+  change words, or whose cited circular is not in the library (very old circulars, GFET guidelines). They become
+  confirmed by themselves when the page reading or the library catches up.
+
 ### Fixes along the way
 - "Ask a question" no longer gives a server error when the answer service is unavailable; it lists the matching
   pages instead.
@@ -66,7 +85,5 @@ is in the commits (`git log`) and the linked documents.
 - **Minimal human involvement:** no step should wait for a person by default.
 
 ### Known open items
-- **History & links:** most links between circulars wait for a person's approval, and many cited circulars are
-  not matched to the library. See "History & links" in the app notes and the next entry when this is changed.
 - About 270 sentences where the two page readings disagree with each other stay "Check page N".
 - Add a card to Spaceship before the trial ends, or the server stops.
