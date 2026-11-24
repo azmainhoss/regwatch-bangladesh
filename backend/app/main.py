@@ -29,6 +29,7 @@ from backend.app.modules.documents.summary import router as summary_router
 from backend.app.modules.library.router import router as lists_router
 from backend.app.modules.library.feed import router as feed_router
 from backend.app.modules.library.public import router as public_router
+from backend.app.modules.alerts.unsubscribe_router import router as unsubscribe_router
 from backend.app.modules.share.router import router as share_router
 from backend.app.modules.plans.router import router as plans_router
 from backend.app.modules.alerts.worker import alerts_worker
@@ -162,6 +163,7 @@ app.include_router(summary_router, prefix=settings.API_V1_STR)
 app.include_router(lists_router, prefix=settings.API_V1_STR)
 app.include_router(feed_router, prefix=settings.API_V1_STR)
 app.include_router(public_router, prefix=settings.API_V1_STR)
+app.include_router(unsubscribe_router, prefix=settings.API_V1_STR)
 app.include_router(share_router, prefix=settings.API_V1_STR)
 app.include_router(plans_router, prefix=settings.API_V1_STR)
 

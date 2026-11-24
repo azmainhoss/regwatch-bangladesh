@@ -20,100 +20,9 @@ const FIELDS: { key: Field; label: string; type: string; autoComplete: string; p
 
 const EMPTY: Record<Field, string> = { full_name: "", email: "", phone_number: "", company: "", designation: "", password: "" };
 
-/** Register: name, email, phone, company, designation and a password. Signed in at once. */
-function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onSignIn: () => void }) {
-  const [values, setValues] = useState<Record<Field, string>>(EMPTY);
-  const [showPw, setShowPw] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const v = { ...values };
-    for (const k of Object.keys(v) as Field[]) if (k !== "password") v[k] = v[k].trim();
-    const missing = FIELDS.find((f) => !v[f.key]);
-    if (missing) return setError(`Please enter your ${missing.label.toLowerCase()}.`);
-    if (v.phone_number.replace(/\D/g, "").length < 6) return setError("Please enter a valid phone number.");
-    if (v.password.length < 8) return setError("Your password needs at least 8 characters.");
-    setLoading(true);
-    try {
-      const user = await quickRegister(v);
-      setValues(EMPTY);
-      onDone(user);
-    } catch (err: any) {
-      const msg: string = err?.message || "";
-      setError(/valid email/i.test(msg) ? "That email address does not look right." : msg || "Could not register. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="space-y-3" noValidate>
-      {error && <Notice kind="error">{error}</Notice>}
-      {FIELDS.map((f) => (
-        <div key={f.key}>
-          <label htmlFor={`reg-${f.key}`} className="field-label">
-            {f.label}
-          </label>
-          <div className="relative">
-            <input
-              id={`reg-${f.key}`}
-              type={f.key === "password" && showPw ? "text" : f.type}
-              autoComplete={f.autoComplete}
-              placeholder={f.placeholder}
-              value={values[f.key]}
-              onChange={(e) => setValues((s) => ({ ...s, [f.key]: e.target.value }))}
-              className={`field ${f.key === "password" ? "pr-10" : ""}`}
-              required
-            />
-            {f.key === "password" && (
-              <button
-                type="button"
-                onClick={() => setShowPw((x) => !x)}
-                aria-label={showPw ? "Hide password" : "Show password"}
-                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center text-ink-3 hover:text-ink"
-              >
-                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
-      <button type="submit" disabled={loading} className="btn-primary w-full justify-center">
-        {loading ? "Registering..." : "Register now"}
-      </button>
-      <p className="text-center text-[13.5px] text-ink-3">
-        Already registered?{" "}
-        <button type="button" onClick={onSignIn} className="font-semibold text-accent hover:underline">
-          Sign in
-        </button>
-      </p>
-    </form>
-  );
-}
-
-
 // ------------------------------------------------------------------------------------------ 3-step sign-up
 // Step 1 makes the account (email + password), so a person who stops after it still has one. Steps 2 and 3 add
-// name and phone, then company and designation. While owner approval is pending this form is used only when the
-// page was opened with ?signup=steps (kept for the browser session); everyone else keeps the one-form sign-up.
-
-const STEPS_FLAG = "amarcircular_signup_steps";
-
-export function useStepsPreview(): boolean {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    try {
-      if (new URLSearchParams(window.location.search).get("signup") === "steps") sessionStorage.setItem(STEPS_FLAG, "1");
-      setOn(sessionStorage.getItem(STEPS_FLAG) === "1");
-    } catch {
-      /* private window */
-    }
-  }, []);
-  return on;
-}
+// name and phone, then company and designation (owner-approved 2026-11-25).
 
 function StepBar({ step }: { step: 1 | 2 | 3 }) {
   return (
@@ -180,11 +89,6 @@ export function RegisterSteps({
   onStarted: () => void;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  // Preview only (?signup=steps&signupstep=2): opens at a later step to show its layout; saving needs an account.
-  useEffect(() => {
-    const n = Number(new URLSearchParams(window.location.search).get("signupstep"));
-    if (n === 2 || n === 3) setStep(n);
-  }, []);
   const [v, setV] = useState({ email: "", password: "", full_name: "", phone_number: "", company: "", designation: "" });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -305,7 +209,6 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"register" | "signin">("register");
   const [exhausted, setExhausted] = useState(false);
-  const stepsPreview = useStepsPreview();
   const [inSteps, setInSteps] = useState(false);
 
   useEffect(() => {
@@ -373,11 +276,7 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
             onClose={() => setOpen(false)}
           />
           <div className="px-5 py-5">
-            {stepsPreview ? (
-              <RegisterSteps onDone={done} onSignIn={() => setView("signin")} onStarted={() => setInSteps(true)} />
-            ) : (
-              <RegisterForm onDone={done} onSignIn={() => setView("signin")} />
-            )}
+            <RegisterSteps onDone={done} onSignIn={() => setView("signin")} onStarted={() => setInSteps(true)} />
           </div>
         </>
       ) : (

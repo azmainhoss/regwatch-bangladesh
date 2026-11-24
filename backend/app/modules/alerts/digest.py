@@ -1,4 +1,5 @@
 """The once-a-day summary email."""
+import re
 from datetime import datetime, time, timedelta, timezone
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -14,6 +15,44 @@ from backend.app.modules.identity.models import User
 from backend.app.modules.organizations.models import Organization
 
 AN = AlertNotification
+
+
+async def _branded_library_digest(db: AsyncSession, user, rows, local: datetime):
+    """The owner-approved daily digest (brand.daily_digest) for a day that has only new circulars."""
+    from backend.app.modules.alerts import brand, reader_mail
+    from backend.app.modules.analysis.models import AnalysisClaim, DocumentAnalysis
+    from backend.app.modules.documents.models import Document
+    from backend.app.modules.library.public import INDEXABLE, path_index
+
+    ids = [r.document_id for r in rows if r.document_id]
+    docs = {str(d.id): d for d in (await db.execute(select(Document).where(Document.id.in_(ids)))).scalars()} if ids else {}
+    idx = await path_index(db)
+    base = reader_mail.base_url()
+    items = []
+    for r in rows:
+        d = docs.get(str(r.document_id)) if r.document_id else None
+        if d is None:
+            continue
+        point = None
+        verified = d.publication_status in INDEXABLE
+        if verified and d.current_version_id:
+            claim = (await db.execute(
+                select(AnalysisClaim)
+                .join(DocumentAnalysis, DocumentAnalysis.id == AnalysisClaim.analysis_id)
+                .where(DocumentAnalysis.document_version_id == d.current_version_id, AnalysisClaim.kind == "SUMMARY_POINT",
+                       AnalysisClaim.check_status.in_(("PASSED", "APPROVED", "FIXED")))
+                .order_by(DocumentAnalysis.created_at.desc(), AnalysisClaim.order_index).limit(1)
+            )).scalars().first()
+            point = ((claim.fields or {}).get("text") if claim else None) or None
+        hit = idx["by_id"].get(str(d.id))
+        url = f"{base}{hit[0]}" if hit else f"{base}/dashboard?doc={d.id}"
+        title = templates.clip(re.sub(r"^[^:]{0,80}\bNo\.?\s*[0-9]+[^:]*:\s*", "", d.title or "").rstrip(".") or d.title, 200)
+        items.append(brand.DigestCircular(reference=d.reference_number or "Circular", title=title,
+                                          date=templates.fmt_date(d.publication_date), url=url, point=point, verified=verified))
+    if not items:
+        return None
+    day = f"{local.strftime('%A')} {local.day} {local.strftime('%B %Y')}"
+    return brand.daily_digest(base, day, items, reader_mail.unsubscribe_page_url(user.id))
 
 
 def _digest_time() -> time:
@@ -81,7 +120,13 @@ async def build_digests(db: AsyncSession, now: Optional[datetime] = None) -> int
             sections.append((name, banks[name]))
         if admin:
             sections.append(("Platform review queues", admin))
-        subject, text, html = templates.digest_email(sections, len(rows), settings.APP_PUBLIC_URL)
+        branded = None
+        if library and not banks and not admin:
+            branded = await _branded_library_digest(db, user, rows, local)
+        if branded is not None:
+            subject, text, html = branded.subject, branded.text, branded.html
+        else:
+            subject, text, html = templates.digest_email(sections, len(rows), settings.APP_PUBLIC_URL)
         db.add(EmailOutbox(
             user_id=user.id, organization_id=None, to_address=user.email, kind="DIGEST", dedupe_key=key,
             notification_ids=[str(r.id) for r in rows], subject=subject, text_body=text, html_body=html,

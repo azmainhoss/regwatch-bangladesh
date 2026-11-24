@@ -333,6 +333,37 @@ export async function quickRegister(payload: {
   return user;
 }
 
+/** "Forgot password?": always answers the same way, whether or not the email is registered. */
+export async function requestPasswordReset(email: string): Promise<string> {
+  const res = await apiFetch(`/auth/password-reset/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not send the reset email");
+  return (await res.json()).message;
+}
+
+/** Sets a new password from the emailed link and signs the person in. */
+export async function confirmPasswordReset(token: string, password: string): Promise<AuthUser> {
+  const res = await apiFetch(`/auth/password-reset/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!res.ok) await throwApiError(res, "Could not reset the password");
+  const data = await res.json();
+  storeSession(data.access_token, data.user);
+  return data.user;
+}
+
+/** One-click unsubscribe from the daily digest (the token in the email link is the proof). */
+export async function unsubscribeDigest(token: string): Promise<string> {
+  const res = await apiFetch(`/email/unsubscribe/${encodeURIComponent(token)}`, { method: "POST" });
+  if (!res.ok) await throwApiError(res, "Could not unsubscribe");
+  return (await res.json()).message;
+}
+
 /** Sign-up steps 2 and 3 (and later edits): only the fields given change. */
 export async function updateMyProfile(payload: { full_name?: string; phone_number?: string; company?: string; designation?: string }): Promise<AuthUser> {
   const res = await apiFetch(`/auth/me/profile`, {

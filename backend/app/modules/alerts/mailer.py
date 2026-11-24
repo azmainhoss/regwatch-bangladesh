@@ -60,17 +60,25 @@ def _clean_header(value: str) -> str:
     return str(value or "").replace("\r", "").replace("\n", "")
 
 
-def build_message(to: str, subject: str, text: str, html: str) -> EmailMessage:
-    sender = _clean_header(settings.SMTP_FROM or "")
+def build_message(to: str, subject: str, text: str, html: str, sender_pair: Optional[tuple] = None,
+                  unsubscribe_post_url: Optional[str] = None) -> EmailMessage:
+    """sender_pair: (name, address) for this email; default SMTP_FROM_NAME / SMTP_FROM.
+    unsubscribe_post_url: one-click unsubscribe (RFC 8058) for digests and alerts."""
+    name, sender = sender_pair if sender_pair else (settings.SMTP_FROM_NAME, settings.SMTP_FROM or "")
+    sender = _clean_header(sender)
     domain = sender.split("@", 1)[1] if "@" in sender else None
     msg = EmailMessage()
-    msg["From"] = formataddr((_clean_header(settings.SMTP_FROM_NAME), sender))
+    msg["From"] = formataddr((_clean_header(name), sender))
     msg["To"] = _clean_header(to)
     msg["Subject"] = _clean_header(subject)
     msg["Date"] = formatdate(localtime=False)
     msg["Message-ID"] = make_msgid(domain=domain)
     msg["Auto-Submitted"] = "auto-generated"
-    msg["List-Unsubscribe"] = f"<{settings.APP_PUBLIC_URL}/alerts/settings>"
+    if unsubscribe_post_url:
+        msg["List-Unsubscribe"] = f"<{_clean_header(unsubscribe_post_url)}>"
+        msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    else:
+        msg["List-Unsubscribe"] = f"<{settings.APP_PUBLIC_URL}/alerts/settings>"
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
     return msg

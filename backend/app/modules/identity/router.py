@@ -1,5 +1,6 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,6 +124,10 @@ async def quick_register(
         designation=payload.designation,
         preferences={"signup": QUICK_SIGNUP, **({"company": payload.company} if payload.company else {})},
     ))
+    # Welcome email (owner-approved 2026-11-25); queued only when email is configured.
+    from backend.app.modules.alerts import reader_mail
+
+    reader_mail.queue_welcome(db, user)
     try:
         await db.commit()
     except IntegrityError:
@@ -186,6 +191,66 @@ async def login(
 @router.get("/me", response_model=UserRead)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+RESET_PER_IP = (10, 3600)  # reset requests from one address per hour
+RESET_PER_EMAIL = (3, 3600)  # reset emails to one address per hour
+
+
+class ResetRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetConfirm(BaseModel):
+    token: str = Field(..., min_length=10, max_length=400)
+    password: str = Field(..., min_length=8)
+
+    @field_validator("password")
+    @classmethod
+    def _fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes long (about 72 letters or digits).")
+        return value
+
+
+@router.post("/password-reset/request")
+async def request_password_reset(payload: ResetRequest, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Emails a one-hour reset link if the address has an account. Always answers the same way, so it cannot be
+    used to find out who is registered."""
+    from backend.app.modules.alerts import reader_mail
+
+    ratelimit.enforce(f"reset-ip:{ratelimit.client_ip(request)}", *RESET_PER_IP,
+                      detail="Too many reset requests from this network. Please try again later.")
+    email = payload.email.lower()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is not None and user.is_active and ratelimit.limiter.count(f"reset-email:{email}", RESET_PER_EMAIL[1]) < RESET_PER_EMAIL[0]:
+        ratelimit.limiter.add(f"reset-email:{email}")
+        reader_mail.queue_reset(db, user)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+    return {"ok": True, "message": "If that email is registered, a reset link is on its way. It works for one hour."}
+
+
+@router.post("/password-reset/confirm", response_model=TokenResponse)
+async def confirm_password_reset(payload: ResetConfirm, request: Request, db: AsyncSession = Depends(get_async_db)):
+    """Sets a new password from a valid reset link, then signs the person in."""
+    from backend.app.modules.alerts import reader_mail
+
+    ratelimit.enforce(f"reset-confirm:{ratelimit.client_ip(request)}", *RESET_PER_IP,
+                      detail="Too many attempts. Please try again later.")
+    parsed = reader_mail.parse_reset_token(payload.token)
+    user = await db.get(User, parsed[0]) if parsed else None
+    if user is None or not user.is_active or not reader_mail.reset_token_valid(payload.token, user):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="This reset link has expired or was already used. Please ask for a new one.")
+    user.hashed_password = get_password_hash(payload.password)
+    await db.commit()
+    await db.refresh(user)
+    minutes = settings.ACCESS_TOKEN_EXPIRE_MINUTES if user.is_superuser else QUICK_TOKEN_MINUTES
+    return TokenResponse(access_token=_token_for(user, minutes), token_type="bearer",
+                         expires_in_seconds=minutes * 60, user=UserRead.model_validate(user))
 
 
 @router.patch("/me/profile", response_model=UserRead)

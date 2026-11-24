@@ -15,6 +15,22 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 25 November 2026 (evening): sign-up in 3 steps, emails ready
+
+- **Sign-up is now 3 steps** for everyone: email and password (the account is made here), then name and phone,
+  then company and designation, with "Step N of 3". Owner-approved.
+- **Forgot password:** "Forgot password?" under the sign-in password opens `/reset-password`. The emailed link
+  works for one hour and only once.
+- **Emails (owner-approved designs):** welcome email after sign-up; the branded daily digest of new circulars (each
+  with its AI verified / AI draft mark and first summary point, linking to the circular's page); password reset.
+  Digest and welcome come from "Amar Circular" <insights@amarcircular.com>, alerts and resets from
+  "Amar Circular Alerts" <alerts@amarcircular.com>.
+- **One-click unsubscribe** from the daily digest: mail apps' "Unsubscribe" button works without signing in, and
+  the footer link opens a one-button page. It turns off only the digest.
+- Sending starts once the Brevo SMTP key is on the server.
+
+---
+
 ## 25 November 2026 (later): dashboard, search and reader improvements
 
 - **Dashboard filters:** the five largest departments are pills, with **More departments** (searchable, full names

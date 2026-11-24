@@ -159,6 +159,8 @@ class Settings(BaseSettings):
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[SecretStr] = None  # never logged or returned
     SMTP_FROM: Optional[str] = None
+    # Sender for alerts and password resets (owner-approved: alerts@amarcircular.com). Falls back to SMTP_FROM.
+    SMTP_ALERTS_FROM: Optional[str] = None
     SMTP_FROM_NAME: str = "Amar Circular"
     SMTP_TLS_MODE: Literal["starttls", "ssl", "none"] = "starttls"
     SMTP_TIMEOUT_SECONDS: int = 20

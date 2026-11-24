@@ -104,7 +104,11 @@ async def send_due_emails(db: AsyncSession, now: Optional[datetime] = None) -> i
         row.status = "SENDING"
         row.locked_until = now + timedelta(seconds=LEASE_SECONDS)
         await db.commit()
-        msg = mailer.build_message(row.to_address, row.subject, row.text_body, row.html_body)
+        from backend.app.modules.alerts import reader_mail
+
+        unsub = reader_mail.unsubscribe_post_url(row.user_id) if (row.user_id and row.kind in reader_mail.UNSUB_KINDS) else None
+        msg = mailer.build_message(row.to_address, row.subject, row.text_body, row.html_body,
+                                   sender_pair=reader_mail.sender_for(row.kind), unsubscribe_post_url=unsub)
         result = await asyncio.to_thread(mailer.send_now, msg)
         await record_attempt(db, row, result, started, now)
         handled += 1

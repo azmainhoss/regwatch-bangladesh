@@ -93,7 +93,13 @@ export default function AccountModal({ isOpen, onClose, currentUser, onUserChang
           <div className="px-5 py-5">
             <AuthForm
               mode={mode}
-              onModeChange={setMode}
+              onModeChange={(m) => {
+                // Registering always uses the 3-step sign-up.
+                if (m === "signup") {
+                  onClose();
+                  openRegister("register");
+                } else setMode(m);
+              }}
               onDone={(user) => {
                 onUserChange(user);
                 setMode("signin");
