@@ -147,14 +147,14 @@ export default function AuthForm({
       </button>
       {!hideSwitch && (
       <p className="text-center text-[13.5px] text-ink-3">
-        {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
+        {mode === "signin" ? "Not registered yet?" : "Already have an account?"}{" "}
         <button
           type="button"
           onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
           disabled={loading}
           className="font-semibold text-accent hover:underline disabled:opacity-60"
         >
-          {mode === "signin" ? "Create an account" : "Sign in"}
+          {mode === "signin" ? "Register" : "Sign in"}
         </button>
       </p>
       )}

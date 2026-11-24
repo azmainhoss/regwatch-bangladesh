@@ -99,6 +99,8 @@ async def get_summary(
     current_user: Optional[User] = Depends(get_document_reader),
 ):
     # Internal progress page for the platform team (the screen is admin-only too).
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Sign in as an administrator.", headers={"WWW-Authenticate": "Bearer"})
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Administrators only.")
     days = max(1, min(days, 90))

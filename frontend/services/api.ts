@@ -352,8 +352,8 @@ export async function fetchSignups(): Promise<Signup[]> {
 
 /** Opens the "Register now" dialog from anywhere (the header button, a gated click). */
 export const OPEN_REGISTER_EVENT = "amarcircular-open-register";
-export function openRegister() {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(OPEN_REGISTER_EVENT));
+export function openRegister(view: "register" | "signin" = "register") {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(OPEN_REGISTER_EVENT, { detail: view }));
 }
 
 /**

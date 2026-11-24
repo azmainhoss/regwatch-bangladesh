@@ -46,7 +46,7 @@ class TokenResponse(BaseModel):
 
 
 class QuickRegister(BaseModel):
-    """'Register now' on the public site: no password. Name, email, phone, company and designation."""
+    """'Register now' on the public site: name, email, phone, company, designation and a password."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -55,6 +55,14 @@ class QuickRegister(BaseModel):
     phone_number: str = Field(..., min_length=6, max_length=32)
     company: str = Field(..., min_length=1, max_length=255)
     designation: str = Field(..., min_length=1, max_length=128)
+    password: str = Field(..., min_length=8, description="At least 8 characters")
+
+    @field_validator("password")
+    @classmethod
+    def _password_fits_bcrypt(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes long (about 72 letters or digits).")
+        return value
 
     @field_validator("phone_number")
     @classmethod

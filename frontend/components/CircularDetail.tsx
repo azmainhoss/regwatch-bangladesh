@@ -20,6 +20,7 @@ import {
   triggerDocumentAnalysis,
   openRegister,
 } from "@/services/api";
+import { FREE_LIMIT, FREE_VIEWS_EVENT, canViewFree, countFreeView, freeLeft } from "@/services/freeViews";
 import StatusBadge, { AwaitingReviewTag, InForceBadge, PrivateTag, Tag } from "./StatusBadge";
 import CompareButtons from "./CompareButtons";
 import { loadStatus, inForceOf, useRelState } from "@/services/relationshipsStore";
@@ -305,6 +306,21 @@ export default function CircularDetail(props: Props) {
   // The checked points of this circular: from the shared copy at once, kept fresh while the page is visible.
   const { view, error: claimsError, loading: claimsLoading, state: claimsState } = useDocClaims(doc.id, isAdmin);
 
+  // Visitors without an account read FREE_LIMIT circulars in full (services/freeViews.ts), then are asked to register.
+  const [freeOk, setFreeOk] = useState(true);
+  const [left, setLeft] = useState(FREE_LIMIT);
+  useEffect(() => {
+    if (currentUser) return;
+    const ok = canViewFree(doc.id);
+    setFreeOk(ok);
+    if (ok) countFreeView(doc.id);
+    setLeft(freeLeft());
+    const sync = () => setLeft(freeLeft());
+    window.addEventListener(FREE_VIEWS_EVENT, sync);
+    return () => window.removeEventListener(FREE_VIEWS_EVENT, sync);
+  }, [doc.id, currentUser]);
+  const locked = !currentUser && !freeOk;
+
   // In-force status, links and compare targets: shown from the shared copy at once, refreshed in the background.
   useEffect(() => {
     loadStatus(doc.id).catch(() => undefined);
@@ -557,8 +573,22 @@ export default function CircularDetail(props: Props) {
       </>
     );
 
-  const analysisBody = !currentUser ? (
-    // Visitors who have not registered: the summary, points and pages open after Register now.
+  const freeBar = !currentUser && freeOk ? (
+    <div data-free-click className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-panel bg-accent-soft px-4 py-2.5">
+      <p className="text-[14px] text-ink-2">
+        {left > 0
+          ? `You can read ${left} more circular${left === 1 ? "" : "s"} free.`
+          : "This was your last free circular."}{" "}
+        Register free for unlimited access.
+      </p>
+      <button type="button" onClick={() => openRegister("register")} className="btn-primary h-8 px-3 text-[13px]">
+        Register
+      </button>
+    </div>
+  ) : null;
+
+  const analysisBody = locked ? (
+    // Free circulars used up: the summary, points and pages open after Register now.
     <div className="space-y-3 border-t border-line pt-5">
       {doc.title_bn && (
         <p lang="bn" className="max-w-prose text-[16px] text-ink">
@@ -566,11 +596,11 @@ export default function CircularDetail(props: Props) {
         </p>
       )}
       <div className="rounded-panel bg-accent-soft px-4 py-4">
-        <p className="text-[15px] font-semibold text-ink">Register free to read this circular</p>
+        <p className="text-[15px] font-semibold text-ink">You have read your {FREE_LIMIT} free circulars</p>
         <p className="mt-1 max-w-prose text-[14px] leading-relaxed text-ink-2">
-          See its summary, what has changed, the requirements, who it applies to and the key dates, each linked to the page it comes from.
+          Register free to keep reading: summaries, what has changed, the requirements, who it applies to and the key dates, each linked to the page it comes from.
         </p>
-        <button type="button" data-free-click onClick={openRegister} className="btn-primary mt-3">
+        <button type="button" data-free-click onClick={() => openRegister("register")} className="btn-primary mt-3">
           Register now
         </button>
       </div>
@@ -1136,7 +1166,10 @@ export default function CircularDetail(props: Props) {
       </header>
 
       <div className={`px-5 pb-7 sm:px-7 ${pagePanelOpen ? "xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(420px,1.15fr)] xl:gap-6" : ""}`}>
-        <div className="min-w-0">{analysisBody}</div>
+        <div className="min-w-0">
+          {freeBar}
+          {analysisBody}
+        </div>
         {pagePanelOpen && (
           <div
             aria-hidden

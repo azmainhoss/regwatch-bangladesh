@@ -15,13 +15,13 @@ async def client():
         yield ac
 
 
-def _details(email: str, phone: str = "+880 1711-000000") -> dict:
+def _details(email: str, phone: str = "+880 1711-000000", password: str = "Sunrise#2026") -> dict:
     return {"full_name": "Rahim Uddin", "email": email, "phone_number": phone,
-            "company": "Example Bank PLC", "designation": "Compliance Officer"}
+            "company": "Example Bank PLC", "designation": "Compliance Officer", "password": password}
 
 
 @pytest.mark.asyncio
-async def test_new_visitor_is_signed_in_at_once_and_cannot_use_a_password(client):
+async def test_register_signs_in_at_once_and_the_password_works_next_time(client):
     email = f"lead_{uuid.uuid4().hex[:8]}@example.com"
     r = await client.post(f"{API}/auth/quick-register", json=_details(email))
     assert r.status_code == 200, r.text
@@ -30,19 +30,20 @@ async def test_new_visitor_is_signed_in_at_once_and_cannot_use_a_password(client
     assert body["expires_in_seconds"] == 30 * 24 * 3600
     me = await client.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"})
     assert me.status_code == 200 and me.json()["phone_number"] == "+880 1711-000000"
-    # The account has no known password.
-    bad = await client.post(f"{API}/auth/login", json={"email": email, "password": "Password123!"})
+    ok = await client.post(f"{API}/auth/login", json={"email": email, "password": "Sunrise#2026"})
+    assert ok.status_code == 200 and ok.json()["expires_in_seconds"] == 30 * 24 * 3600
+    bad = await client.post(f"{API}/auth/login", json={"email": email, "password": "wrong-password"})
     assert bad.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_same_email_gets_back_in_only_with_the_same_phone(client):
+async def test_same_email_cannot_register_twice_and_is_told_to_sign_in(client):
     email = f"lead_{uuid.uuid4().hex[:8]}@example.com"
     assert (await client.post(f"{API}/auth/quick-register", json=_details(email))).status_code == 200
-    again = await client.post(f"{API}/auth/quick-register", json=_details(email, phone="01711000000"))
-    assert again.status_code == 409  # 01711000000 lacks the 880 prefix: different digits
-    same = await client.post(f"{API}/auth/quick-register", json=_details(email, phone="+8801711000000"))
-    assert same.status_code == 200, same.text
+    again = await client.post(f"{API}/auth/quick-register", json=_details(email, password="Another#2026"))
+    assert again.status_code == 409 and "sign in" in again.json()["detail"].lower()
+    # The first password still works; the second attempt changed nothing.
+    assert (await client.post(f"{API}/auth/login", json={"email": email, "password": "Sunrise#2026"})).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -55,23 +56,25 @@ async def test_password_accounts_cannot_be_taken_over_by_quick_register(client):
 
 
 @pytest.mark.asyncio
-async def test_all_five_details_are_required(client):
+async def test_all_six_details_are_required(client):
     d = _details(f"lead_{uuid.uuid4().hex[:8]}@example.com")
-    for field in ("full_name", "email", "phone_number", "company", "designation"):
+    for field in ("full_name", "email", "phone_number", "company", "designation", "password"):
         partial = {k: v for k, v in d.items() if k != field}
         assert (await client.post(f"{API}/auth/quick-register", json=partial)).status_code == 422, field
     assert (await client.post(f"{API}/auth/quick-register", json={**d, "phone_number": "abc"})).status_code == 422
+    assert (await client.post(f"{API}/auth/quick-register", json={**d, "password": "short"})).status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_visitors_see_the_dashboard_lists_but_not_a_circular(client):
+async def test_visitors_see_the_dashboard_lists_and_can_open_shared_circulars(client):
     for path in ("/feed?limit=5", "/feed/counts", "/feed/topics", "/institutions"):
         r = await client.get(f"{API}{path}")
         assert r.status_code == 200, (path, r.text)
-    # Opening a circular, its pages or its PDF still needs an account.
+    # Visitors may open shared circulars (the site counts 3 free ones); an unknown id is simply not found.
     any_id = "00000000-0000-0000-0000-000000000001"
-    assert (await client.get(f"{API}/documents/{any_id}")).status_code == 401
-    assert (await client.get(f"{API}/documents/{any_id}/pdf")).status_code == 401
+    assert (await client.get(f"{API}/documents/{any_id}")).status_code == 404
+    # The admin progress page still needs an administrator.
+    assert (await client.get(f"{API}/summary")).status_code == 401
 
 
 @pytest.mark.asyncio

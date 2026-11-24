@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, LogOut } from "lucide-react";
-import { AuthUser, logoutUser } from "../services/api";
+import { AuthUser, logoutUser, openRegister } from "../services/api";
 import { Modal, ModalHeader } from "./ui";
 import AuthForm from "./AuthForm";
 
@@ -16,6 +16,14 @@ interface AccountModalProps {
 
 export default function AccountModal({ isOpen, onClose, currentUser, onUserChange }: AccountModalProps) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+
+  // Signed out: "Sign in" anywhere in the app opens the one Register / Sign in dialog instead.
+  useEffect(() => {
+    if (isOpen && !currentUser) {
+      openRegister("register");
+      onClose();
+    }
+  }, [isOpen, currentUser, onClose]);
 
   const handleLogout = () => {
     setMode("signin");

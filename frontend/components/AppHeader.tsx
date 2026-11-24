@@ -143,27 +143,39 @@ export default function AppHeader() {
 
             {currentUser && <BellButton />}
 
-            <button
-              type="button"
-              data-free-click
-              onClick={() => (currentUser ? setAccountOpen(true) : openRegister())}
-              className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-9 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
-              title={currentUser ? `Signed in as ${currentUser.email}` : "Register now"}
-            >
-              {currentUser ? (
-                <>
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-2xs font-bold text-accent">
-                    {initials || "U"}
-                  </span>
-                  <span className="hidden max-w-[160px] truncate sm:inline">{currentUser.full_name}</span>
-                </>
-              ) : (
-                <>
-                  <UserRound className="ml-1 h-4 w-4" strokeWidth={1.75} />
-                  <span className="pr-1.5 sm:pr-0">Register now</span>
-                </>
-              )}
-            </button>
+            {currentUser ? (
+              <button
+                type="button"
+                onClick={() => setAccountOpen(true)}
+                className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-9 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
+                title={`Signed in as ${currentUser.email}`}
+              >
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-2xs font-bold text-accent">
+                  {initials || "U"}
+                </span>
+                <span className="hidden max-w-[160px] truncate sm:inline">{currentUser.full_name}</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-free-click
+                  onClick={() => openRegister("signin")}
+                  className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 text-[13px] font-semibold text-ink-2 transition-colors hover:bg-sunken hover:text-ink sm:h-9"
+                >
+                  <UserRound className="h-4 w-4" strokeWidth={1.75} />
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  data-free-click
+                  onClick={() => openRegister("register")}
+                  className="btn-primary h-11 shrink-0 whitespace-nowrap px-3 text-[13px] sm:h-9"
+                >
+                  Register
+                </button>
+              </>
+            )}
 
             <span data-free-click className="contents">
               <ThemeToggle />
