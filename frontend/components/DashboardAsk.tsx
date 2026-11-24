@@ -86,7 +86,7 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
             id="dash-ask"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Ask a question, e.g. What is the provision rate for SMA loans?"
+            placeholder="Ask, e.g. SMA loan provision rate?"
             lang={hasBangla(q) ? "bn" : undefined}
             className="field h-12 rounded-[10px] px-4 text-[16px]"
           />
