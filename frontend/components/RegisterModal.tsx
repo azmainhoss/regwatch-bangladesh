@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from "react";
 import { AuthUser, OPEN_REGISTER_EVENT, quickRegister } from "../services/api";
 import { Modal, ModalHeader, Notice } from "./ui";
-import AuthForm, { type AuthMode } from "./AuthForm";
 
 type Field = "full_name" | "email" | "phone_number" | "company" | "designation";
 
@@ -17,8 +16,8 @@ const FIELDS: { key: Field; label: string; type: string; autoComplete: string; p
 
 const EMPTY: Record<Field, string> = { full_name: "", email: "", phone_number: "", company: "", designation: "" };
 
-/** "Register now": five details, no password. Also offers password sign-in for existing accounts (admins, banks). */
-function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onSignIn: () => void }) {
+/** "Register now": five details, no password. Returning visitors enter the same email and phone. Admins sign in at /admin/login. */
+function RegisterForm({ onDone }: { onDone: (u: AuthUser) => void }) {
   const [values, setValues] = useState<Record<Field, string>>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,11 +65,8 @@ function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onS
       <button type="submit" disabled={loading} className="btn-primary w-full justify-center">
         {loading ? "Registering..." : "Register now"}
       </button>
-      <p className="text-center text-[13px] text-ink-3">
-        Free access to every Bangladesh Bank circular.{" "}
-        <button type="button" onClick={onSignIn} className="font-semibold text-accent hover:underline">
-          Have a password? Sign in
-        </button>
+      <p className="text-center text-[13px] leading-snug text-ink-3">
+        Free access to every Bangladesh Bank circular. Registered before? Enter the same email and phone number to continue.
       </p>
     </form>
   );
@@ -82,11 +78,9 @@ function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onS
  */
 export default function RegisterGate({ signedIn, onUserChange }: { signedIn: boolean; onUserChange?: (u: AuthUser) => void }) {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"register" | AuthMode>("register");
 
   useEffect(() => {
     const show = () => {
-      setView("register");
       setOpen(true);
     };
     window.addEventListener(OPEN_REGISTER_EVENT, show);
@@ -108,7 +102,6 @@ export default function RegisterGate({ signedIn, onUserChange }: { signedIn: boo
       e.stopPropagation();
       if (e.type === "click" || e.type === "submit") {
         (document.activeElement as HTMLElement | null)?.blur?.();
-        setView("register");
         setOpen(true);
       }
     };
@@ -118,7 +111,6 @@ export default function RegisterGate({ signedIn, onUserChange }: { signedIn: boo
       // Typing in the search box or a field also asks to register (keyboard users included).
       if (t.matches("input, textarea, select")) {
         (t as HTMLElement).blur();
-        setView("register");
         setOpen(true);
       }
     };
@@ -141,26 +133,15 @@ export default function RegisterGate({ signedIn, onUserChange }: { signedIn: boo
 
   return (
     <Modal open={open} onClose={() => setOpen(false)} labelledBy="register-title" width="max-w-md">
-      {view === "register" ? (
-        <>
-          <ModalHeader
-            id="register-title"
-            title="Register now"
-            subtitle="Register free to open circulars, summaries, search and alerts."
-            onClose={() => setOpen(false)}
-          />
-          <div className="px-5 py-5">
-            <RegisterForm onDone={done} onSignIn={() => setView("signin")} />
-          </div>
-        </>
-      ) : (
-        <>
-          <ModalHeader id="register-title" title="Sign in" subtitle="For accounts with a password." onClose={() => setOpen(false)} />
-          <div className="px-5 py-5">
-            <AuthForm mode="signin" onModeChange={() => setView("register")} onDone={done} />
-          </div>
-        </>
-      )}
+      <ModalHeader
+        id="register-title"
+        title="Register now"
+        subtitle="Register free to open circulars, summaries, search and alerts."
+        onClose={() => setOpen(false)}
+      />
+      <div className="px-5 py-5">
+        <RegisterForm onDone={done} />
+      </div>
     </Modal>
   );
 }
