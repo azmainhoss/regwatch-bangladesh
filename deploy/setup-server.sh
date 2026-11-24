@@ -108,6 +108,6 @@ Setup done. Next steps (deploy/README.md has the details):
   2. Copy the database and PDFs:   deploy/upload-data.sh  (run on the laptop or Mac)
   3. Build and start:              sudo -u regwatch $APP/deploy/deploy.sh
   4. Point the domain's DNS A record at this server, then: systemctl reload caddy
-  5. Only after you can log in with an SSH key: set "PasswordAuthentication no" in
-     /etc/ssh/sshd_config.d/50-regwatch.conf and run: systemctl reload ssh
+  5. Only after you can log in with an SSH key: put "PasswordAuthentication no" in
+     /etc/ssh/sshd_config.d/00-aa-regwatch.conf (must sort first) and run: sshd -t && systemctl reload ssh
 EOF

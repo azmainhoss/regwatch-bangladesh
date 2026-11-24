@@ -4,6 +4,11 @@ RegWatch runs on one Spaceship VPS (Ubuntu 24.04, 2 GB RAM): the backend, the fr
 the hourly bb.org.bd checker and the page reader, behind Caddy for HTTPS. About 1 hour end to end.
 Everything below is copy-paste. `amarcircular.com` and `SERVER_IP` stand for your domain and the server's address.
 
+**Live server (2026-11-24):** `104.207.77.129`, Spaceship Singapore. Spaceship runs SSH on **port 22022**, not 22. On the Mac,
+`~/.ssh/config` has a `Host amarcircular` entry (port 22022, key `~/.ssh/amarcircular_vps`), so every `root@SERVER_IP` below
+is simply `amarcircular` there (`ssh amarcircular`, `SERVER=amarcircular deploy/upload-data.sh`). The server pulls the private
+repo with a read-only GitHub deploy key (`/opt/regwatch/.ssh/id_ed25519`). DNS is on Spaceship (Advanced DNS).
+
 | File | What it does |
 | --- | --- |
 | `setup-server.sh` | One-time server setup: firewall, fail2ban, updates, swap, Node, Caddy, app user, services |
@@ -109,7 +114,8 @@ Restore: stop the backend, `gunzip` a copy from `/var/backups/regwatch/` (or dow
 
 - Sign in as a bank user on the live site, open a circular, its source page and mind map, search, email it to yourself, assign it.
 - `journalctl -u regwatch-backend --since today | grep -i "finished\|error"`: the hourly check runs and finds the list.
-- After you can log in with your SSH key: `echo "PasswordAuthentication no" > /etc/ssh/sshd_config.d/50-regwatch.conf && systemctl reload ssh`.
+- After you can log in with your SSH key: `printf "PasswordAuthentication no\nPermitRootLogin prohibit-password\n" > /etc/ssh/sshd_config.d/00-aa-regwatch.conf && sshd -t && systemctl reload ssh`.
+  The file name must sort before Spaceship's `00-custom.conf` (sshd keeps the first value it reads). Check with `sshd -T | grep passwordauth`. Done on the live server.
 
 ## Every later release
 
