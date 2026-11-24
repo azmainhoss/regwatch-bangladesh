@@ -62,7 +62,7 @@ function Home() {
             Know what updates <span className="hero-hl px-1">came today</span>
           </h1>
           <p className="max-w-[540px] text-[17px] leading-[1.55] text-ink-2 sm:text-[19px]">
-            Every new circular is reviewed on the day it’s issued, highlighting what has changed, what banks need to do, and exactly
+            Every new circular is notified on the day it’s issued, highlighting what has changed, what banks need to do, and exactly
             where to find it in the original document.
           </p>
           <div>
