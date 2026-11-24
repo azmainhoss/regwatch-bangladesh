@@ -221,12 +221,31 @@ async def test_lines_next_to_ours_in_the_strip_do_not_count_against_us():
     assert row.status == "CLEAN" and out["calls"] == 1
     assert row.reads[0]["text"] == ours and len(row.reads[0]["full"].split(chr(10))) == 3
 
-    # a strip that holds only other lines still disagrees with ours
+    # a strip that holds only other lines (the line box was off) is a crop miss, not a misreading:
+    # the whole page is read instead, and our lines found there decide
+    page = page_of([ours])
+    row = row_for(page, 0)
+    fake = FakeService([[[above, below]], [[above, ours, below]]])
+    out = await R.check_page(page, [row], blank_pdf(), fake.sender())
+    assert row.status == "CLEAN" and out["calls"] == 2
+    assert [x["kind"] for x in row.reads] == ["CROP_MISS", "PAGE"]
+
+    # when the page reading does not hold our lines either, the point stays unclear (never "misread")
     page = page_of([ours])
     row = row_for(page, 0)
     fake = FakeService([[[above, below]], [[above, below]]])
     await R.check_page(page, [row], blank_pdf(), fake.sender())
-    assert row.status == "MISREAD"
+    assert row.status == "UNCLEAR"
+
+
+def test_bangla_spelling_variants_match_but_a_missing_word_does_not():
+    # hasant / conjunct and danda differences between two correct readings of the same print
+    assert R.same_reading("অন্য কোনো ইন্সট্রুমেন্টের মাধ্যমে প্রদান করা হলো।", "অন্য কোনো ইনস্ট্রুমেন্টের মাধ্যমে প্রদান করা হলো.")
+    assert R.same_reading("সরকারি ব্যাংকসমূহকে জানানো হলো।", "সরকারী ব্যাংকসমূহকে জানানো হলো।")
+    # a whole word on one side only changes the meaning ("new applications")
+    assert not R.same_reading("এ সার্কুলারের আওতায় আবেদন গ্রহণের তারিখ হতে", "এ সার্কুলারের আওতায় নতুন আবেদন গ্রহণের তারিখ হতে")
+    # numbers stay exact
+    assert not R.same_reading("প্রজ্ঞাপন নং ১৭৭", "প্রজ্ঞাপন নং ৭১৭")
 
 
 @pytest.mark.asyncio

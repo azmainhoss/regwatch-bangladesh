@@ -5,6 +5,7 @@ checks (or a person approved), and for every hidden point only its section, page
 point's own wording is never sent. Administrators ask for `all=1` and also get hidden points, their
 checks and the reasons in plain words.
 """
+from backend.app.core.config import settings
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -253,6 +254,12 @@ async def build_view(db, doc: Document, user, admin: bool = False) -> Dict[str, 
             continue
         if S.is_shown(claim):
             sections[section].append(_item(claim, pages, targets, False))
+        elif settings.SHOW_UNCONFIRMED_POINTS and claim.check_status != S.REJECTED and _page_number(claim, pages):
+            # Not confirmed by every check (mostly the second page reading): shown with "Check page N" so the
+            # reader opens the highlighted lines, instead of being hidden (minimal human involvement, 2026-11-24).
+            item = _item(claim, pages, targets, False)
+            item["check_page"] = True
+            sections[section].append(item)
         else:
             allowed = lines_are_on_the_page(claim)
             hidden.append(

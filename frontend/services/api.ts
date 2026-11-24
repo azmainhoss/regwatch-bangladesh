@@ -1221,6 +1221,8 @@ export interface ClaimItem {
   quote_boxes: QuoteBox[];
   /** Who checked it: the checks (CHECKS) or a person (TEAM). */
   checked_by: "CHECKS" | "TEAM";
+  /** Not confirmed by every check: shown with "Check page N" instead of "Checked". */
+  check_page?: boolean;
   obligation_id?: string;
   link?: { target_document_id: string | null; target_reference: string | null; shown_type: string };
   /** Administrators only. */

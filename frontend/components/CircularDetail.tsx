@@ -512,8 +512,21 @@ export default function CircularDetail(props: Props) {
   /** The quiet tag, the page link and (administrators) the ask-for-review button under one shown point. */
   const foot = (item: ClaimItem, extra?: React.ReactNode) => (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-3">
-      <PageLink page={item.page_number} onClick={() => item.page_number && openPage(item.page_number, item.quote, item.quote_boxes)} />
-      <span data-testid="checked-tag">{checkedTag(item)}</span>
+      {item.check_page && item.page_number ? (
+        <button
+          type="button"
+          onClick={() => item.page_number && openPage(item.page_number, item.quote, item.quote_boxes)}
+          className="rounded-control border border-line px-2 py-0.5 font-semibold text-accent hover:bg-sunken"
+          data-testid="check-page"
+        >
+          Check page {item.page_number}
+        </button>
+      ) : (
+        <>
+          <PageLink page={item.page_number} onClick={() => item.page_number && openPage(item.page_number, item.quote, item.quote_boxes)} />
+          <span data-testid="checked-tag">{checkedTag(item)}</span>
+        </>
+      )}
       {extra}
       {adminState(item)}
       {askButton(item)}

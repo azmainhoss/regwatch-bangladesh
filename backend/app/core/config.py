@@ -187,6 +187,8 @@ class Settings(BaseSettings):
     QUOTE_CHECK_DPI: int = 200
     QUOTE_TIEBREAK_DPI: int = 300
     QUOTE_CHECK_MAX_EDIT_SHARE: float = 0.03
+    # Readers see points that did not pass every check too, marked "Check page N" (they are never hidden).
+    SHOW_UNCONFIRMED_POINTS: bool = True
     QUOTE_CHECK_CROPS_PER_CALL: int = 12
     QUOTE_CHECK_MAX_ATTEMPTS: int = 3
 

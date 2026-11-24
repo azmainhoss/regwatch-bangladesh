@@ -126,7 +126,10 @@ READING_SCHEMA: Dict[str, Any] = {
     "required": ["crops"],
 }
 
-CROP_PADDING = 15  # 1.5% of the page height above and below the lines (0-1000 scale)
+# Margin above and below the lines (0-1000 scale). The line boxes come from a model reading of the page and are
+# often off by a line or two, so the strip is cut about three lines wider and focus_reading() then keeps only
+# the lines that answer to ours. (15 here, and 0 on the tie-break, cut many sentences off: 2026-11-24 review.)
+CROP_PADDING = 40
 SENTENCE_MATCH_FLOOR = 0.6  # the least text likeness for finding a sentence in a whole-page reading
 
 
@@ -205,6 +208,29 @@ def confirmed_figures(our_text: str, native_text: Optional[str]) -> List[str]:
     return found
 
 
+# Bangla spelling variants that two correct readings of the same print often differ in: the hasant that joins
+# conjuncts (ইন্সট্রুমেন্ট / ইনস্ট্রুমেন্ট), short and long i and u (সরকারি / সরকারী, উল্লেখিত / উল্লিখিত keeps
+# its e/i difference), khanda ta, and the danda against a full stop. Numbers, "no" words and reference codes
+# are compared separately and exactly, so folding these never hides a change of meaning.
+_SPELLING_FOLD = str.maketrans({"\u09cd": None, "\u09c0": "\u09bf", "\u09c2": "\u09c1", "\u09ce": "\u09a4", "\u0964": ".", "\u0965": "."})
+
+
+def fold_spelling(text: str) -> str:
+    """norm() plus the Bangla spelling folds above, without punctuation: the text the edit share is measured on."""
+    return _strip_punctuation(W.norm(text).translate(_SPELLING_FOLD))
+
+
+def whole_word_gap(ca: str, cb: str, min_letters: int = 3) -> bool:
+    """True when one folded reading has a whole word (3+ letters) the other lacks, not a respelling or a split."""
+    wa, wb = ca.split(), cb.split()
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, wa, wb, autojunk=False).get_opcodes():
+        if op == "delete" and any(len(w) >= min_letters for w in wa[i1:i2]):
+            return True
+        if op == "insert" and any(len(w) >= min_letters for w in wb[j1:j2]):
+            return True
+    return False
+
+
 def same_reading(
     a: str,
     b: str,
@@ -242,9 +268,11 @@ def same_reading(
     if _reference_codes(a, codes) != _reference_codes(b, codes):
         return False
 
-    ca, cb = _strip_punctuation(W.norm(a)), _strip_punctuation(W.norm(b))
+    ca, cb = fold_spelling(a), fold_spelling(b)
     if not ca:
         return not cb
+    if whole_word_gap(ca, cb):
+        return False  # a word is missing on one side (e.g. "new applications" vs "applications")
     return levenshtein(ca, cb) / len(ca) <= share
 
 
@@ -453,6 +481,7 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
 
     # --- first reading: crops of the lines, then whole page for rows without boxes -------------
     first = [(r, b) for r, b in boxed if not (r.reads or [])]
+    missed: List[Any] = []
     for group in _chunks(first, settings.QUOTE_CHECK_CROPS_PER_CALL):
         try:
             images = await asyncio.to_thread(
@@ -472,6 +501,11 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
         for (r, _b), text in zip(group, _texts_from_reply(result.data, len(group))):
             if text is None:
                 _real_failure(r, "The reading of this strip was left out of the answer.", summary)
+                continue
+            if locate_in_page_reading(r.our_text or "", text) is None:
+                # The strip holds other lines (the line box was off): not evidence about our text. Read the page.
+                _add_read(r, "CROP_MISS", text, result.model or settings.QUOTE_CHECK_MODEL)
+                missed.append(r)
                 continue
             if judge(r, _add_read(r, "CROP", text, result.model or settings.QUOTE_CHECK_MODEL)):
                 _finish(r, "CLEAN", summary)
@@ -513,7 +547,7 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
     for group in _chunks(second, settings.QUOTE_CHECK_CROPS_PER_CALL):
         try:
             images = await asyncio.to_thread(
-                lambda g=group: [crop_png(page_png(settings.QUOTE_TIEBREAK_DPI), b, 0) for _r, b in g]
+                lambda g=group: [crop_png(page_png(settings.QUOTE_TIEBREAK_DPI), b, CROP_PADDING) for _r, b in g]
             )
         except Exception as e:
             for r, _b in group:
@@ -530,6 +564,10 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
             if text is None:
                 _real_failure(r, "The reading of this strip was left out of the answer.", summary)
                 continue
+            if locate_in_page_reading(r.our_text or "", text) is None:
+                _add_read(r, "CROP_MISS", text, result.model or settings.QUOTE_TIEBREAK_MODEL)
+                missed.append(r)
+                continue
             text = _add_read(r, "SHARP_CROP", text, result.model or settings.QUOTE_TIEBREAK_MODEL)
             first_text = (r.reads[0] or {}).get("text", "")
             if judge(r, text):
@@ -538,4 +576,30 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
                 _finish(r, "MISREAD", summary)
             else:
                 _finish(r, "UNCLEAR", summary)
+
+    # --- crop misses: read the whole page once and find our lines in it ---------------------------
+    retry = [r for r in missed if r.status == "WAITING" and not any((x or {}).get("kind") == "PAGE" for x in (r.reads or []))]
+    if retry:
+        try:
+            image = await asyncio.to_thread(page_png, settings.QUOTE_CHECK_DPI)
+        except Exception as e:
+            for r in retry:
+                _real_failure(r, f"render failed: {type(e).__name__}", summary)
+            return summary
+        result = await _call(send, [image], settings.QUOTE_CHECK_MODEL, summary)
+        if not result.success:
+            if _stop_reason(result, summary):
+                return summary
+            for r in retry:
+                _real_failure(r, result.error or "no answer", summary)
+            return summary
+        reading = (_texts_from_reply(result.data, 1) or [None])[0]
+        for r in retry:
+            found = locate_in_page_reading(r.our_text or "", reading or "")
+            if found is None:
+                _add_read(r, "PAGE", "", result.model or settings.QUOTE_CHECK_MODEL)
+                _finish(r, "UNCLEAR", summary)
+                continue
+            _add_read(r, "PAGE", found, result.model or settings.QUOTE_CHECK_MODEL)
+            _finish(r, "CLEAN" if judge(r, found) else "UNCLEAR", summary)
     return summary

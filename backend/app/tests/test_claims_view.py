@@ -465,3 +465,21 @@ async def test_backfill_dry_run_apply_and_second_apply(monkeypatch):
     async with AsyncSessionLocal() as db:
         claims = (await db.execute(select(AnalysisClaim).where(AnalysisClaim.analysis_id == analysis.id))).scalars().all()
         assert {str(c.id) for c in claims} == before
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_points_are_shown_with_check_page_not_hidden(client, monkeypatch):
+    from backend.app.core.config import settings as app_settings
+
+    doc, *_ = await analysed_circular(monkeypatch)
+    body = (await client.get(f"/api/v1/documents/{doc.id}/claims")).json()
+    flagged = [i for items in body["sections"].values() for i in items if i.get("check_page")]
+    # the two points that did not pass every check are shown, marked for "Check page N", with their page
+    assert len(flagged) == 2 and all(i["page_number"] == 1 and i["quote"] for i in flagged)
+    assert body["hidden"] == []
+    # confirmed points carry no flag
+    assert all(not i.get("check_page") for i in body["sections"]["dates"])
+
+    monkeypatch.setattr(app_settings, "SHOW_UNCONFIRMED_POINTS", False)
+    body = (await client.get(f"/api/v1/documents/{doc.id}/claims")).json()
+    assert len(body["hidden"]) == 2 and not any(i.get("check_page") for items in body["sections"].values() for i in items)
