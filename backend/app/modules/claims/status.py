@@ -206,8 +206,10 @@ def counts(claims: Iterable[Any]) -> Dict[str, int]:
 # Obligation and link rows follow their claims (4.5)
 # ---------------------------------------------------------------------------
 def _change_type_confirmed(claim: Any) -> bool:
+    """A person confirmed the type, or every machine check passed and the shown type is the claimed type
+    (checks.link_shown_type gives the claimed change type only when the machine can confirm it)."""
     f = _fields(claim)
-    return claim.check_status in (APPROVED, FIXED) and str(f.get("shown_type") or "").upper() == str(f.get("claimed_type") or "").upper()
+    return claim.check_status in (APPROVED, FIXED, PASSED) and str(f.get("shown_type") or "").upper() == str(f.get("claimed_type") or "").upper()
 
 
 def obligation_row_status(claim: Any) -> str:
@@ -221,8 +223,8 @@ def link_row_status(claim: Any) -> str:
         return "REJECTED"
     if _change_type_confirmed(claim):
         return "VERIFIED"
-    # A link whose claimed type changes another rule never counts as VERIFIED without a person, even when
-    # it is shown only as a mention: the row keeps the claimed type, and in-force code reads VERIFIED rows.
+    # A change-the-law link counts as VERIFIED only when its type was confirmed (above). Shown only as a mention,
+    # it stays PENDING_REVIEW: the row keeps the claimed type, and in-force code reads VERIFIED rows.
     if is_shown(claim) and not is_change_link(claim):
         return "VERIFIED"
     return "PENDING_REVIEW"

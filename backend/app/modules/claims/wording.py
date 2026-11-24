@@ -71,11 +71,15 @@ DUTY_WORDS: Dict[str, Tuple[str, ...]] = {
 CHANGE_WORDS: Dict[str, Tuple[str, ...]] = {
     "AMENDS": ("amend", "amendment", "modified", "modify", "revised", "revise", "substituted", "substitute", "inserted", "insert",
                "deleted", "delete",
-               "সংশোধন", "সংশোধিত", "পরিবর্তন", "সংযোজন", "প্রতিস্থাপ"),
+               "সংশোধন", "সংশোধিত", "পরিবর্তন", "সংযোজন", "প্রতিস্থাপ",
+               # A provision replaced, a deadline extended or a limit relaxed also amends the circular
+               # (live review of unconfirmed links, 24 Nov 2026).
+               "replaced by", "shall be replaced", "extended", "extension", "relaxed", "relaxation",
+               "বর্ধিত", "বৃদ্ধি করা হলো", "শিথিল"),
     "REPEALS": ("repeal", "rescind", "revoked", "revoke", "withdrawn", "withdraw", "cancelled", "cancel", "ceases to have effect",
                 "রহিত", "বাতিল", "প্রত্যাহার"),
-    "SUPERSEDES": ("supersede", "in supersession of", "replace", "in place of", "প্রতিস্থাপন", "পরিবর্তে", "স্থলে"),
-    "REPLACES": ("supersede", "in supersession of", "replace", "in place of", "প্রতিস্থাপন", "পরিবর্তে", "স্থলে"),
+    "SUPERSEDES": ("supersede", "in supersession of", "replace", "in place of", "প্রতিস্থাপ", "পরিবর্তে", "স্থলে", "রহিত", "বাতিল"),
+    "REPLACES": ("supersede", "in supersession of", "replace", "in place of", "প্রতিস্থাপ", "পরিবর্তে", "স্থলে"),
 }
 
 EXEMPT_WORDS: Tuple[str, ...] = (

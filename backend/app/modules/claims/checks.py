@@ -385,13 +385,31 @@ def check_target_older(claim: Any, ctx: CheckContext) -> Dict[str, Any]:
     return result("TARGET_OLDER", FAIL, "The other circular is not older than this one.")
 
 
-def link_shown_type(claim: Any, checks: List[Dict[str, Any]]) -> str:
-    """What a link may be called before a person looks at it: only 'Mentions' (REFERENCES), or
-    'Clarifies' when its quote uses clarify words. A change-the-law type waits for a person."""
+# A change-the-law link is confirmed by the machine (no person) when all of these pass.
+AUTO_CONFIRM_CHECKS = ("CHANGE_WORDS", "TARGET_NAMED", "TARGET_FOUND", "TARGET_OLDER")
+
+
+def target_date_agrees(claim: Any, ctx: Optional[CheckContext]) -> bool:
+    """True when the hint gives no date, or gives the target's own publication date."""
+    if ctx is None:
+        return False
+    when = linking.hint_date((claim.fields or {}).get("target_hint"))
+    return when is None or when == _target(claim, ctx)[1]
+
+
+def link_shown_type(claim: Any, checks: List[Dict[str, Any]], ctx: Optional[CheckContext] = None) -> str:
+    """What a link is called for readers.
+
+    'Clarifies' when its quote uses clarify words. A change-the-law type (amends, repeals, supersedes, replaces)
+    when the machine can confirm it: the quote uses change words and names the circular, exactly one older
+    library circular matches, and the date the quote gives agrees. Otherwise only 'Mentions' (REFERENCES).
+    """
     claimed = str((claim.fields or {}).get("claimed_type") or "REFERENCES").upper()
     by_name = {c["name"]: c["result"] for c in checks}
     if claimed == "CLARIFIES" and by_name.get("CLARIFY_WORDS") == PASS:
         return "CLARIFIES"
+    if claimed in W.CHANGE_TYPES and all(by_name.get(n) == PASS for n in AUTO_CONFIRM_CHECKS) and target_date_agrees(claim, ctx):
+        return claimed
     return "REFERENCES"
 
 
@@ -460,10 +478,10 @@ async def load_link_targets(db, claims, exclude_document_id) -> Dict[str, Tuple[
     }
     if not hints:
         return {}
-    index = await linking._shared_reference_index(db)
+    idx = await linking.reference_index(db)
     found: Dict[str, Any] = {}
     for hint in hints:
-        found[hint] = linking._unique_match(linking.reference_keys(hint), index, exclude=exclude_document_id)
+        found[hint] = linking.match_target(hint, idx, exclude=exclude_document_id)
     ids = {v for v in found.values() if v is not None}
     dates: Dict[Any, Optional[date]] = {}
     if ids:
@@ -481,7 +499,7 @@ def apply_checks(claim: Any, ctx: CheckContext) -> None:
     checks = check_claim(claim, ctx)
     claim.checks = checks
     if claim.kind == "LINK" and claim.check_status not in ("APPROVED", "FIXED", "REJECTED"):
-        set_field(claim, "shown_type", link_shown_type(claim, checks))
+        set_field(claim, "shown_type", link_shown_type(claim, checks, ctx))
         target_id = _target(claim, ctx)[0]
         if target_id is not None:
             set_field(claim, "target_document_id", str(target_id))

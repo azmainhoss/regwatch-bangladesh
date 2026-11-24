@@ -237,33 +237,22 @@ async def test_obligations_and_links_are_filtered_for_readers(client, monkeypatc
     everything = (await client.get(f"/api/v1/documents/{doc.id}/obligations", headers=_auth(token))).json()
     assert {o["title"] for o in everything} == {"Submit monthly liquidity report", "Do not open new branches", "File annual report"}
 
-    # The waiting change-the-law link looks like a mention to a reader and like AMENDS to an administrator.
+    # A change-the-law link that passes every machine check (change words, target named, exactly one older
+    # library circular, matching date) is confirmed with no person: readers see AMENDS and the target is AMENDED.
     rels = (await client.get(f"/api/v1/documents/{doc.id}/relationships")).json()
-    assert [(r["relationship_type"], r["verification_status"]) for r in rels] == [("REFERENCES", "VERIFIED")]
+    assert [(r["relationship_type"], r["verification_status"]) for r in rels] == [("AMENDS", "VERIFIED")]
     rels_admin = (await client.get(f"/api/v1/documents/{doc.id}/relationships", headers=_auth(token))).json()
-    assert [(r["relationship_type"], r["verification_status"]) for r in rels_admin] == [("AMENDS", "PENDING_REVIEW")]
+    assert [(r["relationship_type"], r["verification_status"]) for r in rels_admin] == [("AMENDS", "VERIFIED")]
 
     status = (await client.get(f"/api/v1/relationships/document/{target.id}/status")).json()
-    assert status["in_force_status"] == "IN_FORCE"
-    assert [l["relationship_type"] for l in status["verified_incoming"]] == ["REFERENCES"] and status["unconfirmed_incoming"] == []
-    status_admin = (await client.get(f"/api/v1/relationships/document/{target.id}/status", headers=_auth(token))).json()
-    assert [l["relationship_type"] for l in status_admin["unconfirmed_incoming"]] == ["AMENDS"]
-    timeline = (await client.get(f"/api/v1/relationships/document/{target.id}/timeline")).json()
-    assert all(not item["changes"] for item in timeline["items"])
+    assert status["in_force_status"] == "AMENDED"
+    assert [l["relationship_type"] for l in status["verified_incoming"]] == ["AMENDS"] and status["unconfirmed_incoming"] == []
     graph = (await client.get(f"/api/v1/relationships/document/{target.id}/graph")).json()
-    assert [e["relationship_type"] for e in graph["edges"]] == ["REFERENCES"]
-
-    # A person confirms it on the old link screen: both views follow, and the target's status changes.
+    assert [e["relationship_type"] for e in graph["edges"]] == ["AMENDS"]
     rel_id = rels_admin[0]["id"]
-    done = await client.post(f"/api/v1/relationships/{rel_id}/review", headers=_auth(token), json={"decision": "VERIFIED"})
-    assert done.status_code == 200, done.text
-    assert done.json()["target_in_force_status"] == "AMENDED"
-    after = (await client.get(f"/api/v1/documents/{doc.id}/relationships")).json()
-    assert [(r["relationship_type"], r["verification_status"]) for r in after] == [("AMENDS", "VERIFIED")]
-    assert (await client.get(f"/api/v1/relationships/document/{target.id}/status")).json()["in_force_status"] == "AMENDED"
     async with AsyncSessionLocal() as db:
         claim = (await db.execute(select(AnalysisClaim).where(AnalysisClaim.kind == "LINK", AnalysisClaim.relationship_id == uuid.UUID(rel_id)))).scalars().one()
-        assert claim.check_status == "APPROVED" and claim.fields["shown_type"] == "AMENDS" and claim.reviewed_by == admin.id
+        assert claim.check_status == "PASSED" and claim.fields["shown_type"] == "AMENDS" and claim.reviewed_by is None
     link_view = (await client.get(f"/api/v1/documents/{doc.id}/claims")).json()["sections"]["links"][0]["link"]
     assert link_view["shown_type"] == "AMENDS"
 

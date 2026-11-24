@@ -8,7 +8,8 @@ is linked: a link is never guessed.
 import re
 import unicodedata
 from collections import defaultdict
-from typing import Dict, Iterable, List, Optional, Set
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy import select
@@ -117,6 +118,96 @@ def reference_keys(hint: Optional[str]) -> List[str]:
     return keys
 
 
+# "acd 1 circular no 3/2026" -> "acd circular no 3/2026": a department's section number (ACD-1, BRPD-2) is often
+# left out when another circular cites it ("ACD Circular No. 03 dated 16 August 2026").
+_SECTION_NO = re.compile(r"^([a-z&]+) \d{1,2} (?=[a-z])")
+
+
+# One department under two names: older circulars say "FE Circular", the library files them as "FEPD Circular".
+_DEPARTMENT_ALIASES = {"fe": "fepd"}
+
+
+def base_key(key: str) -> str:
+    key = _SECTION_NO.sub(r"\1 ", key)
+    dept, _, rest = key.partition(" ")
+    return f"{_DEPARTMENT_ALIASES.get(dept, dept)} {rest}" if rest else key
+
+
+def hint_date(hint: Optional[str]):
+    """The date a hint gives for the cited circular ('dated 16 August 2026'), or None."""
+    if not hint:
+        return None
+    from backend.app.modules.claims import wording as W
+
+    tail = _DATE_TAIL.search(_prepare(hint))
+    if not tail:
+        return None
+    found = W.date_matches(W.norm(tail.group(0)))
+    return found[0][2] if found else None
+
+
+@dataclass
+class ReferenceIndex:
+    exact: Dict[str, Set[UUID]]
+    base: Dict[str, Set[UUID]]
+    dates: Dict[UUID, Any]
+
+
+async def reference_index(db: AsyncSession) -> ReferenceIndex:
+    rows = (
+        await db.execute(
+            select(Document.id, Document.reference_number, Document.publication_date).where(
+                shared_documents_condition(),
+                ~synthetic_sql_condition(),
+                Document.reference_number.isnot(None),
+            )
+        )
+    ).all()
+    exact: Dict[str, Set[UUID]] = defaultdict(set)
+    base: Dict[str, Set[UUID]] = defaultdict(set)
+    dates: Dict[UUID, Any] = {}
+    for doc_id, reference, published in rows:
+        key = normalize_reference(reference)
+        if key:
+            exact[key].add(doc_id)
+            base[base_key(key)].add(doc_id)
+            dates[doc_id] = published
+    return ReferenceIndex(exact, base, dates)
+
+
+def match_target(hint: Optional[str], idx: ReferenceIndex, exclude: Any) -> Optional[UUID]:
+    """The one library circular a hint names, or None. Never a guess:
+
+    1. the exact number (department, section, kind, number, year) names one circular; when it names several,
+       the hint's date picks one;
+    2. otherwise, without the department's section number ("ACD" for "ACD-1"): one candidate whose publication
+       date equals the hint's date, or, when the hint gives no date, the only candidate.
+    """
+    keys = reference_keys(hint)
+    if not keys:
+        return None
+    when = hint_date(hint)
+
+    def pick(found: Set[UUID], need_date: bool) -> Optional[UUID]:
+        found = {d for d in found if str(d) != str(exclude)}
+        if when is not None:
+            dated = {d for d in found if idx.dates.get(d) == when}
+            if len(dated) == 1:
+                return next(iter(dated))
+            if need_date or len(found) != 1:
+                return None
+        return next(iter(found)) if len(found) == 1 else None
+
+    for key in keys:
+        found = idx.exact.get(key, set())
+        if found:
+            return pick(found, need_date=False)
+    candidates: Set[UUID] = set()
+    for key in keys:
+        candidates |= idx.base.get(base_key(key), set())
+    return pick(candidates, need_date=True) if candidates else None
+
+
 async def _shared_reference_index(db: AsyncSession) -> Dict[str, Set[UUID]]:
     rows = (
         await db.execute(
@@ -167,17 +258,14 @@ async def link_relationship_targets(db: AsyncSession, document_id: Optional[UUID
     if not unlinked:
         return 0
 
-    index = await _shared_reference_index(db)
-    if not index:
+    idx = await reference_index(db)
+    if not idx.exact:
         return 0
 
     linked = 0
     linked_targets: List[UUID] = []
     for rel in unlinked:
-        keys = reference_keys(rel.target_reference_hint)
-        if not keys:
-            continue
-        target_id = _unique_match(keys, index, exclude=rel.source_document_id)
+        target_id = match_target(rel.target_reference_hint, idx, exclude=rel.source_document_id)
         if target_id is None:
             continue
         if document_id is not None and str(target_id) != str(document_id) and str(rel.source_document_id) != str(document_id):
