@@ -66,10 +66,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             header={<AppHeader />}
             footer={
               <footer className="border-t border-line pb-[calc(56px+env(safe-area-inset-bottom))] sm:pb-0">
-                <div className="mx-auto flex max-w-[1480px] flex-col gap-1 px-4 py-5 text-[13px] text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+                <div className="mx-auto flex max-w-[1480px] flex-col gap-1 px-4 py-5 text-[13px] text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8 !pb-2">
                   <span>Amar Circular. Every finding links back to the page it came from.</span>
                   <span>Source: Bangladesh Bank circulars</span>
                 </div>
+                <p className="mx-auto max-w-[1480px] px-4 pb-5 text-[13px] text-ink-3 sm:px-6 lg:px-8">
+                  This is not an official reference. Please verify the original reference at your own responsibility before
+                  making any decision.
+                </p>
               </footer>
             }
           >
