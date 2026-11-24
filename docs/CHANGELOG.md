@@ -15,6 +15,21 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 24 November 2026 (night): first audit fixes
+
+- **Reader: "Back links" is now "Cites"**, and a new **"Cited by"** row lists newer circulars that cite this one
+  without changing it (references, implements). Amended / Replaced / Repealed by stay as before.
+- **Ask prompts for visitors** now say **Register free** (main button) with **Sign in** beside it. Before, the
+  circular's Ask box said "Register free to ask" but its button said "Sign in".
+- **Branded "page not found"** with a search box and the five newest circulars.
+- **"Install the app"** is offered only from the third visit, or right after someone saves a circular, never on a
+  first look.
+- **Email:** Brevo authenticates amarcircular.com (DKIM, DMARC). Mail sent to insights@amarcircular.com is
+  forwarded to the owner. No email is sent by the app yet (SMTP is still off).
+- The full audit checklist is in `docs/audit-2026-11-24-plan.md`.
+
+---
+
 ## 24 November 2026 (evening): home page
 
 - **New home page at amarcircular.com.** A headline ("Grab the updates first!"), one line on what the site

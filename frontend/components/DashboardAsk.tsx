@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
-import { fetchResearchMatches, queryResearchAssistant, type ResearchAnswer, type ResearchCitation } from "@/services/api";
+import { fetchResearchMatches, queryResearchAssistant, type ResearchAnswer, type ResearchCitation, openRegister } from "@/services/api";
 import { Notice } from "@/components/ui";
 
 const hasBangla = (s?: string | null) => !!s && /[ঀ-৿]/.test(s);
@@ -44,7 +44,7 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
 
   const ask = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!signedIn) return onSignIn();
+    if (!signedIn) return openRegister("register");
     const text = q.trim();
     if (text.length < 3 || asking) return;
     const mine = ++id.current;
@@ -92,7 +92,7 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
           />
         </div>
         <button type="submit" disabled={asking || (signedIn && q.trim().length < 3)} className="btn-primary h-12 rounded-[10px] px-7 text-[16px] font-bold">
-          {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Register to ask"}
+          {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Register free to ask"}
         </button>
       </form>
 

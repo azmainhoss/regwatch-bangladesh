@@ -13,8 +13,8 @@ const VERB_IN: Record<string, string> = {
 };
 
 /**
- * The trail of a circular in one glance: which newer circulars changed it (with a link to each), and which
- * older circulars it changes or cites (back links). The full chain is on the History and links page.
+ * The trail of a circular in one glance: which newer circulars changed it, which newer circulars cite it
+ * ("Cited by"), and which older circulars it cites ("Cites"). The full chain is on the History and links page.
  */
 export interface BackLink {
   id: string;
@@ -24,9 +24,15 @@ export interface BackLink {
 }
 
 export default function Backtrail({ documentId, status, back }: { documentId: string; status?: RelStatus; back: BackLink[] }) {
-  const changedBy = (status?.verified_incoming ?? []).filter((l) => VERB_IN[l.relationship_type]);
+  const incoming = status?.verified_incoming ?? [];
+  const changedBy = incoming.filter((l) => VERB_IN[l.relationship_type]);
+  // Newer circulars that mention this one without changing it (references, implements, ...).
+  // Each citing circular once.
+  const citedBy = incoming
+    .filter((l) => !VERB_IN[l.relationship_type] && l.source)
+    .filter((l, i, all) => all.findIndex((o) => (o.source.id ?? o.source.title) === (l.source.id ?? l.source.title)) === i);
   const current = status?.current_version && status.current_version.id !== documentId ? status.current_version : null;
-  if (changedBy.length === 0 && back.length === 0 && !current) return null;
+  if (changedBy.length === 0 && citedBy.length === 0 && back.length === 0 && !current) return null;
 
   const chip = (href: string | null, label: string, title?: string) =>
     href ? (
@@ -64,10 +70,18 @@ export default function Backtrail({ documentId, status, back }: { documentId: st
           ))}
         </p>
       )}
+      {citedBy.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1.5 text-ink-2" data-testid="cited-by">
+          <CornerDownRight className="h-3.5 w-3.5 text-ink-3" />
+          <span>Cited by:</span>
+          {citedBy.slice(0, 8).map((l) => chip(linkTo(l, "source"), l.source.reference_number || l.source.title))}
+          {citedBy.length > 8 && <span className="text-ink-3">+{citedBy.length - 8} more</span>}
+        </p>
+      )}
       {back.length > 0 && (
         <p className="flex flex-wrap items-center gap-1.5 text-ink-2">
           <CornerUpLeft className="h-3.5 w-3.5 text-ink-3" />
-          <span>Back links:</span>
+          <span>Cites:</span>
           {back.slice(0, 8).map((l) => chip(l.docId ? `/dashboard?doc=${l.docId}` : null, l.label, l.quote))}
           {back.length > 8 && <span className="text-ink-3">+{back.length - 8} more</span>}
         </p>

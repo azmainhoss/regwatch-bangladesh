@@ -94,6 +94,15 @@ function applyLocal(listId: string, documentId: string, inList: boolean) {
 
 /** Puts a circular in a list or takes it out. The screen changes at once; the save runs in the background. */
 export async function toggle(listId: string, documentId: string, inList: boolean): Promise<void> {
+  // A first save is a good moment to offer installing the app (components/InstallApp.tsx).
+  if (inList && typeof window !== "undefined") {
+    try {
+      localStorage.setItem("amarcircular_saved_once", "1");
+    } catch {
+      /* private window */
+    }
+    window.dispatchEvent(new Event("amarcircular-saved"));
+  }
   applyLocal(listId, documentId, inList);
   inFlight++;
   try {

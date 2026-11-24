@@ -8,7 +8,35 @@ interface InstallEvent extends Event {
   userChoice: Promise<{ outcome: string }>;
 }
 
-/** Registers the service worker and, on phones that allow it, offers "Install the app" once. */
+const VISITS_KEY = "amarcircular_visits";
+
+/** Counts visits: once per browser session. */
+function countVisit(): number {
+  try {
+    let n = parseInt(localStorage.getItem(VISITS_KEY) || "0", 10) || 0;
+    if (!sessionStorage.getItem(VISITS_KEY)) {
+      sessionStorage.setItem(VISITS_KEY, "1");
+      n += 1;
+      localStorage.setItem(VISITS_KEY, String(n));
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+function earned(visits: number): boolean {
+  try {
+    return visits >= 3 || localStorage.getItem("amarcircular_saved_once") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Registers the service worker and offers "Install the app" once, but only after the person has come back for a
+ * third visit or has saved a circular, never on a first look.
+ */
 export default function InstallApp() {
   const [ev, setEv] = useState<InstallEvent | null>(null);
   const [hidden, setHidden] = useState(true);
@@ -17,19 +45,30 @@ export default function InstallApp() {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => undefined);
     }
+    const visits = countVisit();
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem("install-dismissed") === "1";
+    } catch {
+      /* private window */
+    }
+    let offered = false;
     const onPrompt = (e: Event) => {
       e.preventDefault();
       setEv(e as InstallEvent);
-      let dismissed = false;
-      try {
-        dismissed = localStorage.getItem("install-dismissed") === "1";
-      } catch {
-        /* private window */
-      }
-      if (!dismissed) setHidden(false);
+      offered = true;
+      if (!dismissed && earned(visits)) setHidden(false);
+    };
+    // Saving a circular during this visit earns the offer straight away.
+    const onSaved = () => {
+      if (offered && !dismissed) setHidden(false);
     };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("amarcircular-saved", onSaved);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("amarcircular-saved", onSaved);
+    };
   }, []);
 
   if (!ev || hidden) return null;

@@ -14,8 +14,7 @@ import {
   queryResearchAssistant,
   fetchResearchMatches,
   type ResearchCitation,
-  searchCirculars,
-} from "@/services/api";
+  searchCirculars, openRegister } from "@/services/api";
 import AccountModal from "@/components/AccountModal";
 import { fetchFeedCounts } from "@/services/libraryApi";
 import StatusBadge, { PrivateTag, Tag } from "@/components/StatusBadge";
@@ -489,11 +488,14 @@ export default function SearchPage() {
       ) : (
         <section aria-label="Ask a question" className="space-y-4">
           {!currentUser ? (
-            <EmptyState title="Register to ask" icon={<MessageSquareText className="h-6 w-6" strokeWidth={1.5} />}>
+            <EmptyState title="Register free to ask" icon={<MessageSquareText className="h-6 w-6" strokeWidth={1.5} />}>
               Questions are answered from the circulars you can read, with the exact page quoted.
-              <div className="mt-3">
-                <button type="button" onClick={() => setAccountOpen(true)} className="btn-primary">
-                  Sign in to ask
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+                <button type="button" data-free-click onClick={() => openRegister("register")} className="btn-primary">
+                  Register free
+                </button>
+                <button type="button" data-free-click onClick={() => setAccountOpen(true)} className="text-[14px] font-semibold text-accent hover:underline">
+                  Sign in
                 </button>
               </div>
             </EmptyState>
