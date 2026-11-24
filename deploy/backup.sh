@@ -12,6 +12,7 @@ R2_BUCKET="${R2_BUCKET:-regwatch-backup}"
 STAMP=$(date -u +%Y-%m-%dT%H%MZ)
 # The copies hold password hashes and the banks' workspace data: readable by the app user only.
 umask 077
+cd /  # run from anywhere (find needs a readable working directory)
 
 mkdir -p "$OUT"
 chmod 700 "$OUT" 2>/dev/null || true
