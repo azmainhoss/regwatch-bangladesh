@@ -496,12 +496,13 @@ async def run_code_checks(db, claims, index: SentenceIndex, doc: Any, pages, rea
         reading=dict(reading or {}),
         link_targets=await load_link_targets(db, claims, getattr(doc, "id", None)),
     )
-    if any(v == "CORRECTED" for v in ctx.reading.values()):
+    if db is not None and ctx.pages and any(p.needs_reading_check for p in ctx.pages.values()):
         from backend.app.modules.claims.autofix import apply_reading_fixes, load_fixes
 
-        ctx.fixes = await load_fixes(db, pages, ctx.reading)
-        for claim in claims:
-            await apply_reading_fixes(db, claim, ctx)
+        ctx.fixes = await load_fixes(db, pages, ctx.reading, index)
+        if ctx.fixes:
+            for claim in claims:
+                await apply_reading_fixes(db, claim, ctx)
     for claim in claims:
         apply_checks(claim, ctx)
     return ctx

@@ -106,6 +106,18 @@ async def reroute_claims_for_page(db, version_id, page_number: int) -> int:
     return done
 
 
+async def reroute_other_pages(db, version_id, skip_page: int) -> int:
+    """Checks again the points on every other image-read page of the circular."""
+    numbers = (
+        await db.execute(select(DocumentPage.page_number).where(DocumentPage.document_version_id == version_id))
+    ).scalars().all()
+    done = 0
+    for n in sorted(set(numbers)):
+        if n != skip_page:
+            done += await reroute_claims_for_page(db, version_id, n)
+    return done
+
+
 async def process_pending_quote_checks(
     db,
     limit: int = DEFAULT_PAGE_LIMIT,
@@ -153,6 +165,10 @@ async def process_pending_quote_checks(
         await db.commit()
         if page_summary.get("checked") or page_summary.get("not_needed"):
             summary["claims_rerouted"] += await reroute_claims_for_page(db, page.document_version_id, page.page_number)
+            await db.commit()
+        if page_summary.get("corrected"):
+            # A proven figure correction can spread to the same figure on the circular's other pages.
+            summary["claims_rerouted"] += await reroute_other_pages(db, page.document_version_id, page.page_number)
             await db.commit()
         if page_summary.get("no_key"):
             summary["waiting_no_key"] += len(rows)

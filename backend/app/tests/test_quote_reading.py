@@ -23,7 +23,9 @@ from backend.app.modules.analysis.models import AnalysisClaim
 from backend.app.modules.claims import reading as R
 from backend.app.modules.claims import reading_jobs as J
 from backend.app.modules.claims.models import QuoteReadingCheck
-from backend.app.modules.documents.models import Document, DocumentPage
+from backend.app.modules.documents.models import Document, DocumentPage, DocumentVersion
+from backend.app.modules.analysis.sentences import SentenceIndex
+from sqlalchemy.orm import selectinload
 from backend.app.modules.extraction import vision, vision_jobs
 from backend.app.tests import test_claim_checks as cc
 from backend.app.tests.factories import make_user
@@ -758,3 +760,72 @@ async def test_agreeing_readings_with_a_word_difference_stay_misread(monkeypatch
     async with AsyncSessionLocal() as db:
         summary = await J.process_pending_quote_checks(db, limit=10, send=fake.sender())
     assert summary["misread"] == 1 and summary["corrected"] == 0
+
+
+# ---------------------------------------------------------------------------
+# A proven correction spreads to the same reference elsewhere in the circular
+# ---------------------------------------------------------------------------
+SPREAD_LINES = [
+    "All scheduled banks under section 177 of the Act.",
+    "Banks shall submit the monthly liquidity report by 31 December 2026.",
+    "Banks shall not open new branches without approval.",
+    "This amends notification BRPD(R-1)(Law Review)177/2026-4454 of the Bank.",
+    "This comes into force with immediate effect under BRPD(R-1)(Law Review)177/2026-4454, except for state-owned banks.",
+]
+
+
+async def spread_circular(monkeypatch):
+    text = "\n".join(SPREAD_LINES)
+    doc, version, pages = await cc.doc_with_text("PUBLISHED_MACHINE_PROCESSED", text)
+    boxes = [{"text": ln, "box_2d": [80 + i * 60, 100, 120 + i * 60, 900]} for i, ln in enumerate(SPREAD_LINES)]
+    async with AsyncSessionLocal() as db:
+        page = await db.get(DocumentPage, pages[0].id)
+        page.extraction_method, page.quality_status, page.line_boxes, page.native_text = "GEMINI_VISION", "SUCCESS_VISION", boxes, None
+        await db.commit()
+    payload = cc.payload_for(cc.make_ctx(text), deadline_c="2026-12-31")
+    analysis = await cc.run_analysis(doc.id, payload, monkeypatch)
+    monkeypatch.setattr(storage_service, "get_file_bytes", lambda path: blank_pdf())
+    return doc, pages, analysis
+
+
+def test_contexts_tell_the_same_reference_from_a_plain_number():
+    from backend.app.modules.claims.autofix import contexts
+    a = contexts("প্রজ্ঞাপন নং-বিআরপিডি-২(আর-১)(ল’রিভিউ)১৭৭/ ২০২৬-৪৪৫৪ এর অনুলিপি", "177")
+    b = contexts("প্রজ্ঞাপন নং-বিআরপিডি-২(আর-১)(ল'রিভিউ)১৭৭/২০২৬-৪৪৫ তারিখঃ", "177")
+    assert a == b and len(a[0][0]) >= 6  # different apostrophe and spacing: still the same reference
+    assert contexts("ধারা ১৭৭ অনুযায়ী", "177") != a
+
+
+@pytest.mark.asyncio
+async def test_a_proven_correction_spreads_to_the_same_reference_but_not_to_a_plain_number(monkeypatch):
+    from backend.app.modules.claims.autofix import load_fixes
+
+    doc, pages, analysis = await spread_circular(monkeypatch)
+    proven = SPREAD_LINES[3].replace("177/", "717/")
+    other = SPREAD_LINES[4].replace("177/", "717/").replace("immediate", "later")  # disagrees in a word too
+    first = [[ln] for ln in SPREAD_LINES]
+    first[3], first[4] = [proven], [other]
+    tie = [[proven], [SPREAD_LINES[4].replace("immediate", "full")]]  # s5: the two readings disagree (unclear)
+    async with AsyncSessionLocal() as db:
+        summary = await J.process_pending_quote_checks(db, limit=10, send=FakeService([first, tie]).sender())
+    assert summary["corrected"] == 1
+
+    rows = {r.sentence_id: r for r in await waiting_rows(pages[0].id)}
+    assert rows["p1.s4"].status == "CORRECTED" and rows["p1.s5"].status in ("MISREAD", "UNCLEAR")
+    assert rows["p1.s1"].status == "CLEAN"
+    async with AsyncSessionLocal() as db:
+        from backend.app.modules.analysis.service import pages_payload_for
+        version = (await db.execute(select(DocumentVersion).options(selectinload(DocumentVersion.pages)).where(DocumentVersion.id == pages[0].document_version_id))).scalars().first()
+        index = SentenceIndex.build(pages_payload_for(version))
+        fixes = await load_fixes(db, version.pages, {}, index)
+    assert fixes.get("p1.s4") == [["177", "717"]]
+    assert fixes.get("p1.s5") == [["177", "717"]]  # same reference: spread
+    assert "p1.s1" not in fixes  # "section 177" is a different figure (and its reading was clean): never changed
+
+    # the point quoting the spread sentence carries the corrected figure, and stays honest about its check
+    claims = await claims_of(analysis.id)
+    on_s2 = [c for c in claims if "p1.s5" in [i for ids in (c.evidence or {}).values() for i in (ids or [])]]
+    async with AsyncSessionLocal() as db:
+        from backend.app.modules.analysis.models import ClaimCitation
+        quotes = (await db.execute(select(ClaimCitation.quoted_text).where(ClaimCitation.claim_id.in_([c.id for c in on_s2])))).scalars().all()
+    assert on_s2 and quotes and all("177/2026" not in q for q in quotes if "Law Review" in q)

@@ -9,6 +9,8 @@ For every quote reading that ended MISREAD or UNCLEAR:
   WAITING with its readings cleared, so the page reader reads it again with the wider strip and the
   whole-page fallback (automatic, within the daily Gemini quota);
 - anything else keeps its result.
+A proven correction also spreads to the same figure in the same surroundings elsewhere in the circular
+(claims/autofix.py load_fixes), so every page of those circulars is checked again.
 Then every undecided claim on a changed page is checked again, so points that now pass are shown.
 Nothing is written without --yes; with --yes a database copy is saved first.
 
@@ -114,6 +116,21 @@ async def main(write: bool) -> None:
                 rerouted += await reroute_claims_for_page(db, page.document_version_id, page.page_number)
                 await db.commit()
         print(f"Pages changed: {len(pages)}; claims checked again: {rerouted}")
+
+        # A proven correction spreads to the same figure (same surroundings) on the circular's other pages.
+        versions = (
+            await db.execute(
+                select(DocumentPage.document_version_id).join(QuoteReadingCheck, QuoteReadingCheck.page_id == DocumentPage.id)
+                .where(QuoteReadingCheck.status == "CORRECTED").distinct()
+            )
+        ).scalars().all()
+        spread = 0
+        for vid in versions:
+            numbers = (await db.execute(select(DocumentPage.page_number).where(DocumentPage.document_version_id == vid))).scalars().all()
+            for n in sorted(set(numbers)):
+                spread += await reroute_claims_for_page(db, vid, n)
+                await db.commit()
+        print(f"Circulars with a proven correction: {len(versions)}; claims checked again for the spread: {spread}")
 
 
 if __name__ == "__main__":
