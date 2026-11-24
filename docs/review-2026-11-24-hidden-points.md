@@ -54,17 +54,30 @@ Live, 2026-11-24 (backup `data/regwatch.before-rejudge-20261124-110011.db`):
 891 claims on the 81 changed pages were checked again. The re-reads run by themselves within the free Gemini
 quota, about one to two days.
 
-## Proposed next step (not built yet): self-correction when both readers agree
+## Self-correction when both readers agree (built 2026-11-24)
 
-Case 1 is the common shape of a genuine "misread": two independent readers (different models and image
-sharpness) agree with each other word for word and disagree with our text-layer reading, which comes from a
-legacy-font PDF. The automatic resolution is to **adopt the readers' text as the corrected quote** (claim status
-`FIXED`, the old text kept in `original_fields`) when all of these hold:
+Case 1 is the common shape of a genuine "misread": the two independent readers (different models and image
+sharpness) agree with each other and differ from our reading only in a figure. Our reading is the odd one out,
+so it is corrected automatically (`reading.figure_fixes`, `claims/autofix.py`). The reading becomes `CORRECTED`
+when every one of these holds:
 
-- both readings agree with each other under `same_reading`;
-- the text layer does not confirm our differing figures (`confirmed_figures`);
-- the difference is small, at most 10% of characters, so a wrong crop can never be adopted.
+- both readings agree with each other (`same_reading`);
+- the figures are the only difference: our text with their figures put in must then agree with them in every
+  word, "no" word and reference code;
+- every changed figure has 2 or more significant digits (`০৩` → `০৫` is refused), and the text layer does not
+  confirm ours;
+- one old figure maps to one new figure, and no unchanged copy of the old figure stands in the same sentence.
 
-The claim's own statement can repeat the wrong figure (for example "notification no. 177"), so the statement
-must be regenerated or patched for the changed figure too. That touches the analysis output, so it is left
-for a separate change with its own tests. Until then these points are shown with "Check page N".
+The point's wording and its displayed quote get the corrected figures. The old wording is kept in
+`original_fields` and `review_note` reads "Figures corrected from two agreeing page readings: 177 -> 717". The
+checks then run on the corrected sentence, so the point is shown as "Checked" when everything else passes.
+
+Live, 2026-11-24 (backup `data/regwatch.before-rejudge-20261124-111746.db`): **31 sentences corrected, 82 points
+updated, 53 of them now shown as Checked.** All 31 were checked by hand before applying. Typical cases:
+`১৭৭→৭১৭` in the BRPD-2 law-review notification number (a recurring digit reversal), `৩`/`৬` in years
+(`২০২৩→২০২৬`), সঞ্চয়পত্র রুলস `১৯৯৭→১৯৭৭`, ব্যাংক রেজল্যুশন অধ্যাদেশ `২০২৩→২০২৫`.
+
+**Known limit:** a correction applies to the sentence whose two readings agreed. The same figure printed in
+another sentence (for example the notification number repeated on the enclosure page) is corrected only when
+that sentence's own readings agree. Until then that point shows "Check page N". Spreading a proven correction to
+identical figure patterns elsewhere in the same circular is a possible next step.
