@@ -28,6 +28,18 @@ async def get_document_reader(
     return user
 
 
+async def get_listing_reader(
+    user: Optional[User] = Depends(get_current_user_optional),
+) -> Optional[User]:
+    """
+    The caller for the public dashboard lists (feed, counts, topics, institutions). Visitors who have not
+    registered may see the list of shared circulars; opening one (detail, pages, PDF) still needs an account.
+    """
+    if user is not None and not user.is_active:
+        raise HTTPException(status_code=403, detail="Inactive user account")
+    return user
+
+
 def visible_documents_condition(user: Optional[User]):
     """SQL condition matching documents the given user (or an anonymous caller) may read."""
     if user is None:

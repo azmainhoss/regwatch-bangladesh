@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from backend.app.core.config import settings
 from backend.app.database.session import get_async_db
-from backend.app.modules.documents.access import get_document_reader, visible_documents_condition
+from backend.app.modules.documents.access import get_document_reader, get_listing_reader, visible_documents_condition
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.documents.models import Document
 from backend.app.modules.documents.schemas import DocumentRead
@@ -94,7 +94,7 @@ async def feed(
     analysed: Optional[bool] = Query(None, description="Only circulars that have a checked summary"),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    user: Optional[User] = Depends(get_document_reader),
+    user: Optional[User] = Depends(get_listing_reader),
     db: AsyncSession = Depends(get_async_db),
 ):
     conditions = _base(user)
@@ -138,7 +138,7 @@ async def feed(
 
 
 @router.get("/counts", response_model=FeedCounts)
-async def feed_counts(user: Optional[User] = Depends(get_document_reader), db: AsyncSession = Depends(get_async_db)):
+async def feed_counts(user: Optional[User] = Depends(get_listing_reader), db: AsyncSession = Depends(get_async_db)):
     base = _base(user)
     today = today_local()
 
@@ -179,7 +179,7 @@ async def feed_counts(user: Optional[User] = Depends(get_document_reader), db: A
     )
 
 
-@router.get("/topics", response_model=List[Choice], dependencies=[Depends(get_current_user)])
+@router.get("/topics", response_model=List[Choice], dependencies=[Depends(get_listing_reader)])
 async def topic_names():
     """Every subject category with its label (count 0: the list is fixed)."""
     return [Choice(code=t.code, label=t.label, count=0) for t in TOPICS]

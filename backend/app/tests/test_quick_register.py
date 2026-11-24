@@ -61,3 +61,14 @@ async def test_all_five_details_are_required(client):
         partial = {k: v for k, v in d.items() if k != field}
         assert (await client.post(f"{API}/auth/quick-register", json=partial)).status_code == 422, field
     assert (await client.post(f"{API}/auth/quick-register", json={**d, "phone_number": "abc"})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_visitors_see_the_dashboard_lists_but_not_a_circular(client):
+    for path in ("/feed?limit=5", "/feed/counts", "/feed/topics", "/institutions"):
+        r = await client.get(f"{API}{path}")
+        assert r.status_code == 200, (path, r.text)
+    # Opening a circular, its pages or its PDF still needs an account.
+    any_id = "00000000-0000-0000-0000-000000000001"
+    assert (await client.get(f"{API}/documents/{any_id}")).status_code == 401
+    assert (await client.get(f"{API}/documents/{any_id}/pdf")).status_code == 401
