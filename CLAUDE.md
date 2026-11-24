@@ -9,7 +9,7 @@ Start with `HANDOFF.md` for current work, and `DECISIONS.md` for older decisions
 - Server: Spaceship VPS `104.207.77.129`, Singapore, yearly trial. SSH port 22022, key only (`ssh amarcircular` on the Mac). DNS on Spaceship. Deploy: `ssh amarcircular 'sudo -u regwatch /opt/regwatch/app/deploy/deploy.sh'`.
 - **Gemini via relay:** Google refuses the server's location ("User location is not supported"), so every Gemini call goes through the Cloudflare Worker `quiet-leaf-88d1.20hozaifa02.workers.dev` (Cloudflare account 20hozaifa02, worker only accepts requests from 104.207.77.129 and only `/v1beta/models/*`). Set by `GEMINI_API_BASE` in the server `.env`. If the server IP changes, edit the IP in the worker.
 - Phase 1 analysis: **manual runs only** (no laptop schedule). Anthropic consumer terms s.3(7) bar scripted/unattended Pro use for a commercial service.
-- Off-server backups: Backblaze B2 chosen (not yet set up). Nightly local copies run.
+- Off-server backups: nightly to Cloudflare R2 bucket `amarcircular-backup`, encrypted with rclone crypt (remote `offsite`; passwords in /root/amarcircular-backup-crypt.txt and the owner's password manager). Token is limited to that bucket and the server IP. Restore tested 2026-11-24.
 
 ## Go-live decisions (as of 2026-11-24)
 
