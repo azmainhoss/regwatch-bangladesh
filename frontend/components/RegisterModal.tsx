@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { AuthUser, OPEN_REGISTER_EVENT, quickRegister } from "../services/api";
+import { AuthUser, OPEN_REGISTER_EVENT, quickRegister, updateMyProfile } from "../services/api";
 import { FREE_LIMIT, FREE_VIEWS_EVENT, freeExhausted } from "../services/freeViews";
 import { Modal, ModalHeader, Notice } from "./ui";
 import AuthForm from "./AuthForm";
@@ -94,6 +94,209 @@ function RegisterForm({ onDone, onSignIn }: { onDone: (u: AuthUser) => void; onS
   );
 }
 
+
+// ------------------------------------------------------------------------------------------ 3-step sign-up
+// Step 1 makes the account (email + password), so a person who stops after it still has one. Steps 2 and 3 add
+// name and phone, then company and designation. While owner approval is pending this form is used only when the
+// page was opened with ?signup=steps (kept for the browser session); everyone else keeps the one-form sign-up.
+
+const STEPS_FLAG = "amarcircular_signup_steps";
+
+export function useStepsPreview(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("signup") === "steps") sessionStorage.setItem(STEPS_FLAG, "1");
+      setOn(sessionStorage.getItem(STEPS_FLAG) === "1");
+    } catch {
+      /* private window */
+    }
+  }, []);
+  return on;
+}
+
+function StepBar({ step }: { step: 1 | 2 | 3 }) {
+  return (
+    <div className="mb-4">
+      <p className="text-[12.5px] font-semibold text-ink-3">Step {step} of 3</p>
+      <div className="mt-1.5 grid grid-cols-3 gap-1.5" aria-hidden>
+        {[1, 2, 3].map((n) => (
+          <span key={n} className={`h-1.5 rounded-full ${n <= step ? "bg-accent" : "bg-sunken"}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TextField({
+  id,
+  label,
+  type = "text",
+  autoComplete,
+  placeholder,
+  value,
+  onChange,
+  trailing,
+}: {
+  id: string;
+  label: string;
+  type?: string;
+  autoComplete: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="field-label">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          type={type}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`field ${trailing ? "pr-10" : ""}`}
+          required
+        />
+        {trailing}
+      </div>
+    </div>
+  );
+}
+
+export function RegisterSteps({
+  onDone,
+  onSignIn,
+  onStarted,
+}: {
+  onDone: () => void;
+  onSignIn: () => void;
+  /** Called once the account exists (after step 1), so the dialog stays open for steps 2 and 3. */
+  onStarted: () => void;
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Preview only (?signup=steps&signupstep=2): opens at a later step to show its layout; saving needs an account.
+  useEffect(() => {
+    const n = Number(new URLSearchParams(window.location.search).get("signupstep"));
+    if (n === 2 || n === 3) setStep(n);
+  }, []);
+  const [v, setV] = useState({ email: "", password: "", full_name: "", phone_number: "", company: "", designation: "" });
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof v) => (val: string) => setV((s) => ({ ...s, [k]: val }));
+
+  const run = async (fn: () => Promise<void>) => {
+    setError(null);
+    setLoading(true);
+    try {
+      await fn();
+    } catch (err: any) {
+      const msg: string = err?.message || "";
+      setError(/valid email/i.test(msg) ? "That email address does not look right." : msg || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (step === 1) {
+      const email = v.email.trim();
+      if (!email) return setError("Please enter your work email.");
+      if (v.password.length < 8) return setError("Your password needs at least 8 characters.");
+      return run(async () => {
+        onStarted();
+        await quickRegister({ email, password: v.password });
+        setStep(2);
+      });
+    }
+    if (step === 2) {
+      const name = v.full_name.trim();
+      if (!name) return setError("Please enter your full name.");
+      if (v.phone_number.replace(/\D/g, "").length < 6) return setError("Please enter a valid phone number.");
+      return run(async () => {
+        await updateMyProfile({ full_name: name, phone_number: v.phone_number.trim() });
+        setStep(3);
+      });
+    }
+    const company = v.company.trim();
+    const designation = v.designation.trim();
+    if (!company) return setError("Please enter your company.");
+    if (!designation) return setError("Please enter your designation.");
+    return run(async () => {
+      await updateMyProfile({ company, designation });
+      onDone();
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3" noValidate>
+      <StepBar step={step} />
+      {error && <Notice kind="error">{error}</Notice>}
+      {step === 1 && (
+        <>
+          <TextField id="rs-email" label="Work email" type="email" autoComplete="email" placeholder="you@bank.com" value={v.email} onChange={set("email")} />
+          <TextField
+            id="rs-password"
+            label="Password"
+            type={showPw ? "text" : "password"}
+            autoComplete="new-password"
+            placeholder="At least 8 characters"
+            value={v.password}
+            onChange={set("password")}
+            trailing={
+              <button
+                type="button"
+                onClick={() => setShowPw((x) => !x)}
+                aria-label={showPw ? "Hide password" : "Show password"}
+                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center text-ink-3 hover:text-ink"
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            }
+          />
+        </>
+      )}
+      {step === 2 && (
+        <>
+          <TextField id="rs-name" label="Full name" autoComplete="name" placeholder="Your name" value={v.full_name} onChange={set("full_name")} />
+          <TextField id="rs-phone" label="Phone number" type="tel" autoComplete="tel" placeholder="+880 1XXX-XXXXXX" value={v.phone_number} onChange={set("phone_number")} />
+        </>
+      )}
+      {step === 3 && (
+        <>
+          <TextField id="rs-company" label="Company" autoComplete="organization" placeholder="Bank or company name" value={v.company} onChange={set("company")} />
+          <TextField
+            id="rs-designation"
+            label="Designation"
+            autoComplete="organization-title"
+            placeholder="e.g. Compliance Officer"
+            value={v.designation}
+            onChange={set("designation")}
+          />
+        </>
+      )}
+      <button type="submit" disabled={loading} className="btn-primary w-full justify-center">
+        {loading ? "Saving..." : step === 1 ? "Create free account" : step === 2 ? "Continue" : "Finish"}
+      </button>
+      {step === 1 && (
+        <p className="text-center text-[13.5px] text-ink-3">
+          Already registered?{" "}
+          <button type="button" onClick={onSignIn} className="font-semibold text-accent hover:underline">
+            Sign in
+          </button>
+        </p>
+      )}
+    </form>
+  );
+}
+
 /**
  * Visitors read freely for their first week, then up to FREE_LIMIT circulars (services/freeViews.ts). After
  * that, any click opens this dialog. The header buttons and "Register to ..." prompts open it at any time.
@@ -102,6 +305,8 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<"register" | "signin">("register");
   const [exhausted, setExhausted] = useState(false);
+  const stepsPreview = useStepsPreview();
+  const [inSteps, setInSteps] = useState(false);
 
   useEffect(() => {
     const show = (e: Event) => {
@@ -122,7 +327,8 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
 
   useEffect(() => {
     if (signedIn) {
-      setOpen(false);
+      // Mid sign-up the account already exists after step 1: keep the dialog open for steps 2 and 3.
+      if (!inSteps) setOpen(false);
       return;
     }
     if (!exhausted) return;
@@ -145,12 +351,15 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
       document.removeEventListener("submit", gate, true);
       document.removeEventListener("auxclick", gate, true);
     };
-  }, [signedIn, exhausted]);
+  }, [signedIn, exhausted, inSteps]);
 
-  const done = () => setOpen(false);
+  const done = () => {
+    setInSteps(false);
+    setOpen(false);
+  };
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} labelledBy="register-title" width="max-w-md">
+    <Modal open={open} onClose={done} labelledBy="register-title" width="max-w-md">
       {view === "register" ? (
         <>
           <ModalHeader
@@ -164,7 +373,11 @@ export default function RegisterGate({ signedIn }: { signedIn: boolean }) {
             onClose={() => setOpen(false)}
           />
           <div className="px-5 py-5">
-            <RegisterForm onDone={done} onSignIn={() => setView("signin")} />
+            {stepsPreview ? (
+              <RegisterSteps onDone={done} onSignIn={() => setView("signin")} onStarted={() => setInSteps(true)} />
+            ) : (
+              <RegisterForm onDone={done} onSignIn={() => setView("signin")} />
+            )}
           </div>
         </>
       ) : (

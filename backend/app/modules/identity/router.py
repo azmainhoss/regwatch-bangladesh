@@ -18,7 +18,7 @@ from backend.app.modules.identity.deps import get_current_superuser, get_current
 from backend.app.modules.identity.models import User, UserProfile
 import secrets
 
-from backend.app.modules.identity.schemas import QuickRegister, SignupRead, TokenResponse, UserCreate, UserLogin, UserRead
+from backend.app.modules.identity.schemas import ProfileUpdate, QuickRegister, SignupRead, TokenResponse, UserCreate, UserLogin, UserRead
 
 router = APIRouter(prefix="/auth", tags=["Identity & Auth"])
 
@@ -111,7 +111,7 @@ async def quick_register(
     user = User(
         email=email,
         hashed_password=get_password_hash(payload.password),
-        full_name=payload.full_name,
+        full_name=payload.full_name or "",
         phone_number=payload.phone_number,
         is_active=True,
         is_superuser=False,
@@ -121,7 +121,7 @@ async def quick_register(
     db.add(UserProfile(
         user_id=user.id,
         designation=payload.designation,
-        preferences={"signup": QUICK_SIGNUP, "company": payload.company},
+        preferences={"signup": QUICK_SIGNUP, **({"company": payload.company} if payload.company else {})},
     ))
     try:
         await db.commit()
@@ -186,6 +186,33 @@ async def login(
 @router.get("/me", response_model=UserRead)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.patch("/me/profile", response_model=UserRead)
+async def update_my_profile(
+    payload: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Sign-up steps 2 (name, phone) and 3 (company, designation). Only the fields sent change."""
+    user = await db.get(User, current_user.id)
+    sent = payload.model_dump(exclude_unset=True)
+    if "full_name" in sent and sent["full_name"]:
+        user.full_name = sent["full_name"]
+    if "phone_number" in sent:
+        user.phone_number = sent["phone_number"]
+    if "company" in sent or "designation" in sent:
+        profile = (await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))).scalar_one_or_none()
+        if profile is None:
+            profile = UserProfile(user_id=user.id, preferences={})
+            db.add(profile)
+        if sent.get("designation"):
+            profile.designation = sent["designation"]
+        if sent.get("company"):
+            profile.preferences = {**(profile.preferences or {}), "company": sent["company"]}
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.get("/admin/signups", response_model=list[SignupRead])

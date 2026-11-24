@@ -56,13 +56,30 @@ async def test_password_accounts_cannot_be_taken_over_by_quick_register(client):
 
 
 @pytest.mark.asyncio
-async def test_all_six_details_are_required(client):
+async def test_email_and_password_are_required_the_rest_is_optional(client):
     d = _details(f"lead_{uuid.uuid4().hex[:8]}@example.com")
-    for field in ("full_name", "email", "phone_number", "company", "designation", "password"):
+    for field in ("email", "password"):
         partial = {k: v for k, v in d.items() if k != field}
         assert (await client.post(f"{API}/auth/quick-register", json=partial)).status_code == 422, field
     assert (await client.post(f"{API}/auth/quick-register", json={**d, "phone_number": "abc"})).status_code == 422
     assert (await client.post(f"{API}/auth/quick-register", json={**d, "password": "short"})).status_code == 422
+    # Step 1 of the 3-step sign-up: email and password alone make the account.
+    step1 = await client.post(f"{API}/auth/quick-register", json={"email": d["email"], "password": d["password"]})
+    assert step1.status_code == 200, step1.text
+
+
+@pytest.mark.asyncio
+async def test_steps_two_and_three_fill_in_the_profile(client):
+    email = f"lead_{uuid.uuid4().hex[:8]}@example.com"
+    r = await client.post(f"{API}/auth/quick-register", json={"email": email, "password": "Sunrise#2026"})
+    auth = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    s2 = await client.patch(f"{API}/auth/me/profile", json={"full_name": "Rahim Uddin", "phone_number": "+880 1711-000000"}, headers=auth)
+    assert s2.status_code == 200, s2.text
+    assert s2.json()["full_name"] == "Rahim Uddin" and s2.json()["phone_number"] == "+880 1711-000000"
+    s3 = await client.patch(f"{API}/auth/me/profile", json={"company": "Example Bank PLC", "designation": "Compliance Officer"}, headers=auth)
+    assert s3.status_code == 200, s3.text
+    assert (await client.patch(f"{API}/auth/me/profile", json={"phone_number": "abc"}, headers=auth)).status_code == 422
+    assert (await client.patch(f"{API}/auth/me/profile", json={"full_name": "X"})).status_code == 401
 
 
 @pytest.mark.asyncio

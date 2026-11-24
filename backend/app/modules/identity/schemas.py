@@ -50,12 +50,14 @@ class QuickRegister(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    full_name: str = Field(..., min_length=1, max_length=255)
     email: EmailStr
-    phone_number: str = Field(..., min_length=6, max_length=32)
-    company: str = Field(..., min_length=1, max_length=255)
-    designation: str = Field(..., min_length=1, max_length=128)
     password: str = Field(..., min_length=8, description="At least 8 characters")
+    # Optional since the 3-step sign-up (2026-11-25): the account is made from email + password, and the rest is
+    # added in steps 2 and 3 (PATCH /auth/me/profile). The one-form sign-up still sends everything at once.
+    full_name: Optional[str] = Field(None, max_length=255)
+    phone_number: Optional[str] = Field(None, max_length=32)
+    company: Optional[str] = Field(None, max_length=255)
+    designation: Optional[str] = Field(None, max_length=128)
 
     @field_validator("password")
     @classmethod
@@ -66,11 +68,33 @@ class QuickRegister(BaseModel):
 
     @field_validator("phone_number")
     @classmethod
-    def _phone_has_digits(cls, value: str) -> str:
-        digits = "".join(ch for ch in value if ch.isdigit())
-        if len(digits) < 6:
-            raise ValueError("Enter a phone number with at least 6 digits.")
-        return value
+    def _phone_has_digits(cls, value: Optional[str]) -> Optional[str]:
+        return _check_phone(value)
+
+
+def _check_phone(value: Optional[str]) -> Optional[str]:
+    if value is None or not value.strip():
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if len(digits) < 6:
+        raise ValueError("Enter a phone number with at least 6 digits.")
+    return value.strip()
+
+
+class ProfileUpdate(BaseModel):
+    """Steps 2 and 3 of sign-up, or a later edit: only the fields sent are changed."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    phone_number: Optional[str] = Field(None, max_length=32)
+    company: Optional[str] = Field(None, min_length=1, max_length=255)
+    designation: Optional[str] = Field(None, min_length=1, max_length=128)
+
+    @field_validator("phone_number")
+    @classmethod
+    def _phone(cls, value: Optional[str]) -> Optional[str]:
+        return _check_phone(value)
 
 
 class SignupRead(BaseModel):

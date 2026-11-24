@@ -314,11 +314,12 @@ export async function registerUser(payload: {
 
 /** "Register now": no password. Name, email, phone, company and designation; signed in at once. */
 export async function quickRegister(payload: {
-  full_name: string;
   email: string;
-  phone_number: string;
-  company: string;
-  designation: string;
+  password: string;
+  full_name?: string;
+  phone_number?: string;
+  company?: string;
+  designation?: string;
 }): Promise<AuthUser> {
   const res = await apiFetch(`/auth/quick-register`, {
     method: "POST",
@@ -329,6 +330,19 @@ export async function quickRegister(payload: {
   const data = await res.json();
   const user: AuthUser = data.user;
   storeSession(data.access_token, user);
+  return user;
+}
+
+/** Sign-up steps 2 and 3 (and later edits): only the fields given change. */
+export async function updateMyProfile(payload: { full_name?: string; phone_number?: string; company?: string; designation?: string }): Promise<AuthUser> {
+  const res = await apiFetch(`/auth/me/profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, "Could not save your details");
+  const user: AuthUser = await res.json();
+  storeSession(null, user);
   return user;
 }
 
