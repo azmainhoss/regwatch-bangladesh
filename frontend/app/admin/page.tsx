@@ -39,13 +39,14 @@ import GeminiSetupModal from "@/components/GeminiSetupModal";
 import LaptopUploadStatus from "@/components/admin/LaptopUploadStatus";
 import AccountModal from "@/components/AccountModal";
 import StatusBadge, { InForceBadge, PrivateTag, Tag } from "@/components/StatusBadge";
+import AdminSignups from "../../components/admin/AdminSignups";
 import AdminLinksPanel from "@/components/AdminLinksPanel";
 import ClaimReview from "@/components/ClaimReview";
 import { useClaimsState, useReviewPolling } from "@/services/claimsStore";
 import { inForceOf, loadPending, seedDocuments, useRelState } from "@/services/relationshipsStore";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 
-type TabId = "queue" | "collection" | "upload" | "library" | "links" | "checks" | "engine";
+type TabId = "queue" | "signups" | "collection" | "upload" | "library" | "links" | "checks" | "engine";
 type NoticeState = { type: "success" | "warning" | "error" | "info"; text: string; status?: string } | null;
 
 /** Server times without a zone are UTC; read them that way so they show in local (Dhaka) time. */
@@ -82,7 +83,7 @@ function PanelHeading({ title, children, actions }: { title: string; children?: 
   );
 }
 
-const TAB_IDS: TabId[] = ["queue", "collection", "upload", "library", "links", "checks", "engine"];
+const TAB_IDS: TabId[] = ["queue", "signups", "collection", "upload", "library", "links", "checks", "engine"];
 const asTab = (v: string | null): TabId | null => (v && (TAB_IDS as string[]).includes(v) ? (v as TabId) : null);
 
 export default function AdminConsolePage() {
@@ -489,7 +490,7 @@ function AdminConsole() {
 
   if (!currentUser?.is_superuser) {
     return (
-      <div className="mx-auto my-10 max-w-md">
+      <div data-free-click className="mx-auto my-10 max-w-md">
         <div className="panel px-6 py-7 shadow-panel">
           <Lock className="h-6 w-6 text-ink-3" strokeWidth={1.75} />
           <h1 className="mt-3 text-[20px] font-semibold text-ink">Administrators only</h1>
@@ -511,9 +512,9 @@ function AdminConsole() {
             </Notice>
           )}
           <div className="mt-5 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setIsAccountModalOpen(true)} className="btn-primary">
-              {currentUser ? "Switch account" : "Sign in"}
-            </button>
+            <Link href="/admin/login" className="btn-primary">
+              {currentUser ? "Switch to an admin account" : "Admin login"}
+            </Link>
             <Link href="/" className="btn-secondary">
               Back to circulars
             </Link>
@@ -537,6 +538,7 @@ function AdminConsole() {
 
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: "queue", label: "Review queue", count: openQueue.length },
+    { id: "signups", label: "Sign-ups" },
     { id: "collection", label: "Website checks" },
     { id: "upload", label: "Upload" },
     { id: "library", label: "Library", count: documents.length },
@@ -1092,6 +1094,8 @@ function AdminConsole() {
             )}
           </section>
         )}
+
+        {tab === "signups" && <AdminSignups />}
 
         {tab === "links" && <AdminLinksPanel />}
 

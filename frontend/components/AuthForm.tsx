@@ -13,10 +13,13 @@ export default function AuthForm({
   mode,
   onModeChange,
   onDone,
+  hideSwitch = false,
 }: {
   mode: AuthMode;
   onModeChange: (m: AuthMode) => void;
   onDone: (user: AuthUser) => void;
+  /** Hide the "New here? / Already have an account?" switch (admin login). */
+  hideSwitch?: boolean;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -142,6 +145,7 @@ export default function AuthForm({
       <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 text-[14px]">
         {mode === "signin" ? (loading ? "Signing in..." : "Sign in") : loading ? "Creating account..." : "Create account"}
       </button>
+      {!hideSwitch && (
       <p className="text-center text-[13.5px] text-ink-3">
         {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
         <button
@@ -153,6 +157,7 @@ export default function AuthForm({
           {mode === "signin" ? "Create an account" : "Sign in"}
         </button>
       </p>
+      )}
     </form>
   );
 }

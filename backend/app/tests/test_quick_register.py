@@ -72,3 +72,23 @@ async def test_visitors_see_the_dashboard_lists_but_not_a_circular(client):
     any_id = "00000000-0000-0000-0000-000000000001"
     assert (await client.get(f"{API}/documents/{any_id}")).status_code == 401
     assert (await client.get(f"{API}/documents/{any_id}/pdf")).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_sees_signups_with_all_details_and_others_cannot(client):
+    from backend.app.tests.factories import make_user
+
+    email = f"lead_{uuid.uuid4().hex[:8]}@example.com"
+    lead = await client.post(f"{API}/auth/quick-register", json=_details(email))
+    lead_token = lead.json()["access_token"]
+    assert (await client.get(f"{API}/auth/admin/signups")).status_code == 401
+    assert (await client.get(f"{API}/auth/admin/signups", headers={"Authorization": f"Bearer {lead_token}"})).status_code == 403
+
+    admin, tok = await make_user(is_superuser=True)
+    admin_email = admin.email
+    rows = (await client.get(f"{API}/auth/admin/signups", headers={"Authorization": f"Bearer {tok}"})).json()
+    mine = [r for r in rows if r["email"] == email]
+    assert len(mine) == 1
+    assert mine[0]["company"] == "Example Bank PLC" and mine[0]["designation"] == "Compliance Officer"
+    assert mine[0]["phone_number"] == "+880 1711-000000" and mine[0]["registered_at"]
+    assert all(r["email"] != admin_email for r in rows)  # password accounts are not sign-ups

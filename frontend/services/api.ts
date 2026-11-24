@@ -332,6 +332,24 @@ export async function quickRegister(payload: {
   return user;
 }
 
+export interface Signup {
+  id: string;
+  full_name: string;
+  email: string;
+  phone_number: string | null;
+  company: string | null;
+  designation: string | null;
+  registered_at: string | null;
+  is_active: boolean;
+}
+
+/** Everyone who used "Register now", newest first (administrators only). */
+export async function fetchSignups(): Promise<Signup[]> {
+  const res = await apiFetch(`/auth/admin/signups`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load sign-ups");
+  return res.json();
+}
+
 /** Opens the "Register now" dialog from anywhere (the header button, a gated click). */
 export const OPEN_REGISTER_EVENT = "amarcircular-open-register";
 export function openRegister() {

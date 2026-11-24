@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -62,3 +63,16 @@ class QuickRegister(BaseModel):
         if len(digits) < 6:
             raise ValueError("Enter a phone number with at least 6 digits.")
         return value
+
+
+class SignupRead(BaseModel):
+    """One 'Register now' sign-up, for the admin console."""
+
+    id: UUID
+    full_name: str
+    email: str
+    phone_number: Optional[str] = None
+    company: Optional[str] = None
+    designation: Optional[str] = None
+    registered_at: Optional[datetime] = None
+    is_active: bool

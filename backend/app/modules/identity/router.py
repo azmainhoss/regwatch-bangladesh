@@ -14,11 +14,11 @@ from backend.app.core.security import (
     verify_password,
 )
 from backend.app.database.session import get_async_db
-from backend.app.modules.identity.deps import get_current_user
+from backend.app.modules.identity.deps import get_current_superuser, get_current_user
 from backend.app.modules.identity.models import User, UserProfile
 import secrets
 
-from backend.app.modules.identity.schemas import QuickRegister, TokenResponse, UserCreate, UserLogin, UserRead
+from backend.app.modules.identity.schemas import QuickRegister, SignupRead, TokenResponse, UserCreate, UserLogin, UserRead
 
 router = APIRouter(prefix="/auth", tags=["Identity & Auth"])
 
@@ -212,3 +212,27 @@ async def login(
 @router.get("/me", response_model=UserRead)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/admin/signups", response_model=list[SignupRead])
+async def list_signups(
+    _admin: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Everyone who used 'Register now', newest first (administrators only)."""
+    rows = (
+        await db.execute(
+            select(User, UserProfile).join(UserProfile, UserProfile.user_id == User.id).order_by(User.created_at.desc())
+        )
+    ).all()
+    out: list[SignupRead] = []
+    for user, profile in rows:
+        prefs = profile.preferences or {}
+        if prefs.get("signup") != QUICK_SIGNUP:
+            continue
+        out.append(SignupRead(
+            id=user.id, full_name=user.full_name, email=user.email, phone_number=user.phone_number,
+            company=prefs.get("company"), designation=profile.designation,
+            registered_at=user.created_at, is_active=user.is_active,
+        ))
+    return out
