@@ -26,8 +26,9 @@ const VERDICT: Record<string, string> = {
 };
 
 export default function CircularLinksPage() {
-  const params = useParams<{ id: string }>();
-  const id = params?.id;
+  // The folder is [dept] (shared with /circular/<dept>/<slug>); here it holds the circular id.
+  const params = useParams<{ dept: string }>();
+  const id = params?.dept;
 
   const [doc, setDoc] = useState<DocumentItem | null>(null);
   const [docError, setDocError] = useState<string | null>(null);

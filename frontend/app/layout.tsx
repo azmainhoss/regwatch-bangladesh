@@ -37,8 +37,17 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Amar Circular",
-  description: "Bangladesh Bank circulars with page-cited analysis for bank compliance teams.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://amarcircular.com"),
+  title: "Amar Circular: Bangladesh Bank circulars, summarised with page citations",
+  description:
+    "Every new Bangladesh Bank circular, summarised the day it is issued: what changed, what banks must do, and the exact page in the original.",
+  openGraph: {
+    type: "website",
+    siteName: "Amar Circular",
+    url: "/",
+    title: "Amar Circular",
+    description: "Bangladesh Bank circulars, summarised with page citations.",
+  },
   applicationName: "Amar Circular",
   appleWebApp: { capable: true, title: "Amar Circular", statusBarStyle: "black-translucent" },
   icons: { apple: "/icons/apple-touch-icon.png" },

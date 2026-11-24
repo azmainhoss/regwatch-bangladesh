@@ -15,6 +15,19 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 25 November 2026: circulars Google can read
+
+- **Every circular now has its own address**, for example
+  `/circular/brpd/49-2024-transfer-of-jute-sector-outstanding-loans-to-block`. The page is built on the server, so
+  Google and shared links see the real summary, what changed, the requirements and the dates, each with the page it
+  comes from. "Open with source pages" opens the full reader.
+- **Only circulars with an AI verified analysis are indexed** (659 at launch). The others still open but tell
+  search engines not to index them, so thousands of empty pages do not hurt the site.
+- **sitemap.xml and robots.txt** now exist. The library app (/dashboard) is not indexed; the circular pages are.
+- The whole site now renders on the server first, instead of a loading spinner until JavaScript runs.
+
+---
+
 ## 24 November 2026 (late): access rule, trust words, cited names
 
 - **Visitor access:** a device's first 7 days are completely open, with no counter and no register prompts. From

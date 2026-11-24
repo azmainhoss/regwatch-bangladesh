@@ -37,16 +37,11 @@ export default function AuthGate({
     };
   }, []);
 
-  if (status === "loading") {
-    return (
-      <div className="grid min-h-[100dvh] place-items-center bg-canvas" role="status" aria-label="Loading">
-        <span className="h-6 w-6 animate-spin rounded-full border-2 border-line border-t-accent" />
-      </div>
-    );
-  }
+  // The page itself renders straight away (also on the server, so search engines and shared links see real
+  // content). Only the register prompt waits until the saved session is known.
   return (
     <>
-      <RegisterGate signedIn={status === "in"} />
+      {status !== "loading" && <RegisterGate signedIn={status === "in"} />}
       {header}
       <main className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       {footer}
