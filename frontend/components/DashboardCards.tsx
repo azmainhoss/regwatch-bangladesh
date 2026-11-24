@@ -24,14 +24,17 @@ export default function DashboardCards({
   active = null,
   signedIn,
   onPick,
+  compact = false,
 }: {
   count: (b: Box) => number | null;
   active?: Box | null;
   signedIn: boolean;
   onPick: (b: Box) => void;
+  /** Inside the home page hero: tighter, so four fit beside the picture. */
+  compact?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+    <div className={`grid grid-cols-2 gap-3 ${compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
       {CARDS.map(({ id, label, hint }) => {
         const n = count(id);
         const locked = id === "later" && !signedIn;
@@ -49,7 +52,7 @@ export default function DashboardCards({
             type="button"
             onClick={() => onPick(id)}
             aria-pressed={active === id}
-            className={`rounded-[14px] border-2 px-4 py-4 text-left transition-colors sm:px-5 sm:py-5 ${look}`}
+            className={`rounded-[14px] border-2 px-4 py-4 text-left transition-colors ${compact ? "" : "sm:px-5 sm:py-5"} ${look}`}
           >
             <span className="flex items-center justify-between gap-2">
               <span className="text-[15px] font-bold">{label}</span>
@@ -65,7 +68,7 @@ export default function DashboardCards({
                 </span>
               )}
             </span>
-            <span className={`mt-2 block text-[34px] font-bold leading-none tracking-tight tabular-nums ${numberColour}`}>
+            <span className={`mt-2 block ${compact ? "text-[30px]" : "text-[34px]"} font-bold leading-none tracking-tight tabular-nums ${numberColour}`}>
               {locked ? "-" : n === null ? <SkeletonLine className="mt-1 h-8 w-12" /> : n}
             </span>
             <span className={`mt-2.5 block text-[14px] ${hintColour}`}>{locked ? "Register to save" : hint}</span>

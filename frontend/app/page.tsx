@@ -13,8 +13,6 @@ import DashboardCards, { type Box } from "@/components/DashboardCards";
 // The circular in the hero picture: a real point, its real quote, on page 1 of 2.
 const HERO_DOC = "ce648d4f-0e8e-4cc7-b4d0-481bb64617cb";
 
-const num = (n: number | undefined) => (n === undefined ? "–" : n.toLocaleString("en-US"));
-
 /** amarcircular.com: what the site does, the four cards, and Ask. The library itself is at /dashboard. */
 function Home() {
   const router = useRouter();
@@ -49,6 +47,11 @@ function Home() {
   if (legacy) return null;
 
   const later = lists.lists.find((l) => l.kind === "READ_LATER");
+  // Each card opens the dashboard with that filter on.
+  const pick = (id: Box) => {
+    if (id === "later" && !user) return setAccountOpen(true);
+    router.push(`/dashboard?box=${id}`);
+  };
   const count = (b: Box) => (counts ? (b === "later" ? (later ? later.document_ids.length : counts.read_later) : counts[b]) : null);
 
   return (
@@ -65,26 +68,9 @@ function Home() {
             Every new circular is notified on the day it’s issued, highlighting what has changed, what banks need to do, and exactly
             where to find it in the original document.
           </p>
-          <div>
-            <Link
-              href="/dashboard"
-              className="inline-flex min-h-[48px] items-center rounded-[10px] bg-accent px-6 py-3.5 text-[17px] font-semibold text-accent-ink transition-colors hover:bg-accent-hover"
-            >
-              Open the library — free
-            </Link>
+          <div className="mt-2">
+            <DashboardCards count={count} signedIn={!!user} onPick={pick} compact />
           </div>
-          <dl className="mt-2 flex flex-wrap gap-x-10 gap-y-4">
-            {[
-              ["Circulars in the library", counts?.library],
-              ["Issued this month", counts?.month],
-              ["Points without a page cite", counts?.uncited_points],
-            ].map(([label, value]) => (
-              <div key={label as string}>
-                <dt className="text-[13px] text-ink-3">{label}</dt>
-                <dd className="mt-0.5 text-[26px] font-bold tabular-nums text-ink">{num(value as number | undefined)}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         <figure
@@ -153,16 +139,8 @@ function Home() {
         </figure>
       </section>
 
-      {/* The same four cards as the dashboard; each opens the dashboard with that filter on. */}
-      <section aria-label="Circulars by period" className="space-y-4">
-        <DashboardCards
-          count={count}
-          signedIn={!!user}
-          onPick={(id) => {
-            if (id === "later" && !user) return setAccountOpen(true);
-            router.push(`/dashboard?box=${id}`);
-          }}
-        />
+      {/* Ask a question, under the hero. */}
+      <section aria-label="Ask a question">
         <DashboardAsk signedIn={!!user} onSignIn={() => setAccountOpen(true)} />
       </section>
     </div>

@@ -17,12 +17,12 @@ is in the commits (`git log`) and the linked documents.
 
 ## 24 November 2026 (evening): home page
 
-- **New home page at amarcircular.com.** A headline ("Know what updates came today"), one line on what
-  the site does, an **Open the library — free** button, and three live numbers: circulars in the library, issued
-  this month, and shown points without a page cite (0). The picture beside it is a real point from BRPD-1 Circular
-  Letter No. 40, linked to its highlighted sentence on page 1; clicking it opens that circular.
-- Under the headline are the **Today / This week / This month / Read later** cards and **Ask a question**. A card
-  opens the dashboard with that filter on. Ask answers right on the home page.
+- **New home page at amarcircular.com.** A headline ("Know what updates came today"), one line on what the site
+  does, and right under it the **Today / This week / This month / Read later** cards. A card opens the dashboard
+  with that filter on. The picture beside it is a real point from BRPD-1 Circular Letter No. 40, linked to its
+  highlighted sentence on page 1; clicking it opens that circular. **Ask a question** sits below and answers right
+  there. (The first version also had an "Open the library" button and three numbers; the owner asked for the cards
+  in their place.)
 - **The dashboard moved to /dashboard** and works as before. Old links such as `/?doc=…` (emails, alerts, bookmarks)
   still open the right circular there.
 - **Card look** on both pages: every card is white. The card whose filter is on turns solid green with a
