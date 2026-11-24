@@ -59,7 +59,7 @@ function Home() {
       <section className="flex flex-wrap items-center gap-x-14 gap-y-12 pt-4 sm:pt-10">
         <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-6">
           <h1 className="font-serif text-[40px] font-medium leading-[1.06] tracking-[-0.01em] text-ink sm:text-[52px] lg:text-[58px]">
-            Know what Bangladesh Bank <span className="hero-hl px-1">changed today.</span>
+            Know what updates <span className="hero-hl px-1">came today</span>
           </h1>
           <p className="max-w-[540px] text-[17px] leading-[1.55] text-ink-2 sm:text-[19px]">
             Every new circular is reviewed on the day it’s issued, highlighting what has changed, what banks need to do, and exactly

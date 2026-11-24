@@ -7,7 +7,7 @@ is in the commits (`git log`) and the linked documents.
 
 ## 24 November 2026 (evening): home page
 
-- **New home page at amarcircular.com.** A headline ("Know what Bangladesh Bank changed today."), one line on what
+- **New home page at amarcircular.com.** A headline ("Know what updates came today"), one line on what
   the site does, an **Open the library — free** button, and three live numbers: circulars in the library, issued
   this month, and shown points without a page cite (0). The picture beside it is a real point from BRPD-1 Circular
   Letter No. 40, linked to its highlighted sentence on page 1; clicking it opens that circular.
