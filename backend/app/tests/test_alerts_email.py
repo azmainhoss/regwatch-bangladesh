@@ -5,7 +5,7 @@ import email.policy
 import logging
 import smtplib
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -335,22 +335,27 @@ async def test_password_never_appears_anywhere(client, smtp, monkeypatch, caplog
 # 22. Daily summary
 # ---------------------------------------------------------------------------
 async def test_daily_summary(client, smtp):
+    """Every day at 19:30 Dhaka everyone subscribed gets the daily update: how many circulars came, each listed,
+    or "No new circulars" (owner, 2026-11-25). New-circular alerts are folded into it, not sent again."""
+    from backend.app.modules.documents.models import Document
+    from backend.app.tests.factories import make_institution
+
     smtp("ok")
     user, _t = await make_user()
-    now_before = datetime(2031, 5, 5, 4, 0, tzinfo=timezone.utc)   # 10:00 in Dhaka
-    now_after = datetime(2031, 5, 5, 5, 0, tzinfo=timezone.utc)    # 11:00 in Dhaka
+    now_before = datetime(2031, 5, 5, 13, 0, tzinfo=timezone.utc)  # 19:00 in Dhaka
+    now_after = datetime(2031, 5, 5, 14, 0, tzinfo=timezone.utc)   # 20:00 in Dhaka
+    inst = await make_institution()
     async with AsyncSessionLocal() as db:
-        ids = []
-        for i in range(2):
-            n = AN(user_id=user.id, kind="CIRCULAR_PUBLISHED", group="library", dedupe_key=f"digest-test:{uuid.uuid4()}",
-                   severity="info", title=f"New circular: DIG-{i}", body="Body.", link=f"/?doc={uuid.uuid4()}",
-                   in_app=True, email_mode="DIGEST", created_at=now_before - timedelta(hours=2 + i))
-            db.add(n)
-            await db.flush()
-            ids.append(n.id)
-        read = await db.get(AN, ids[1])
-        read.read_at = now_before - timedelta(hours=1)
+        n = AN(user_id=user.id, kind="CIRCULAR_PUBLISHED", group="library", dedupe_key=f"digest-test:{uuid.uuid4()}",
+               severity="info", title="New circular: DIG-0", body="Body.", link=f"/?doc={uuid.uuid4()}",
+               in_app=True, email_mode="DIGEST", created_at=now_before - timedelta(hours=2))
+        db.add(n)
+        ref = f"DAILY Circular No. {uuid.uuid4().hex[:4]}/2031"
+        db.add(Document(institution_id=inst.id, title="DAILY Circular: Test liquidity rules", reference_number=ref,
+                        publication_date=date(2031, 5, 5), publication_status="EXTRACTED", is_synthetic_fixture=False,
+                        created_at=now_before - timedelta(hours=3)))
         await db.commit()
+        nid = n.id
     async with AsyncSessionLocal() as db:
         assert await build_digests(db, now_before) == 0
         await db.commit()
@@ -359,18 +364,20 @@ async def test_daily_summary(client, smtp):
         assert await build_digests(db, now_after) >= 1
         await db.commit()
     rows = await outbox_for(user, "DIGEST")
-    assert len(rows) == 1 and rows[0].dedupe_key == f"digest:{user.id}:2031-05-05"
-    assert rows[0].notification_ids == [str(ids[0])]
-    assert rows[0].subject == "Amar Circular daily summary: 1 alert" and "DIG-0" in rows[0].text_body
-    assert "DIG-1" not in rows[0].text_body
+    assert len(rows) == 1 and rows[0].dedupe_key == f"daily:{user.id}:2031-05-05"
+    assert rows[0].subject.startswith("1 new Bangladesh Bank circular today") and ref in rows[0].text_body
+    assert "AI verified" not in rows[0].html_body and "AI draft" not in rows[0].html_body
     async with AsyncSessionLocal() as db:
         assert await build_digests(db, now_after + timedelta(hours=1)) == 0     # one a day
         await db.commit()
+        assert (await db.get(AN, nid)).emailed_at is not None
     assert len(await outbox_for(user, "DIGEST")) == 1
+    # A day with nothing new still gets the email, saying so.
     async with AsyncSessionLocal() as db:
-        unread = await db.get(AN, ids[0])
-        was_read = await db.get(AN, ids[1])
-        assert unread.emailed_at is not None and was_read.emailed_at is None
+        await build_digests(db, now_after + timedelta(days=1))
+        await db.commit()
+    rows = await outbox_for(user, "DIGEST")
+    assert len(rows) == 2 and any(r.subject == "No new Bangladesh Bank circulars today" for r in rows)
 
 
 # ---------------------------------------------------------------------------

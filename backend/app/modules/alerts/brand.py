@@ -97,35 +97,42 @@ def _footer_text(base: str, unsubscribe_url: Optional[str], why: str) -> List[st
 
 
 def daily_digest(base: str, day_label: str, circulars: List[DigestCircular], unsubscribe_url: str) -> Email:
+    """Sent every day (owner, 2026-11-25): how many circulars came that day, with each one listed. On a day with
+    none, a short "no new circulars" note. No AI verified / AI draft marks in email (owner)."""
     n = len(circulars)
-    first = circulars[0].reference if circulars else ""
-    subject = f"{n} new Bangladesh Bank circular{'s' if n != 1 else ''} today: {first}" + (f" and {n - 1} more" if n > 1 else "")
-    preheader = "; ".join(c.title for c in circulars[:2])[:140]
+    if n:
+        first = circulars[0].reference
+        subject = f"{n} new Bangladesh Bank circular{'s' if n != 1 else ''} today: {first}" + (f" and {n - 1} more" if n > 1 else "")
+        preheader = "; ".join(c.title for c in circulars[:2])[:140]
+        heading = f"{n} new circular{'s' if n != 1 else ''} from Bangladesh Bank"
+        lead = "Each one opens with the summary and the exact page in the original."
+    else:
+        subject = "No new Bangladesh Bank circulars today"
+        preheader = f"Nothing new from Bangladesh Bank on {day_label}."
+        heading = "No new circulars today"
+        lead = "Bangladesh Bank did not publish any new circulars today. The full library is one click away."
     rows = []
-    text = [f"New Bangladesh Bank circulars, {day_label}", ""]
+    text = [heading + f" ({day_label})", ""]
     for c in circulars:
-        badge = (
-            f'<span style="font-size:12px;font-weight:700;color:{GREEN};background:#E5F1EB;border-radius:999px;padding:2px 8px">AI verified</span>'
-            if c.verified else
-            f'<span style="font-size:12px;font-weight:700;color:#2456A6;background:#E8EFFB;border-radius:999px;padding:2px 8px">AI draft</span>'
-        )
         point = f'<p style="margin:8px 0 0;font-size:14.5px;line-height:1.5;color:{INK2}">{_e(c.point)}</p>' if c.point else ""
         rows.append(
             f'<tr><td style="padding:16px 0;border-top:1px solid {LINE}">'
-            f'<div style="font-size:13px;font-weight:700;color:{GREEN}">{_e(c.reference)} &nbsp;{badge}</div>'
+            f'<div style="font-size:13px;font-weight:700;color:{GREEN}">{_e(c.reference)}</div>'
             f'<a href="{_e(c.url)}" style="display:block;margin-top:4px;font-size:16px;font-weight:700;line-height:1.35;color:{INK};text-decoration:none">{_e(c.title)}</a>'
             f'<div style="margin-top:2px;font-size:13px;color:{INK3}">{_e(c.date)}</div>{point}</td></tr>'
         )
         text += [f"{c.reference}: {c.title} ({c.date})"] + ([f"  {c.point}"] if c.point else []) + [f"  {c.url}", ""]
+    table = f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{"".join(rows)}</table>' if rows else ""
+    cta_url = base + ("/dashboard?box=today" if n else "/dashboard")
     body = (
-        f'<p style="margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:{INK3}">Daily digest · {_e(day_label)}</p>'
-        f'<h1 style="margin:6px 0 4px;font-size:24px;line-height:1.25">{n} new circular{"s" if n != 1 else ""} from Bangladesh Bank</h1>'
-        f'<p style="margin:0 0 8px;font-size:15px;color:{INK2}">Each one opens with the summary and the exact page in the original.</p>'
-        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{"".join(rows)}</table>'
-        f'<div style="margin-top:20px">{button("Open the library", base + "/dashboard?box=today")}</div>'
+        f'<p style="margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:{INK3}">Daily update · {_e(day_label)}</p>'
+        f'<h1 style="margin:6px 0 4px;font-size:24px;line-height:1.25">{_e(heading)}</h1>'
+        f'<p style="margin:0 0 8px;font-size:15px;color:{INK2}">{_e(lead)}</p>'
+        f'{table}'
+        f'<div style="margin-top:20px">{button("Open the library", cta_url)}</div>'
     )
-    why = "You get this daily digest because you registered at amarcircular.com."
-    text += ["Open the library: " + base + "/dashboard?box=today", ""] + _footer_text(base, unsubscribe_url, why)
+    why = "You get this daily update because you registered at amarcircular.com."
+    text += ["Open the library: " + cta_url, ""] + _footer_text(base, unsubscribe_url, why)
     return Email(INSIGHTS_FROM, subject, preheader, layout(base, preheader, body, footer(base, unsubscribe_url, why)), "\n".join(text))
 
 

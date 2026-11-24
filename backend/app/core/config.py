@@ -178,7 +178,8 @@ class Settings(BaseSettings):
     # Digests only include alerts created after this moment (ISO time, UTC). Set when email is switched on, so
     # the first digest does not carry days of older alerts.
     ALERTS_DIGEST_SINCE: Optional[str] = None
-    ALERTS_DIGEST_TIME: str = "10:30"  # Dhaka time, inside the window the host PC is on
+    # Dhaka time of the daily email. 19:30: after the last hourly check of bb.org.bd (9:00-19:00), so "today" is complete.
+    ALERTS_DIGEST_TIME: str = "19:30"
     ALERTS_EMAIL_MAX_ATTEMPTS: int = 6
     ALERTS_EMAIL_MAX_AGE_HOURS: int = 48
     ALERTS_PUBLISH_SWEEP_HOURS: int = 48

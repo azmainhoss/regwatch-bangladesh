@@ -124,10 +124,7 @@ async def quick_register(
         designation=payload.designation,
         preferences={"signup": QUICK_SIGNUP, **({"company": payload.company} if payload.company else {})},
     ))
-    # Welcome email (owner-approved 2026-11-25); queued only when email is configured.
-    from backend.app.modules.alerts import reader_mail
-
-    reader_mail.queue_welcome(db, user)
+    # No welcome email (owner, 2026-11-25).
     try:
         await db.commit()
     except IntegrityError:

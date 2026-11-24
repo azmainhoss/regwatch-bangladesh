@@ -118,7 +118,7 @@ def _queue(db: AsyncSession, user, kind: str, key: str, email: brand.Email) -> N
 
 
 def queue_welcome(db: AsyncSession, user) -> None:
-    """After sign-up step 1. Does nothing while email is off. Caller commits."""
+    """Not used: the owner decided against a welcome email (2026-11-25). Kept for a possible later change."""
     if not mailer.email_configured() or not user.email:
         return
     first = (user.full_name or "").split(" ")[0] or None

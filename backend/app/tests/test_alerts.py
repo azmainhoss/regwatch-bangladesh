@@ -921,7 +921,7 @@ async def test_preferences_defaults_and_validation(client):
     d = (await client.get("/api/v1/alerts/preferences", headers=H(plain_token))).json()
     assert set(d["channels"]) == {"library"} and d["email_enabled"] is True and d["lock_version"] == 1
     assert d["channels"]["library"] == {"in_app": True, "email": "DIGEST"}
-    assert d["email_configured"] is False and d["due_soon_days"] == [1, 7] and d["digest_time"] == "10:30"
+    assert d["email_configured"] is False and d["due_soon_days"] == [1, 7] and d["digest_time"] == "19:30"
     assert [g["id"] for g in d["options"]["groups"]] == ["library"]
     assert any(c["code"] == "BRPD" for c in d["options"]["department_codes"])
     assert set((await client.get("/api/v1/alerts/preferences", headers=H(admin_token))).json()["channels"]) == {"library", "admin_queue"}
