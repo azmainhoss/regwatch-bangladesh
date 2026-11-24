@@ -5,6 +5,16 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 24 November 2026 (night): site behind Cloudflare
+
+- **The domain's DNS moved from Spaceship to Cloudflare** (free plan). The domain stays registered at Spaceship.
+  Visitors now reach the site through Cloudflare, which hides the server's address and adds DDoS protection and
+  caching. Encryption is "Full (strict)": Cloudflare checks the server's own certificate.
+- **The server trusts Cloudflare's addresses**, so the sign-up and sign-in limits still count each visitor on their
+  own instead of treating everyone as one Cloudflare address.
+
+---
+
 ## 24 November 2026 (evening): home page
 
 - **New home page at amarcircular.com.** A headline ("Know what updates came today"), one line on what
