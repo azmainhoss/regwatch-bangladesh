@@ -16,15 +16,15 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 |---|---|---|---|---|---|
 | A1 | Open newest circular first | **Done** | Desktop opens the first (newest) circular automatically. Phones show the list. | `app/dashboard/page.tsx` (loadData) | Keep. |
 | A2 | Pending analysis shows a real loading state | **Partial** | A skeleton shows while the points load, and "Analysing…" shows only to an admin who pressed Run. A circular that is only EXTRACTED (not analysed) shows a "Not checked yet" badge and an empty analysis area, with no progress shown. | `components/CircularDetail.tsx` ~600–670, 1128 | Add a clear "Summary not ready yet: the original pages are below" state, without presenting an empty analysis as finished. |
-| B1 | Replace "Checked" / "Not checked yet" with "AI draft" / "AI-verified" plus tooltips | **Not done** | Labels in `StatusBadge.tsx` and `claimWords.ts`. HUMAN_REVIEWED and MACHINE_VERIFIED both show "Checked", so automated and human checks look the same. The home hero shows "Checked". | `components/StatusBadge.tsx`, `services/claimWords.ts`, `app/search/page.tsx:37`, `app/page.tsx` | Needs approval of the exact wording (Approval 2). |
+| B1 | Trust words | **Done 24 Nov**: "AI verified" / "AI draft" only, no tooltips (owner) | Labels in `StatusBadge.tsx` and `claimWords.ts`. HUMAN_REVIEWED and MACHINE_VERIFIED both show "Checked", so automated and human checks look the same. The home hero shows "Checked". | `components/StatusBadge.tsx`, `services/claimWords.ts`, `app/search/page.tsx:37`, `app/page.tsx` | Needs approval of the exact wording (Approval 2). |
 | C1 | "Back links" → "Cites" | **Done 24 Nov** | `Backtrail.tsx` says "Back links:" for the older circulars this one cites. | `components/Backtrail.tsx:70` | Fix now. |
 | C2 | "Cited by" section | **Done 24 Nov** (checked live: FEPD 31/2025 shows 19) | Shows "Amended / Replaced / Repealed / Clarified by" for newer circulars. Newer circulars that only *reference* or *implement* this one are not shown. The data exists (`status.verified_incoming`). | `components/Backtrail.tsx` | Add "Cited by" from the other incoming link types. Fix now. |
-| D1 | Registration in 3 steps (account after step 1) | **Not done** | One 6-field form, posted to `POST /auth/quick-register`. | `components/RegisterModal.tsx`, `backend/app/modules/identity` | Needs a backend change (create account with email + password, then PATCH profile). Wording needs approval (Approval 4). |
-| E1 | First 3 days unrestricted, no meter; register only for Read later / lists / assign | **Not done** | Today: 3 free circulars per device (`freeViews.ts`), then every click opens Register. | `services/freeViews.ts`, `components/RegisterModal.tsx` (RegisterGate), `CircularDetail.tsx` | What happens on **day 4** is not specified (Approval 1). |
+| D1 | Registration in 3 steps (account after step 1) | **Built, preview only** at `?signup=steps`; awaiting approval | One 6-field form, posted to `POST /auth/quick-register`. | `components/RegisterModal.tsx`, `backend/app/modules/identity` | Needs a backend change (create account with email + password, then PATCH profile). Wording needs approval (Approval 4). |
+| E1 | Visitor access | **Done 24 Nov**: 7 days open, then 5 free circulars, then register (owner) | Today: 3 free circulars per device (`freeViews.ts`), then every click opens Register. | `services/freeViews.ts`, `components/RegisterModal.tsx` (RegisterGate), `CircularDetail.tsx` | What happens on **day 4** is not specified (Approval 1). |
 | F1 | "Register free to ask" text with a "Sign in" button | **Fixed 24 Nov** (reader, dashboard Ask, Search page) | Confirmed: the circular's Ask section says "Register free to ask…" but its button says "Sign in". | `components/CircularDetail.tsx:963` | Fix now: primary "Register free", secondary "Sign in". |
-| G1 | Circular URLs `/circular/<dept>/<number>-<slug>` | **Not done** | Circulars open only as `/dashboard?doc=<uuid>`. Only `/circular/<id>/links` exists. | `app/` | New server-rendered route (Section 3). |
-| G2 | Server-rendered content, titles, descriptions, canonical, OG | **Not done** | Every page is a client component behind `AuthGate`, which renders a spinner until JavaScript runs. Google sees no circular text. No `generateMetadata` anywhere. | `app/layout.tsx`, `components/AuthGate.tsx` | Section 3. |
-| G3 | sitemap.xml, robots.txt | **Not done** | Neither exists. | — | Section 3. |
+| G1 | Circular URLs `/circular/<dept>/<number>-<slug>` | **Done 25 Nov** | Circulars open only as `/dashboard?doc=<uuid>`. Only `/circular/<id>/links` exists. | `app/` | New server-rendered route (Section 3). |
+| G2 | Server-rendered content, titles, descriptions, canonical, OG | **Done 25 Nov** (raw HTML checked) | Every page is a client component behind `AuthGate`, which renders a spinner until JavaScript runs. Google sees no circular text. No `generateMetadata` anywhere. | `app/layout.tsx`, `components/AuthGate.tsx` | Section 3. |
+| G3 | sitemap.xml, robots.txt | **Done 25 Nov** (home + 661 circulars) | Neither exists. | — | Section 3. |
 | G4 | Old URLs and redirects | **Partial** | `/?doc=` already forwards to `/dashboard?doc=`. | `app/page.tsx` | Make `/dashboard?doc=` links canonicalise to the new URL. |
 | G5 | Branded 404 with search and recent circulars | **Done 24 Nov** (checked live, HTTP 404) | | `app/not-found.tsx` | |
 
@@ -32,23 +32,23 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 
 | # | Finding | Status | Today | Plan |
 |---|---|---|---|---|
-| Dash-1 | Top 5 departments as pills + searchable "More" | **Not done** | 14 code-only chips (`slice(0,14)`), no full names. | Build; full names come from `institution_departments`. |
-| Dash-2 | Searchable category dropdown, mobile bottom sheet | **Not done** | Category chips. | Build. |
-| Dash-3 | Load more, 30 at a time, "Showing 30 of N" | **Partial** | Load more with `PAGE_SIZE = 30` exists. Check the count wording. | Small fix. |
-| Dash-4 | Keep scroll position on return | **Not done** | — | Build. |
-| Dash-5 | Filters in URL | **Partial** | Only `box`, `doc`, `page`, `version` are in the URL. Department, category and search words are not. | Build. |
+| Dash-1 | Top 5 departments as pills + searchable "More" | **Done 25 Nov** | 14 code-only chips (`slice(0,14)`), no full names. | Build; full names come from `institution_departments`. |
+| Dash-2 | Searchable category dropdown, mobile bottom sheet | **Done 25 Nov** | Category chips. | Build. |
+| Dash-3 | Load more, 30 at a time, "Showing 30 of N" | **Done 25 Nov** | Load more with `PAGE_SIZE = 30` exists. Check the count wording. | Small fix. |
+| Dash-4 | Keep scroll position on return | **Done 25 Nov** | — | Build. |
+| Dash-5 | Filters in URL | **Done 25 Nov** | Only `box`, `doc`, `page`, `version` are in the URL. Department, category and search words are not. | Build. |
 | Dash-6 | Simpler cards (ref, title, date, one trust mark) | **Not done** | Cards carry several tags and badges. | Needs a preview (visual change). |
 | Search-1 | Ranking | **Partial** | Newest first, with number/title matches lifted to the top (`feed.py`, `documents/search.py`). There is no relevance score. English→Bangla matching exists. | Add a relevance option, measured on a test set of real queries before switching the default. |
-| Search-2 | Sort: Relevance / Newest | **Not done** | — | Build with Search-1. |
-| Search-3 | Year presets (Last 12 months) instead of free-text years | **Not done** | Free-text `year_from` / `year_to`. | Build. |
+| Search-2 | Sort: Relevance / Newest | **Done 25 Nov** | — | Build with Search-1. |
+| Search-3 | Year presets instead of free-text years | **Done 25 Nov** | Free-text `year_from` / `year_to`. | Build. |
 | Search-4 | Filter counts, better empty state | **Not done** | — | Build. |
 | Cmd-1 | One command bar with Search / Ask, Cmd/Ctrl+K | **Not done** | Three separate places: dashboard Ask, dashboard search, the Search page. No Cmd+K. | Needs approval (it changes navigation). |
-| Reader-1 | Action order (Source pages, Mind map, History, Assign; then Save, Email; PDF in overflow) | **Not done** | Original PDF is the first action. | Build; preview first. |
+| Reader-1 | Action order | **Done 25 Nov** | Original PDF is the first action. | Build; preview first. |
 | Reader-2 | One Save menu (Read later, Favourites, lists) | **Partial** | Star, bookmark and "Add to list" are separate controls. | Build. |
 | Ref-1 | Real circular numbers instead of "References a circular" | **Confirmed** | Seen live on FEPD 31/2025: the "Cites" row shows a chip labelled "References a circular" instead of the cited number. The label comes from the analysis data, not the UI code. | Use the cited reference number (or "not in library" + number). |
 | Ref-2 | Citation chips "Page 1 ✓" / pending | **Partial** | Chips exist as "Page N · Checked" and "Check page N". | Restyle with the terminology change. |
-| Polish-1 | Nav highlight on History & links page | **Not done** | `/circular/...` highlights nothing (no nav item starts with `/circular`). | Fix. |
-| Polish-2 | Mind-map zoom and pan | **Not done** | Canvas draws at a fixed scale. | Build. |
+| Polish-1 | Nav highlight on History & links page | **Done 25 Nov** | `/circular/...` highlights nothing (no nav item starts with `/circular`). | Fix. |
+| Polish-2 | Mind-map zoom and pan | **Done 25 Nov** | Canvas draws at a fixed scale. | Build. |
 | Polish-3 | Install prompt only after the 3rd visit or a save | **Done 24 Nov** (code; can't be triggered from a desktop browser test) | | |
 
 ### P3
@@ -56,7 +56,7 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 | Finding | Status |
 |---|---|
 | J/K next/previous | **Done** (dashboard) |
-| S save, P source pages | **Not done** |
+| S save, P source pages | **Done 25 Nov** |
 | Hover previews of references, transitions, empty states, list-card hierarchy | **Not done** |
 | Consistent trust marks everywhere | **Not done**; depends on Approval 2 |
 
@@ -132,3 +132,5 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 
 - 24 Nov 2026: matrix written; Brevo domain authenticated; insights@ forwarding live.
 - 24 Nov 2026: deployed C1, C2, F1, G5, Polish-3.
+- 24–25 Nov 2026: owner decisions applied; deployed B1, E1, G1–G3, Ref-1, Dash-1–5, Search-2–3, Reader-1, Polish-1–2, S/P keys. Awaiting approval: 3-step sign-up, email templates.
+- Still open: Dash-6 (simpler list cards), Reader-2 (one Save menu), Search-1/4 (relevance scoring measured on real queries, filter counts, empty state), Cmd-1 (command bar), Ref-2 chip restyle, hover previews, weekly digest + public page, follows (topics, single circulars), password-reset wiring, one-click unsubscribe, Brevo webhook, admin email history.

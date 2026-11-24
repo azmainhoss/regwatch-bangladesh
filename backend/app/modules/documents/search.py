@@ -224,6 +224,19 @@ def make_snippet(text: str, terms: Sequence[str]) -> Dict[str, Any]:
     }
 
 
+def _search_order(terms, sort: str):
+    """newest (default): newest first. relevance: circulars whose number or title holds every word first, then
+    those whose title holds any word, each group newest first. Page-text-only matches come last."""
+    newest = [Document.publication_date.desc(), Document.created_at.desc(), Document.id]
+    if (sort or "").lower() != "relevance":
+        return newest
+    title_any = or_(*[func.lower(Document.title).contains(t.lower()) for t in terms]) if terms else None
+    order = [case((meta_matches_condition(terms), 0), else_=1)]
+    if title_any is not None:
+        order.append(case((title_any, 0), else_=1))
+    return order + newest
+
+
 async def search_documents(
     db: AsyncSession,
     user: Optional[User],
@@ -235,6 +248,8 @@ async def search_documents(
     status: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
+    date_from: Optional[date] = None,
+    sort: str = "newest",
 ) -> SearchResponse:
     terms = query_terms(query)
     if not terms or sum(len(t) for t in terms) < 2:
@@ -258,6 +273,8 @@ async def search_documents(
         conditions.append(Document.publication_date >= date(year_from, 1, 1))
     if year_to:
         conditions.append(Document.publication_date <= date(year_to, 12, 31))
+    if date_from:
+        conditions.append(Document.publication_date >= date_from)
     if doc_type and doc_type.strip():
         conditions.append(Document.document_type == doc_type.strip().upper())
     if status and status.strip():
@@ -273,7 +290,7 @@ async def search_documents(
             select(Document)
             .options(selectinload(Document.department))
             .where(*conditions)
-            .order_by(Document.publication_date.desc(), Document.created_at.desc(), Document.id)
+            .order_by(*_search_order(terms, sort))
             .limit(limit)
             .offset(offset)
         )

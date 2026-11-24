@@ -38,12 +38,32 @@ const STATUS_OPTIONS = [
 
 interface Filters {
   department: string;
-  year_from: string;
-  year_to: string;
+  /** Published: "" (any time), 30d, 12m, 3y, year (this calendar year). Replaces the free-text year boxes. */
+  when: string;
   doc_type: string;
   status: string;
+  /** "" = newest first (default), "relevance" = best matches first. */
+  sort: string;
 }
-const NO_FILTERS: Filters = { department: "", year_from: "", year_to: "", doc_type: "", status: "" };
+const NO_FILTERS: Filters = { department: "", when: "", doc_type: "", status: "", sort: "" };
+
+const WHEN_OPTIONS = [
+  { value: "", label: "Any time" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "12m", label: "Last 12 months" },
+  { value: "3y", label: "Last 3 years" },
+  { value: "year", label: "This year" },
+];
+
+function dateFrom(when: string): string {
+  const d = new Date();
+  if (when === "30d") d.setDate(d.getDate() - 30);
+  else if (when === "12m") d.setFullYear(d.getFullYear() - 1);
+  else if (when === "3y") d.setFullYear(d.getFullYear() - 3);
+  else if (when === "year") d.setMonth(0, 1);
+  else return "";
+  return d.toISOString().slice(0, 10);
+}
 
 type Tab = "search" | "ask";
 
@@ -54,9 +74,6 @@ function shortDate(value?: string) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function validYear(v: string) {
-  return /^\d{4}$/.test(v) ? v : "";
-}
 
 /** Cuts a snippet at the match offsets (JS string indices) and wraps each match in <mark>. */
 function Highlighted({ snippet }: { snippet: SearchSnippet }) {
@@ -145,8 +162,8 @@ export default function SearchPage() {
     setTab(p.get("tab") === "ask" ? "ask" : "search");
     setFilters({
       department: p.get("department") || "",
-      year_from: p.get("year_from") || "",
-      year_to: p.get("year_to") || "",
+      when: p.get("when") || "",
+      sort: p.get("sort") || "",
       doc_type: p.get("doc_type") || "",
       status: p.get("status") || "",
     });
@@ -177,8 +194,8 @@ export default function SearchPage() {
         {
           q: query,
           department: f.department,
-          year_from: validYear(f.year_from),
-          year_to: validYear(f.year_to),
+          date_from: dateFrom(f.when),
+          sort: f.sort === "relevance" ? "relevance" : "newest",
           doc_type: f.doc_type,
           status: f.status,
           limit: PAGE_SIZE,
@@ -330,32 +347,25 @@ export default function SearchPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="f-from" className="field-label">
-                Year from
+              <label htmlFor="f-when" className="field-label">
+                Published
               </label>
-              <input
-                id="f-from"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="Any year"
-                className="field h-10"
-                value={filters.year_from}
-                onChange={(e) => setFilter("year_from", e.target.value.replace(/\D/g, ""))}
-              />
+              <select id="f-when" className="field h-10" value={filters.when} onChange={(e) => setFilter("when", e.target.value)}>
+                {WHEN_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label htmlFor="f-to" className="field-label">
-                Year to
+              <label htmlFor="f-sort" className="field-label">
+                Sort by
               </label>
-              <input
-                id="f-to"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="Any year"
-                className="field h-10"
-                value={filters.year_to}
-                onChange={(e) => setFilter("year_to", e.target.value.replace(/\D/g, ""))}
-              />
+              <select id="f-sort" className="field h-10" value={filters.sort} onChange={(e) => setFilter("sort", e.target.value)}>
+                <option value="">Newest first</option>
+                <option value="relevance">Best match</option>
+              </select>
             </div>
             <div>
               <label htmlFor="f-type" className="field-label">

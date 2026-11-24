@@ -15,6 +15,29 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 25 November 2026 (later): dashboard, search and reader improvements
+
+- **Dashboard filters:** the five largest departments are pills, with **More departments** (searchable, full names
+  where known, counts) and a searchable **Category** list. On phones both open as a sheet from the bottom.
+  Department and category now apply together.
+- **Filters are in the address** (`?dept=BRPD&topic=…&q=…&box=week`), so a filtered view can be shared, and Back
+  and refresh keep it. Coming back to the dashboard returns to the same scroll position.
+- **"Showing 30 of 4,786"** above the list; "Load 30 more" below it.
+- **Reader actions in a clearer order:** Source pages, Mind map, History & links, Assign to team, then Save and
+  Email. Original PDF, compare and add-to-register are under **More** (the PDF stays up front when a circular has
+  no readable pages). On phones: Source pages, Mind map and Save, with the rest under More.
+- **Search:** "Published" presets (last 30 days, last 12 months, last 3 years, this year) replace the two
+  free-text year boxes, and **Sort by: Newest first / Best match**. Newest first stays the default.
+- **Keyboard:** besides J/K (next/previous), **P** opens the source pages and **S** saves to Read later.
+- **Mind map:** zoom in and out (up to 250%) and drag or scroll to move around large maps.
+- **Navigation:** Dashboard stays highlighted on circular and History & links pages.
+- **3-step sign-up** is built and can be tried at `amarcircular.com/?signup=steps`; everyone else keeps the
+  one-form sign-up until it is approved.
+- **Email drafts** (daily digest, welcome, password reset, saved-circular alert) are written for approval; nothing
+  is sent.
+
+---
+
 ## 25 November 2026: circulars Google can read
 
 - **Every circular now has its own address**, for example

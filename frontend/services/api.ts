@@ -1007,6 +1007,8 @@ export interface SearchParams {
   department?: string;
   year_from?: string;
   year_to?: string;
+  date_from?: string;
+  sort?: "newest" | "relevance";
   doc_type?: string;
   status?: string;
   limit?: number;

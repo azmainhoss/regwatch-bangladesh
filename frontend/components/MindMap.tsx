@@ -7,8 +7,8 @@
  *
  * The same drawing is used on screen (`MindMap`) and turned into a picture for emails (`mindMapPng`).
  */
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, LayoutList, Network } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, LayoutList, Minus, Network, Plus, RotateCcw } from "lucide-react";
 import type { ClaimItem, ClaimSection, DocumentItem } from "@/services/api";
 import { titleWithoutRef } from "./ui";
 
@@ -340,6 +340,9 @@ export default function MindMap({
   const svg = useMemo(() => mindMapSvg(doc, branches, palette, true), [doc, branches, dark]); // eslint-disable-line react-hooks/exhaustive-deps
   // Phones get the outline first: the full diagram is too wide to read at phone size.
   const [view, setView] = useState<"outline" | "diagram">(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "outline" : "diagram"));
+  const [zoom, setZoom] = useState(1);
+  const pane = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
 
   if (branches.length === 0) {
     return (
@@ -381,14 +384,51 @@ export default function MindMap({
       {view === "outline" ? (
         <Outline doc={doc} branches={branches} onOpenLeaf={onOpenLeaf} />
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="relative">
+          {/* Zoom (buttons) and pan (scroll, or drag with the mouse) for large maps. */}
+          <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-control border border-line bg-surface/95 p-0.5 shadow-panel">
+            <button type="button" aria-label="Zoom out" disabled={zoom <= 1} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} className="grid h-8 w-8 place-items-center rounded text-ink-2 hover:bg-sunken disabled:opacity-40">
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="grid min-w-[3rem] place-items-center text-[12.5px] tabular-nums text-ink-3">{Math.round(zoom * 100)}%</span>
+            <button type="button" aria-label="Zoom in" disabled={zoom >= 2.5} onClick={() => setZoom((z) => Math.min(2.5, +(z + 0.25).toFixed(2)))} className="grid h-8 w-8 place-items-center rounded text-ink-2 hover:bg-sunken disabled:opacity-40">
+              <Plus className="h-4 w-4" />
+            </button>
+            <button type="button" aria-label="Reset zoom" disabled={zoom === 1} onClick={() => setZoom(1)} className="grid h-8 w-8 place-items-center rounded text-ink-2 hover:bg-sunken disabled:opacity-40">
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <div
-            className="mind-map min-w-[760px] [&_svg]:h-auto [&_svg]:w-full"
-            onClick={pick}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick(e)}
-            aria-label="Mind map of this circular. Tap a point to open its source page."
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+            ref={pane}
+            className={`-mx-4 max-h-[72vh] overflow-auto px-4 sm:mx-0 sm:px-0 ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
+            onPointerDown={(e) => {
+              if (zoom <= 1 || e.pointerType !== "mouse" || !pane.current) return;
+              drag.current = { x: e.clientX, y: e.clientY, left: pane.current.scrollLeft, top: pane.current.scrollTop, moved: false };
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d || !pane.current) return;
+              if (Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) > 4) d.moved = true;
+              pane.current.scrollLeft = d.left - (e.clientX - d.x);
+              pane.current.scrollTop = d.top - (e.clientY - d.y);
+            }}
+            onPointerUp={() => {
+              setTimeout(() => (drag.current = null), 0);
+            }}
+            onPointerLeave={() => (drag.current = null)}
+          >
+            <div
+              className="mind-map [&_svg]:h-auto [&_svg]:w-full"
+              style={{ minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
+              onClick={(e) => {
+                if (drag.current?.moved) return;
+                pick(e);
+              }}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && pick(e)}
+              aria-label="Mind map of this circular. Tap a point to open its source page."
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          </div>
         </div>
       )}
     </div>

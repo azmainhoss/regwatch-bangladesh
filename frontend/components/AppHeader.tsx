@@ -87,7 +87,7 @@ export default function AppHeader() {
 
           <nav className="hidden min-w-0 items-center gap-1 text-[14px] font-semibold sm:flex" aria-label="Main">
             {nav.map((item) => {
-              const active = pathname.startsWith(item.href);
+              const active = pathname.startsWith(item.href) || (item.href === "/dashboard" && pathname.startsWith("/circular"));
               return (
                 <Link
                   key={item.href}
@@ -191,7 +191,7 @@ export default function AppHeader() {
       >
         <div className="flex items-stretch justify-around">
           {nav.map(({ href, label, Icon }) => {
-            const active = pathname.startsWith(href);
+            const active = pathname.startsWith(href) || (href === "/dashboard" && pathname.startsWith("/circular"));
             return (
               <Link
                 key={href}

@@ -324,6 +324,8 @@ async def search_circulars(
     status: Optional[str] = Query(None, description="A publication status, or PUBLISHED for any published one."),
     limit: int = Query(20, ge=1, le=50),
     offset: int = Query(0, ge=0),
+    date_from: Optional[date] = Query(None, description="Only circulars published on or after this date."),
+    sort: str = Query("newest", pattern="^(newest|relevance)$"),
     current_user: Optional[User] = Depends(get_document_reader),
     db: AsyncSession = Depends(get_async_db),
 ):
@@ -335,7 +337,7 @@ async def search_circulars(
     return await search_documents(
         db, current_user, q,
         department=department, year_from=year_from, year_to=year_to,
-        doc_type=doc_type, status=status, limit=limit, offset=offset,
+        doc_type=doc_type, status=status, limit=limit, offset=offset, date_from=date_from, sort=sort,
     )
 
 

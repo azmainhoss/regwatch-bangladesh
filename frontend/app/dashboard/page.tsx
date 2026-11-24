@@ -18,6 +18,7 @@ import {
   queryResearchAssistant,
   fetchResearchMatches,
   type ResearchCitation,
+  openRegister,
 } from "@/services/api";
 import { pageCorrected } from "@/services/claimsStore";
 import AccountModal from "@/components/AccountModal";
@@ -29,13 +30,26 @@ import { inForceOf, seedDocuments, useRelState } from "@/services/relationshipsS
 import { SEARCH_INPUT_ID } from "@/components/AppHeader";
 import { EASE_OUT, EmptyState, Notice, SkeletonLine, titleWithoutRef } from "@/components/ui";
 import DashboardAsk from "@/components/DashboardAsk";
+import FilterMenu from "@/components/FilterMenu";
 import DashboardCards, { BOX_HINTS, type Box } from "@/components/DashboardCards";
 import AssignedPanel from "@/components/AssignedPanel";
 import { QuickSave } from "@/components/SaveButtons";
 import { fetchFeed, fetchFeedCounts, fetchTopicNames, type Choice, type FeedCounts } from "@/services/libraryApi";
-import { useLists } from "@/services/listsStore";
+import { toggleKind, useLists } from "@/services/listsStore";
 
 const PAGE_SIZE = 30;
+
+// Full names for Bangladesh Bank departments whose database name is only the code.
+const DEPT_NAMES: Record<string, string> = {
+  ABD: "Accounts and Budgeting Department",
+  ACD: "Agricultural Credit Department",
+  BFIU: "Bangladesh Financial Intelligence Unit",
+  BRD: "Bank Resolution Department",
+  DFIM: "Department of Financial Institutions and Markets",
+  DMD: "Debt Management Department",
+  FEOD: "Foreign Exchange Operation Department",
+  SMESPD: "SME and Special Programmes Department",
+};
 
 /** "Expected credit loss (ECL)" -> "Expected credit loss", for the small tags on list rows. */
 function shortTopic(label: string) {
@@ -64,10 +78,10 @@ function CircularsPageInner() {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [dept, setDept] = useState("ALL");
-  const [topic, setTopic] = useState("ALL");
-  const [filterTab, setFilterTab] = useState<"dept" | "topic">("dept");
+  // Filters live in the address too (?dept=BRPD&topic=ECL&q=...), so a view can be shared and Back restores it.
+  const [search, setSearch] = useState(() => searchParams.get("q") || "");
+  const [dept, setDept] = useState(() => (searchParams.get("dept") || "ALL").toUpperCase());
+  const [topic, setTopic] = useState(() => (searchParams.get("topic") || "ALL").toUpperCase());
   const [box, setBox] = useState<Box | null>(() => (["today", "week", "month", "later"].includes(boxParam || "") ? (boxParam as Box) : null));
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -108,6 +122,8 @@ function CircularsPageInner() {
   const wantScroll = useRef(false);
   const openedByLink = useRef(false);
   selectedRef.current = selectedDoc;
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = currentUser;
   pageNumberRef.current = pageNumber;
   panelOpenRef.current = pagePanelOpen;
 
@@ -151,8 +167,8 @@ function CircularsPageInner() {
   const feedQuery = (offset: number) => ({
     period: box && box !== "later" ? box : null,
     saved: box === "later" ? ("READ_LATER" as const) : null,
-    department: filterTab === "dept" && dept !== "ALL" ? dept : null,
-    topic: filterTab === "topic" && topic !== "ALL" ? topic : null,
+    department: dept !== "ALL" ? dept : null,
+    topic: topic !== "ALL" ? topic : null,
     q: search.trim(),
     limit: PAGE_SIZE,
     offset,
@@ -237,7 +253,7 @@ function CircularsPageInner() {
     const t = window.setTimeout(loadData, search ? 250 : 0);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, box, dept, topic, filterTab, currentUser?.id]);
+  }, [search, box, dept, topic, currentUser?.id]);
 
   // The numbers on the boxes: on load, when the person changes, and whenever a saved list changes
   // (a bookmark tapped anywhere updates the Read later box at once). The Read later list itself is
@@ -300,14 +316,54 @@ function CircularsPageInner() {
 
   // Keeps the address in step with what is open, without adding history entries (the back button still leaves the page).
   useEffect(() => {
-    if (!selectedDoc) return;
     const p = new URLSearchParams();
-    p.set("doc", selectedDoc.id);
-    if (pagePanelOpen) p.set("page", String(pageNumber));
-    if (viewVersion) p.set("version", viewVersion);
-    if (window.location.search !== `?${p.toString()}`) router.replace(`/dashboard?${p.toString()}`, { scroll: false });
+    if (box) p.set("box", box);
+    if (dept !== "ALL") p.set("dept", dept);
+    if (topic !== "ALL") p.set("topic", topic);
+    if (search.trim()) p.set("q", search.trim());
+    if (selectedDoc) {
+      p.set("doc", selectedDoc.id);
+      if (pagePanelOpen) p.set("page", String(pageNumber));
+      if (viewVersion) p.set("version", viewVersion);
+    } else if (docParam) {
+      // A ?doc= link is still loading: keep it in the address until the circular is open.
+      p.set("doc", docParam);
+      if (pageParam) p.set("page", pageParam);
+      if (versionParam) p.set("version", versionParam);
+    }
+    const qs = p.toString();
+    if (window.location.search !== (qs ? `?${qs}` : "")) router.replace(qs ? `/dashboard?${qs}` : "/dashboard", { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDoc?.id, pagePanelOpen, pageNumber, viewVersion]);
+  }, [selectedDoc?.id, pagePanelOpen, pageNumber, viewVersion, box, dept, topic, search]);
+
+  // Coming back to the dashboard (Back from History & links, a circular page, search): return to where the
+  // reader was, once the list has loaded. Saved when leaving; used once.
+  const restored = useRef(false);
+  useEffect(() => {
+    const save = () => {
+      try {
+        sessionStorage.setItem("dash-scroll", JSON.stringify({ y: window.scrollY, q: window.location.search }));
+      } catch {
+        /* private window */
+      }
+    };
+    window.addEventListener("pagehide", save);
+    return () => {
+      save();
+      window.removeEventListener("pagehide", save);
+    };
+  }, []);
+  useEffect(() => {
+    if (loading || restored.current) return;
+    restored.current = true;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("dash-scroll") || "null");
+      sessionStorage.removeItem("dash-scroll");
+      if (saved && saved.y > 0 && saved.q === window.location.search) requestAnimationFrame(() => window.scrollTo(0, saved.y));
+    } catch {
+      /* ignore */
+    }
+  }, [loading]);
 
   // Phone width: after a circular opens (from a list tap or a link), bring its detail into view.
   useEffect(() => {
@@ -363,10 +419,16 @@ function CircularsPageInner() {
   const laterList = lists.lists.find((l) => l.kind === "READ_LATER");
   const filtered = box === "later" && laterList ? documents.filter((d) => laterList.document_ids.includes(d.id)) : documents;
   const boxCount = (b: Box) => (counts ? (b === "later" ? (laterList ? laterList.document_ids.length : counts.read_later) : counts[b]) : null);
-  const chips: Choice[] =
-    filterTab === "dept" ? (counts?.departments ?? []).slice(0, 14) : (counts?.topics ?? []).slice().sort((a, b) => b.count - a.count);
-  const activeChip = filterTab === "dept" ? dept : topic;
-  const setChip = (code: string) => (filterTab === "dept" ? setDept(code) : setTopic(code));
+  // Departments: the five largest as pills, the rest in a searchable "More" list, each with its full name.
+  const allDepts: Choice[] = counts?.departments ?? [];
+  const topDepts = allDepts.slice(0, 5);
+  const deptPills = dept !== "ALL" && !topDepts.some((d) => d.code === dept) ? [...topDepts, ...allDepts.filter((d) => d.code === dept)] : topDepts;
+  const deptName = (code: string) => {
+    const fromDb = institutions.flatMap((i) => i.departments).find((d) => d.code === code)?.name;
+    return fromDb && fromDb !== code ? fromDb : DEPT_NAMES[code];
+  };
+  const topicOptions = (counts?.topics ?? []).slice().sort((a, b) => b.count - a.count);
+  const anyFilter = !!(box || search || dept !== "ALL" || topic !== "ALL");
 
   // The circulars before and after the open one in the list, for the arrows and the J / K keys.
   const openIdx = selectedDoc ? filtered.findIndex((d) => d.id === selectedDoc.id) : -1;
@@ -384,6 +446,14 @@ function CircularsPageInner() {
       if (document.querySelector('[role="dialog"]')) return;
       if (e.key === "j") stepRef.current.next?.open();
       else if (e.key === "k") stepRef.current.prev?.open();
+      else if (e.key === "p" && selectedRef.current) {
+        // P: the source pages of the open circular.
+        setPagePanelOpen((o) => !o);
+      } else if (e.key === "s" && selectedRef.current) {
+        // S: save the open circular to Read later (registration needed, as for the bookmark button).
+        if (!userRef.current) openRegister("register");
+        else void toggleKind("READ_LATER", selectedRef.current.id);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -489,65 +559,41 @@ function CircularsPageInner() {
       <DashboardAsk signedIn={!!currentUser} onSignIn={() => setAccountOpen(true)} />
 
       {/* Search and filters */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="inline-flex shrink-0 self-start rounded-control bg-sunken p-0.5" role="tablist" aria-label="Filter by">
-          {(
-            [
-              { id: "dept", label: "Departments" },
-              { id: "topic", label: "Categories" },
-            ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              type="button"
-              aria-selected={filterTab === t.id}
-              onClick={() => setFilterTab(t.id)}
-              className={`rounded-[7px] px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
-                filterTab === t.id ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative w-full md:w-[24rem]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
-          <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
-            Search circulars
-          </label>
-          <input
-            id={SEARCH_INPUT_ID}
-            type="search"
-            placeholder="Search number, title or words inside (e.g. ECL)"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="field h-10 pl-9 pr-9"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              aria-label="Clear search"
-              className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+      <div className="relative w-full md:w-[28rem]">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
+        <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
+          Search circulars
+        </label>
+        <input
+          id={SEARCH_INPUT_ID}
+          type="search"
+          placeholder="Search number, title or words inside (e.g. ECL)"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="field h-10 pl-9 pr-9"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
-      <div role="tablist" aria-label={filterTab === "dept" ? "Filter by department" : "Filter by category"} className="-mx-1 -mt-2 flex gap-1 overflow-x-auto px-1 pb-1">
-        {[{ code: "ALL", label: "All", count: -1 }, ...chips].map((d) => {
-          const active = activeChip === d.code;
-          const label = filterTab === "topic" && d.code !== "ALL" ? shortTopic(topicNames[d.code] || d.label) : d.label;
+      <div aria-label="Filter by department and category" className="-mx-1 -mt-2 flex flex-wrap items-center gap-1.5 px-1 pb-1">
+        {[{ code: "ALL", label: "All", count: -1 }, ...deptPills].map((d) => {
+          const active = dept === d.code;
           return (
             <button
-              key={`${filterTab}-${d.code}`}
-              role="tab"
-              aria-selected={active}
+              key={`dept-${d.code}`}
+              aria-pressed={active}
               type="button"
-              onClick={() => setChip(d.code)}
+              title={d.code !== "ALL" ? deptName(d.code) : undefined}
+              onClick={() => setDept(d.code)}
               className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
                 active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
               }`}
@@ -556,12 +602,31 @@ function CircularsPageInner() {
                 <motion.span layoutId="dept-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
               )}
               <span className="relative">
-                {label}
+                {d.label}
                 {d.count > 0 && <span className={`ml-1.5 text-[12px] tabular-nums ${active ? "opacity-80" : "text-ink-3"}`}>{d.count}</span>}
               </span>
             </button>
           );
         })}
+        {allDepts.length > 5 && (
+          <FilterMenu
+            label="More departments"
+            title="Departments"
+            placeholder="Search departments"
+            value={dept}
+            onChange={setDept}
+            options={[{ code: "ALL", label: "All departments" }, ...allDepts.map((d) => ({ code: d.code, label: d.code, sub: deptName(d.code), count: d.count }))]}
+          />
+        )}
+        <FilterMenu
+          label={topic === "ALL" ? "Category" : shortTopic(topicNames[topic] || topic)}
+          title="Categories"
+          placeholder="Search categories"
+          value={topic}
+          active={topic !== "ALL"}
+          onChange={setTopic}
+          options={[{ code: "ALL", label: "All categories" }, ...topicOptions.map((t) => ({ code: t.code, label: topicNames[t.code] || t.label, count: t.count }))]}
+        />
       </div>
 
       <div id="circular-list-heading" className="-mt-2 flex scroll-mt-20 flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-live="polite">
@@ -579,7 +644,9 @@ function CircularsPageInner() {
           </span>
         )}
         <span>
-          {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? (total === 1 ? " matches" : " match") : " in the library"}`}
+          {loading
+            ? "Loading..."
+            : `Showing ${filtered.length.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} ${total === 1 ? "circular" : "circulars"}${anyFilter ? "" : " in the library"}`}
         </span>
       </div>
 
@@ -613,7 +680,7 @@ function CircularsPageInner() {
                 Try again
               </button>
             </Notice>
-          ) : documents.length === 0 && !search && !box && activeChip === "ALL" ? (
+          ) : documents.length === 0 && !anyFilter ? (
             <EmptyState title="No circulars yet" icon={<FileSearch className="h-6 w-6" strokeWidth={1.5} />}>
               Circulars appear here once an administrator approves them from the review queue or uploads a PDF.
             </EmptyState>
@@ -709,7 +776,7 @@ function CircularsPageInner() {
           )}
           {!loading && documents.length > 0 && documents.length < total && (
             <button type="button" onClick={loadMore} disabled={loadingMore} className="btn-secondary w-full">
-              {loadingMore ? "Loading..." : `Show more (${total - documents.length} left)`}
+              {loadingMore ? "Loading..." : `Load 30 more (${(total - documents.length).toLocaleString("en-US")} left)`}
             </button>
           )}
         </div>

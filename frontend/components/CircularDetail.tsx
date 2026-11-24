@@ -1057,60 +1057,86 @@ export default function CircularDetail(props: Props) {
           <span>Bangladesh Bank</span>
         </div>
         <Backtrail documentId={doc.id} status={relStatus} back={backLinks} />
+        {/* Actions (audit 2026-11-25): primary first (source pages, mind map, history, assign), then save and email;
+            Original PDF, compare and add-to-register sit under "More". Phones show the first two and Save. */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <button type="button" onClick={() => showPanel("pdf")} aria-pressed={pagePanelOpen && panelTab === "pdf"} className={panelBtn("pdf")}>
-            <FileText className="h-4 w-4" strokeWidth={1.75} />
-            Original PDF
-          </button>
-          {pages.length > 0 && (
+          {pages.length > 0 ? (
             <button type="button" onClick={() => showPanel("pages")} aria-pressed={pagePanelOpen && panelTab === "pages"} className={panelBtn("pages")}>
               <BookOpenText className="h-4 w-4" strokeWidth={1.75} />
               Source pages
             </button>
+          ) : (
+            // No readable pages yet: the PDF is the only way to the original, so it stays up front.
+            <button type="button" onClick={() => showPanel("pdf")} aria-pressed={pagePanelOpen && panelTab === "pdf"} className={panelBtn("pdf")}>
+              <FileText className="h-4 w-4" strokeWidth={1.75} />
+              Original PDF
+            </button>
           )}
-          <QuickSave documentId={doc.id} onNeedSignIn={props.onSignIn} />
-          <button
-            type="button"
-            onClick={() => setMoreOpen((o) => !o)}
-            aria-expanded={moreOpen}
-            className="btn-secondary sm:hidden"
-          >
-            <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
-            {moreOpen ? "Less" : "More"}
+          <button type="button" onClick={() => setMapOpen(true)} className="btn-secondary" data-testid="mind-map-button">
+            <Network className="h-4 w-4" strokeWidth={1.75} />
+            Mind map
           </button>
-          {/* On a phone these sit behind "More" so the circular itself is not pushed below the fold. */}
-          <div className={moreOpen ? "flex w-full flex-wrap gap-2 sm:contents" : "hidden sm:contents"}>
+          <span className="hidden sm:contents">
             <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button">
               <GitBranch className="h-4 w-4" strokeWidth={1.75} />
               History &amp; links
             </Link>
-            <CompareButtons doc={doc} outgoing={relStatus?.outgoing ?? []} />
-            {canAddToRegister && (
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setAddOpen(true)}
-                title="Add this circular's requirements to your bank's checklist, with owners, due dates and evidence"
-                data-testid="add-to-register-button"
-              >
-                <ListPlus className="h-4 w-4" strokeWidth={1.75} />
-                Add to register
-              </button>
-            )}
             <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("assign") : props.onSignIn())}>
               <UserPlus className="h-4 w-4" strokeWidth={1.75} />
               Assign to team
             </button>
+          </span>
+          <span className="mx-0.5 hidden h-6 w-px bg-line sm:inline-block" aria-hidden />
+          <QuickSave documentId={doc.id} onNeedSignIn={props.onSignIn} />
+          <span className="hidden sm:contents">
+            <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
             <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("email") : props.onSignIn())}>
               <Mail className="h-4 w-4" strokeWidth={1.75} />
               Email
             </button>
-            <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
-            <button type="button" onClick={() => setMapOpen(true)} className="btn-secondary" data-testid="mind-map-button">
-              <Network className="h-4 w-4" strokeWidth={1.75} />
-              Mind map
-            </button>
-          </div>
+          </span>
+          <button type="button" onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen} className="btn-secondary">
+            <MoreHorizontal className="h-4 w-4" strokeWidth={1.75} />
+            {moreOpen ? "Less" : "More"}
+          </button>
+          {moreOpen && (
+            <div className="flex w-full flex-wrap gap-2">
+              <span className="contents sm:hidden">
+                <Link href={`/circular/${doc.id}/links`} className="btn-secondary" data-testid="history-links-button-more">
+                  <GitBranch className="h-4 w-4" strokeWidth={1.75} />
+                  History &amp; links
+                </Link>
+                <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("assign") : props.onSignIn())}>
+                  <UserPlus className="h-4 w-4" strokeWidth={1.75} />
+                  Assign to team
+                </button>
+                <AddToList documentId={doc.id} onNeedSignIn={props.onSignIn} />
+                <button type="button" className="btn-secondary" onClick={() => (currentUser ? setShareMode("email") : props.onSignIn())}>
+                  <Mail className="h-4 w-4" strokeWidth={1.75} />
+                  Email
+                </button>
+              </span>
+              {pages.length > 0 && (
+                <button type="button" onClick={() => showPanel("pdf")} aria-pressed={pagePanelOpen && panelTab === "pdf"} className={panelBtn("pdf")}>
+                  <FileText className="h-4 w-4" strokeWidth={1.75} />
+                  Original PDF
+                </button>
+              )}
+              <CompareButtons doc={doc} outgoing={relStatus?.outgoing ?? []} />
+              {canAddToRegister && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setAddOpen(true)}
+                  title="Add this circular's requirements to your bank's checklist, with owners, due dates and evidence"
+                  data-testid="add-to-register-button"
+                >
+                  <ListPlus className="h-4 w-4" strokeWidth={1.75} />
+                  Add to register
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {props.viewingVersionId && props.viewingVersionId !== doc.current_version_id && (
