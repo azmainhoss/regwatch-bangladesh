@@ -18,6 +18,7 @@ import {
   openDocumentPdf,
   reextractDocument,
   triggerDocumentAnalysis,
+  openRegister,
 } from "@/services/api";
 import StatusBadge, { AwaitingReviewTag, InForceBadge, PrivateTag, Tag } from "./StatusBadge";
 import CompareButtons from "./CompareButtons";
@@ -556,7 +557,25 @@ export default function CircularDetail(props: Props) {
       </>
     );
 
-  const analysisBody = claimsLoading ? (
+  const analysisBody = !currentUser ? (
+    // Visitors who have not registered: the summary, points and pages open after Register now.
+    <div className="space-y-3 border-t border-line pt-5">
+      {doc.title_bn && (
+        <p lang="bn" className="max-w-prose text-[16px] text-ink">
+          {doc.title_bn}
+        </p>
+      )}
+      <div className="rounded-panel bg-accent-soft px-4 py-4">
+        <p className="text-[15px] font-semibold text-ink">Register free to read this circular</p>
+        <p className="mt-1 max-w-prose text-[14px] leading-relaxed text-ink-2">
+          See its summary, what has changed, the requirements, who it applies to and the key dates, each linked to the page it comes from.
+        </p>
+        <button type="button" data-free-click onClick={openRegister} className="btn-primary mt-3">
+          Register now
+        </button>
+      </div>
+    </div>
+  ) : claimsLoading ? (
     <div className="space-y-3 border-t border-line pt-5" aria-busy="true" aria-label="Loading the checked points" role="status">
       <p className="text-[14px] text-ink-3">Loading the checked points of this circular. This takes a second.</p>
       <SkeletonLine className="h-4 w-28" />
