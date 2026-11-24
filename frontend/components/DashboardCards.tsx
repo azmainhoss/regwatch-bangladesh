@@ -13,11 +13,20 @@ const CARDS: { id: Box; label: string; hint: string }[] = [
   { id: "later", label: "Read later", hint: "Saved by you" },
 ];
 
+// Each card has its own light tint, so they are easy to tell apart. The selected card is always solid green,
+// which none of the tints is, so the choice stays obvious.
+const TINTS: Record<Box, string> = {
+  today: "border-bad/15 bg-bad-soft text-ink hover:border-bad/50",
+  week: "border-info/15 bg-info-soft text-ink hover:border-info/50",
+  month: "border-warn/15 bg-warn-soft text-ink hover:border-warn/50",
+  later: "border-line bg-muted-soft text-ink hover:border-ink-3",
+};
+
 export const BOX_HINTS: Record<Box, string> = Object.fromEntries(CARDS.map((c) => [c.id, c.hint])) as Record<Box, string>;
 
 /**
- * Today / This week / This month / Read later, on the home page and the dashboard. All cards are white; the one whose
- * filter is on turns solid green with "Selected". Today gets a red NEW tag when something was issued today.
+ * Today / This week / This month / Read later, on the home page and the dashboard. Each card has its own light tint; the
+ * one whose filter is on turns solid green with "Selected". Today gets a red NEW tag when something was issued today.
  */
 export default function DashboardCards({
   count,
@@ -40,12 +49,12 @@ export default function DashboardCards({
         const locked = id === "later" && !signedIn;
         const fresh = id === "today" && !!n && n > 0;
         const on = active === id;
-        // One rule: every card is white; the selected one is solid green with a tick. Today's NEW tag is the only red.
+        // Light tint per card; the selected one is solid green with a tick.
         const look = on
           ? "border-accent bg-accent text-accent-ink shadow-panel"
-          : "border-line bg-surface text-ink hover:border-accent hover:bg-accent-soft/40";
+          : TINTS[id];
         const numberColour = on ? "" : fresh ? "text-bad" : "text-ink";
-        const hintColour = on ? "opacity-90" : "text-ink-3";
+        const hintColour = on ? "opacity-90" : "text-ink-2";
         return (
           <button
             key={id}

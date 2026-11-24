@@ -25,10 +25,10 @@ is in the commits (`git log`) and the linked documents.
   in their place.)
 - **The dashboard moved to /dashboard** and works as before. Old links such as `/?doc=…` (emails, alerts, bookmarks)
   still open the right circular there.
-- **Card look** on both pages: every card is white. The card whose filter is on turns solid green with a
-  "✓ Selected" tag, so it is clear what the list is showing. Today shows a red NEW tag and a red number when
-  something was issued today. (An earlier version gave each card its own colour; readers could not tell which one
-  was selected.)
+- **Card look** on both pages: each card has its own light tint (Today light red, This week light blue, This
+  month light amber, Read later light grey). The card whose filter is on turns solid green with a "✓ Selected" tag,
+  so it is clear what the list is showing. Today shows a red NEW tag and a red number when something was issued
+  today. (The first version used strong, different colours per card; readers could not tell which one was selected.)
 
 ---
 
