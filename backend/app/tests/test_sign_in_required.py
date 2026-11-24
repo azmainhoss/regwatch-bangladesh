@@ -9,10 +9,13 @@ from backend.app.tests.factories import make_user
 @pytest.mark.asyncio
 async def test_reads_need_a_signed_in_user():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        for path in ("/api/v1/documents", "/api/v1/feed", "/api/v1/feed/counts", "/api/v1/documents/search?q=bank",
-                     "/api/v1/institutions", "/api/v1/sources", "/api/v1/summary"):
+        for path in ("/api/v1/documents", "/api/v1/documents/search?q=bank", "/api/v1/sources", "/api/v1/summary"):
             r = await ac.get(path)
             assert r.status_code == 401, (path, r.status_code)
+        # The public dashboard lists are open to visitors (opening a circular still needs Register now).
+        for path in ("/api/v1/feed", "/api/v1/feed/counts", "/api/v1/institutions"):
+            r = await ac.get(path)
+            assert r.status_code == 200, (path, r.status_code)
 
         assert (await ac.get("/api/v1/health")).status_code == 200
         bad_login = await ac.post("/api/v1/auth/login", data={"username": "nobody@example.test", "password": "x"})

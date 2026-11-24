@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     ANALYSIS_MODEL: Optional[str] = Field(default=None, validation_alias=AliasChoices("ANALYSIS_MODEL", "GEMINI_MODEL"))
     GEMINI_ANALYSIS_DEFAULT_MODEL: str = "gemini-3.5-flash"
     GEMINI_API_KEY: Optional[str] = None
+    # Where Gemini calls go. A relay (e.g. a Cloudflare Worker) can stand in for Google's own address when Google
+    # refuses the server's location; the relay checks GEMINI_RELAY_TOKEN, sent as the x-relay-token header.
+    GEMINI_API_BASE: str = "https://generativelanguage.googleapis.com"
+    GEMINI_RELAY_TOKEN: Optional[str] = None
     OPENAI_COMPAT_BASE_URL: Optional[str] = None  # e.g. https://openrouter.ai/api/v1
     OPENAI_COMPAT_API_KEY: Optional[str] = None  # may be empty for a local server
     # How to ask for JSON: json_schema (strict schema), json_object, or none (prompt only).

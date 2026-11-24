@@ -9,6 +9,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.logging import logger
+from backend.app.core.logging import logger
 from backend.app.modules.analysis.providers.factory import get_answer_provider
 from backend.app.modules.analysis.sentences import SentenceIndex
 from backend.app.modules.research import page_cache
@@ -289,13 +290,17 @@ class ResearchService:
 
 Answer from these sentences only and name the supporting sentences by their tags."""
 
-        provider = get_answer_provider()
-        llm_resp = await provider.generate_structured_json(
-            system_prompt=RESEARCH_SYSTEM_PROMPT,
-            user_prompt=user_prompt
-        )
+        try:
+            provider = get_answer_provider()
+            llm_resp = await provider.generate_structured_json(
+                system_prompt=RESEARCH_SYSTEM_PROMPT,
+                user_prompt=user_prompt
+            )
+        except Exception as e:  # no key, provider not configured, network: answer with search matches, never a 500
+            logger.warning(f"Ask: answer service unavailable ({type(e).__name__}); returning search matches only")
+            llm_resp = None
 
-        ai_ok = bool(llm_resp.success and llm_resp.parsed_json)
+        ai_ok = bool(llm_resp is not None and llm_resp.success and llm_resp.parsed_json)
         if not ai_ok:
             # The model call failed: nothing here is a grounded answer. The pages that matched are
             # listed with exact text from the page, but marked as search matches only.

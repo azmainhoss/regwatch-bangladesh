@@ -8,6 +8,7 @@ Only one call runs at a time in a process. 429 and 503 replies are retried with 
 Without GEMINI_API_KEY, or when the call fails, the caller keeps the page as PENDING_VISION
 with empty text so a later job can try again. Nothing is ever filled in with placeholder text.
 """
+from backend.app.core import gemini_http
 import asyncio
 import base64
 import itertools
@@ -254,8 +255,8 @@ async def _generate(
     Takes the key's place at the gate, retries 429 and 503 with backoff, and rests the key for the day
     on a daily-quota reply (for this model only).
     """
-    url = f"{GEMINI_URL}/{model}:generateContent"
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    url = f"{gemini_http.models_url()}/{model}:generateContent"
+    headers = gemini_http.headers(api_key)
     own_client = client is None
     client = client or httpx.AsyncClient(timeout=settings.VISION_TIMEOUT_SECONDS)
     try:

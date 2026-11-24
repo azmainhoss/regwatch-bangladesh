@@ -6,6 +6,7 @@
   same way.
 - One key, GEMINI_API_KEY, is all it needs.
 """
+from backend.app.core import gemini_http
 import asyncio
 import json
 import time
@@ -98,8 +99,8 @@ class GeminiAIProvider(BaseAIProvider):
                 error="GEMINI_API_KEY is not configured in backend/.env or environment."
             )
 
-        endpoint = f"{self.BASE_URL}/{self.model_name}:generateContent"
-        headers = {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        endpoint = f"{gemini_http.models_url()}/{self.model_name}:generateContent"
+        headers = gemini_http.headers(self.api_key)
         generation_config: Dict[str, Any] = {
             "temperature": temperature,
             "responseMimeType": "application/json",

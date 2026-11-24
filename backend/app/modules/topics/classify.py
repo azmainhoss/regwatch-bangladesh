@@ -8,6 +8,7 @@ Input per circular: reference number, English and Bangla titles, department, the
 and summary when there is one, and the start of page 1. Short numeric ids are used in the prompt
 so the model never has to copy a long id.
 """
+from backend.app.core import gemini_http
 import asyncio
 import json
 from typing import Dict, List, Optional, Sequence
@@ -139,7 +140,7 @@ async def _ask_model(client: httpx.AsyncClient, ring: _KeyRing, prompt: str, tri
         if not key:
             return None
         try:
-            r = await client.post(GEMINI_URL.format(model=MODEL), json=body, headers={"x-goog-api-key": key})
+            r = await client.post(f"{gemini_http.models_url()}/{MODEL}:generateContent", json=body, headers=gemini_http.headers(key))
         except httpx.HTTPError as err:
             logger.warning(f"Category sorting: network error ({type(err).__name__}); trying again.")
             await asyncio.sleep(5 * (attempt + 1))

@@ -92,3 +92,18 @@ async def test_admin_sees_signups_with_all_details_and_others_cannot(client):
     assert mine[0]["company"] == "Example Bank PLC" and mine[0]["designation"] == "Compliance Officer"
     assert mine[0]["phone_number"] == "+880 1711-000000" and mine[0]["registered_at"]
     assert all(r["email"] != admin_email for r in rows)  # password accounts are not sign-ups
+
+
+@pytest.mark.asyncio
+async def test_ask_without_an_answer_service_is_not_a_server_error(client, monkeypatch):
+    from backend.app.modules.research import service as research_service
+
+    def boom():
+        raise ValueError("GEMINI_API_KEY is not set")
+
+    monkeypatch.setattr(research_service, "get_answer_provider", boom)
+    r = await client.post(f"{API}/auth/quick-register", json=_details(f"lead_{uuid.uuid4().hex[:8]}@example.com"))
+    tok = r.json()["access_token"]
+    res = await client.post(f"{API}/research/query", json={"query": "What is the provision rate for SMA loans?"},
+                            headers={"Authorization": f"Bearer {tok}"})
+    assert res.status_code != 500, res.text
