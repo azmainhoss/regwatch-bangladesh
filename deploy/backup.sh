@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Nightly backup (regwatch-backup.timer). A consistent copy of the database is taken while the app runs
-# (SQLite .backup), compressed, and kept for 14 days on the server. When an rclone remote named "r2"
-# exists (Cloudflare R2), the copies and the storage/ PDFs are also sent there.
-#   Set up R2 once:  sudo -u regwatch rclone config   (type s3, provider Cloudflare, name it r2)
-#   Bucket name:     R2_BUCKET below (default regwatch-backup)
+# (SQLite .backup), compressed, and kept for 14 days on the server. The copies and the storage/ PDFs are
+# also sent off the server to the first rclone remote that exists:
+#   offsite:  Backblaze B2 behind rclone "crypt" (encrypted before upload). Set up with deploy/setup-b2-backup.sh.
+#   r2:       Cloudflare R2 (older option), bucket R2_BUCKET below.
 set -euo pipefail
 
 APP=/opt/regwatch/app
@@ -21,17 +21,26 @@ gzip -f "$OUT/regwatch-$STAMP.db"
 find "$OUT" -name 'regwatch-*.db.gz' -mtime +14 -delete
 echo "Database copy: $OUT/regwatch-$STAMP.db.gz ($(du -h "$OUT/regwatch-$STAMP.db.gz" | cut -f1))"
 
-if rclone listremotes 2>/dev/null | grep -qx 'r2:'; then
-  rclone copy "$OUT/regwatch-$STAMP.db.gz" "r2:$R2_BUCKET/db/" --quiet
-  # PDFs never change once stored, so a copy (not a sync) never deletes anything in the bucket.
-  rclone copy "$APP/storage/originals" "r2:$R2_BUCKET/storage/originals" --quiet --transfers 4
-  rclone copy "$APP/storage/evidence" "r2:$R2_BUCKET/storage/evidence" --quiet --transfers 4
-  rclone delete "r2:$R2_BUCKET/db/" --min-age 30d --quiet || true
-  echo "Sent to R2 bucket $R2_BUCKET"
+remotes=$(rclone listremotes 2>/dev/null || true)
+if grep -qx 'offsite:' <<<"$remotes"; then
+  DEST="offsite:"
+elif grep -qx 'r2:' <<<"$remotes"; then
+  DEST="r2:$R2_BUCKET/"
 else
-  echo "No rclone remote named r2 yet: the copy stays on this server only."
+  DEST=""
 fi
 
-# Disk check: warn in the log when the disk is 70% full (the point to move PDFs to R2).
+if [ -n "$DEST" ]; then
+  rclone copy "$OUT/regwatch-$STAMP.db.gz" "${DEST}db/" --quiet
+  # PDFs never change once stored, so a copy (not a sync) never deletes anything in the bucket.
+  rclone copy "$APP/storage/originals" "${DEST}storage/originals" --quiet --transfers 4
+  rclone copy "$APP/storage/evidence" "${DEST}storage/evidence" --quiet --transfers 4
+  rclone delete "${DEST}db/" --min-age 30d --quiet || true
+  echo "Sent off the server to ${DEST}"
+else
+  echo "No off-server rclone remote (offsite or r2) yet: the copy stays on this server only."
+fi
+
+# Disk check: warn in the log when the disk is 70% full (the point to move PDFs off the server).
 used=$(df --output=pcent "$APP" | tail -1 | tr -dc '0-9')
 [ "$used" -lt 70 ] || echo "WARNING: disk is ${used}% full"
