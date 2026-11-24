@@ -15,8 +15,10 @@ is in the commits (`git log`) and the linked documents.
   opens the dashboard with that filter on. Ask answers right on the home page.
 - **The dashboard moved to /dashboard** and works as before. Old links such as `/?doc=…` (emails, alerts, bookmarks)
   still open the right circular there.
-- **New card look** on both pages: Today turns red with a NEW tag when something was issued today, This week is
-  solid green, This month light green, Read later white. The card whose filter is on gets a dark ring.
+- **Card look** on both pages: every card is white. The card whose filter is on turns solid green with a
+  "✓ Selected" tag, so it is clear what the list is showing. Today shows a red NEW tag and a red number when
+  something was issued today. (An earlier version gave each card its own colour; readers could not tell which one
+  was selected.)
 
 ---
 
