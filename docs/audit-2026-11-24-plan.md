@@ -17,16 +17,16 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 | A1 | Open newest circular first | **Done** | Desktop opens the first (newest) circular automatically. Phones show the list. | `app/dashboard/page.tsx` (loadData) | Keep. |
 | A2 | Pending analysis shows a real loading state | **Partial** | A skeleton shows while the points load, and "Analysing…" shows only to an admin who pressed Run. A circular that is only EXTRACTED (not analysed) shows a "Not checked yet" badge and an empty analysis area, with no progress shown. | `components/CircularDetail.tsx` ~600–670, 1128 | Add a clear "Summary not ready yet: the original pages are below" state, without presenting an empty analysis as finished. |
 | B1 | Replace "Checked" / "Not checked yet" with "AI draft" / "AI-verified" plus tooltips | **Not done** | Labels in `StatusBadge.tsx` and `claimWords.ts`. HUMAN_REVIEWED and MACHINE_VERIFIED both show "Checked", so automated and human checks look the same. The home hero shows "Checked". | `components/StatusBadge.tsx`, `services/claimWords.ts`, `app/search/page.tsx:37`, `app/page.tsx` | Needs approval of the exact wording (Approval 2). |
-| C1 | "Back links" → "Cites" | **Not done** | `Backtrail.tsx` says "Back links:" for the older circulars this one cites. | `components/Backtrail.tsx:70` | Fix now. |
-| C2 | "Cited by" section | **Partial** | Shows "Amended / Replaced / Repealed / Clarified by" for newer circulars. Newer circulars that only *reference* or *implement* this one are not shown. The data exists (`status.verified_incoming`). | `components/Backtrail.tsx` | Add "Cited by" from the other incoming link types. Fix now. |
+| C1 | "Back links" → "Cites" | **Done 24 Nov** | `Backtrail.tsx` says "Back links:" for the older circulars this one cites. | `components/Backtrail.tsx:70` | Fix now. |
+| C2 | "Cited by" section | **Done 24 Nov** (checked live: FEPD 31/2025 shows 19) | Shows "Amended / Replaced / Repealed / Clarified by" for newer circulars. Newer circulars that only *reference* or *implement* this one are not shown. The data exists (`status.verified_incoming`). | `components/Backtrail.tsx` | Add "Cited by" from the other incoming link types. Fix now. |
 | D1 | Registration in 3 steps (account after step 1) | **Not done** | One 6-field form, posted to `POST /auth/quick-register`. | `components/RegisterModal.tsx`, `backend/app/modules/identity` | Needs a backend change (create account with email + password, then PATCH profile). Wording needs approval (Approval 4). |
 | E1 | First 3 days unrestricted, no meter; register only for Read later / lists / assign | **Not done** | Today: 3 free circulars per device (`freeViews.ts`), then every click opens Register. | `services/freeViews.ts`, `components/RegisterModal.tsx` (RegisterGate), `CircularDetail.tsx` | What happens on **day 4** is not specified (Approval 1). |
-| F1 | "Register free to ask" text with a "Sign in" button | **Done as finding** | Confirmed: the circular's Ask section says "Register free to ask…" but its button says "Sign in". | `components/CircularDetail.tsx:963` | Fix now: primary "Register free", secondary "Sign in". |
+| F1 | "Register free to ask" text with a "Sign in" button | **Fixed 24 Nov** (reader, dashboard Ask, Search page) | Confirmed: the circular's Ask section says "Register free to ask…" but its button says "Sign in". | `components/CircularDetail.tsx:963` | Fix now: primary "Register free", secondary "Sign in". |
 | G1 | Circular URLs `/circular/<dept>/<number>-<slug>` | **Not done** | Circulars open only as `/dashboard?doc=<uuid>`. Only `/circular/<id>/links` exists. | `app/` | New server-rendered route (Section 3). |
 | G2 | Server-rendered content, titles, descriptions, canonical, OG | **Not done** | Every page is a client component behind `AuthGate`, which renders a spinner until JavaScript runs. Google sees no circular text. No `generateMetadata` anywhere. | `app/layout.tsx`, `components/AuthGate.tsx` | Section 3. |
 | G3 | sitemap.xml, robots.txt | **Not done** | Neither exists. | — | Section 3. |
 | G4 | Old URLs and redirects | **Partial** | `/?doc=` already forwards to `/dashboard?doc=`. | `app/page.tsx` | Make `/dashboard?doc=` links canonicalise to the new URL. |
-| G5 | Branded 404 with search and recent circulars | **Not done** | Next's default 404. | — | Fix now. |
+| G5 | Branded 404 with search and recent circulars | **Done 24 Nov** (checked live, HTTP 404) | | `app/not-found.tsx` | |
 
 ### P2
 
@@ -45,11 +45,11 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 | Cmd-1 | One command bar with Search / Ask, Cmd/Ctrl+K | **Not done** | Three separate places: dashboard Ask, dashboard search, the Search page. No Cmd+K. | Needs approval (it changes navigation). |
 | Reader-1 | Action order (Source pages, Mind map, History, Assign; then Save, Email; PDF in overflow) | **Not done** | Original PDF is the first action. | Build; preview first. |
 | Reader-2 | One Save menu (Read later, Favourites, lists) | **Partial** | Star, bookmark and "Add to list" are separate controls. | Build. |
-| Ref-1 | Real circular numbers instead of "References a circular" | **Can't verify** | "References a circular" was not found in the code; links already show numbers and "Not in library". It may only appear in some view. | Check on live pages. |
+| Ref-1 | Real circular numbers instead of "References a circular" | **Confirmed** | Seen live on FEPD 31/2025: the "Cites" row shows a chip labelled "References a circular" instead of the cited number. The label comes from the analysis data, not the UI code. | Use the cited reference number (or "not in library" + number). |
 | Ref-2 | Citation chips "Page 1 ✓" / pending | **Partial** | Chips exist as "Page N · Checked" and "Check page N". | Restyle with the terminology change. |
 | Polish-1 | Nav highlight on History & links page | **Not done** | `/circular/...` highlights nothing (no nav item starts with `/circular`). | Fix. |
 | Polish-2 | Mind-map zoom and pan | **Not done** | Canvas draws at a fixed scale. | Build. |
-| Polish-3 | Install prompt only after the 3rd visit or a save | **Not done** | Shows as soon as the browser offers it. | Fix now. |
+| Polish-3 | Install prompt only after the 3rd visit or a save | **Done 24 Nov** (code; can't be triggered from a desktop browser test) | | |
 
 ### P3
 
@@ -107,7 +107,17 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 - The interactive reader (source page panel, Ask, mind map) still loads on the client, on top of the server HTML.
 - Backend: add a slug and a department-code lookup endpoint (`GET /public/circulars/{dept}/{slug}`), with no login needed and only published, shared circulars.
 
-## 4. Proposed order
+## 4. Decisions needing the owner's approval
+
+1. **Visitor access after day 3.** The brief says days 1–3 are unrestricted and registration is asked only for Read later, lists and assign. *Recommended:* from day 4, circulars stay readable, but the analysis (summary, requirements, dates) asks for a free registration. *Alternatives:* (a) stay unrestricted forever and gate only the account features; (b) keep today's 3-free-circulars meter.
+2. **Trust words.** *Recommended:* "AI-verified" (tooltip: "Every point shown passed automated checks against the original page; not reviewed by a person"), "AI draft" (tooltip: "Not yet checked against the page; open the page to confirm"), and "Reviewed by our team" only for human-reviewed circulars. Page chips: "Page 1 ✓" / "Page 1 ·". *Alternative:* "Machine-checked" / "Unchecked".
+3. **SEO: which circulars Google may index.** *Recommended:* only circulars with a checked analysis (about 1,500 today, to be counted), with the summary shown openly on those pages. That is the content Google indexes; visitors see the same, so it is not cloaking. *Alternative:* index all 4,786 with the original text only.
+4. **3-step registration wording.** A preview will be sent before release.
+5. **Email consent (conflicts with an earlier decision).** On 24 Nov you said sign-up = opted in to marketing. The brief says "never silently subscribe existing users". Today the code would email every user a daily "new circulars" digest as soon as SMTP is switched on. *Recommended:* new users get alerts off by default plus one tick-box "Send me the weekly digest" (ticked) at registration; existing 29 users get a one-time email asking them to choose. *Alternative:* keep "sign-up = opted in" with a one-click unsubscribe in every email.
+6. **Sender identity.** *Recommended:* "Amar Circular <insights@amarcircular.com>" for the digest and marketing, "Amar Circular Alerts <alerts@amarcircular.com>" for notifications and password resets.
+7. **Deploying.** *Recommended:* verified bug fixes go live straight away (as so far); visible design changes go live only after you have seen a preview.
+
+## 5. Proposed order
 
 1. Quick P1 fixes that need no decision: Cites / Cited by, the Register CTA, the 404 page, install-prompt timing, the pending-analysis state.
 2. SEO routes, sitemap and robots (after Approval 3).
@@ -118,6 +128,7 @@ the matrix covers the findings the brief lists. Send the full audit if it has mo
 7. P2 dashboard and search, then reader actions and the command bar, each with a preview.
 8. P3 polish; separate plans for the calendar, redline compare and time machine.
 
-## 5. Change log for this plan
+## 6. Change log for this plan
 
 - 24 Nov 2026: matrix written; Brevo domain authenticated; insights@ forwarding live.
+- 24 Nov 2026: deployed C1, C2, F1, G5, Polish-3.
