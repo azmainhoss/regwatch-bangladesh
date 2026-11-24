@@ -77,7 +77,17 @@ updated, 53 of them now shown as Checked.** All 31 were checked by hand before a
 `১৭৭→৭১৭` in the BRPD-2 law-review notification number (a recurring digit reversal), `৩`/`৬` in years
 (`২০২৩→২০২৬`), সঞ্চয়পত্র রুলস `১৯৯৭→১৯৭৭`, ব্যাংক রেজল্যুশন অধ্যাদেশ `২০২৩→২০২৫`.
 
-**Known limit:** a correction applies to the sentence whose two readings agreed. The same figure printed in
-another sentence (for example the notification number repeated on the enclosure page) is corrected only when
-that sentence's own readings agree. Until then that point shows "Check page N". Spreading a proven correction to
-identical figure patterns elsewhere in the same circular is a possible next step.
+**Spreading a proven correction (built 2026-11-24).** A correction proven by two agreeing readings also fixes
+the same figure elsewhere in the same circular, under three conditions:
+
+- it stands in the same surroundings, the 8 characters before and 4 after (e.g. `(ল’রিভিউ)১৭৭/২০২৬`);
+- that sentence's own reading did not confirm the old figure (it is not CLEAN);
+- the text layer does not confirm the old figure.
+
+A plain `১৭৭` elsewhere (for example "section 177") is never changed. The point's wording and quote get the
+corrected figure. If that sentence still has other unresolved differences, it keeps "Check page N"
+(`claims/autofix.py` `load_fixes`).
+
+Live: 24 circulars carry a proven correction, and 242 of their points were checked again. On BRPD-2 CL 18/2026
+every quote of the law-review notification now reads `৭১৭`. One point is "Checked"; the four on the enclosure
+page keep "Check page 2" because that page's reading also differs in `৪৪৫` vs `৪৪৫৪`.
