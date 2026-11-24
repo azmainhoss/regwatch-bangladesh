@@ -2,6 +2,15 @@
 
 Start with `HANDOFF.md` for current work, and `DECISIONS.md` for older decisions.
 
+## Live (2026-11-24)
+
+- Brand is **Amar Circular** (amarcircular.com). Internal names (`regwatch` user, services, `regwatch_` storage keys, the laptop's `RegWatchPhase1Sync` task) stay.
+- No sign-in wall: visitors see the dashboard lists (`get_listing_reader`); any click opens "Register now" (name, email, phone, company, designation, no password, `POST /auth/quick-register`, 30-day session). Password sign-in stays for admins behind "Have a password? Sign in".
+- Server: Spaceship VPS `104.207.77.129`, Singapore, yearly trial. SSH port 22022, key only (`ssh amarcircular` on the Mac). DNS on Spaceship. Deploy: `ssh amarcircular 'sudo -u regwatch /opt/regwatch/app/deploy/deploy.sh'`.
+- **Gemini is blocked from this server** ("User location is not supported"). Keys are blanked in the server `.env` (copy with keys: `/opt/regwatch/.env.with-gemini`). Server page reading and Ask answers are off; Ask falls back to search matches. Fix later: US VPS or a relay.
+- Phase 1 analysis: **manual runs only** (no laptop schedule). Anthropic consumer terms s.3(7) bar scripted/unattended Pro use for a commercial service.
+- Off-server backups: Backblaze B2 chosen (not yet set up). Nightly local copies run.
+
 ## Go-live decisions (as of 2026-11-24)
 
 The checklist lives in the Claude Doc "RegWatch go-live checklist": https://claude.ai/artifact/C5EBxUcvJKnsFawf42Yrew
