@@ -39,6 +39,7 @@ module.exports = {
       fontFamily: {
         sans: ["var(--font-latin)", "var(--font-bangla)", "system-ui", "sans-serif"],
         bangla: ["var(--font-bangla)", "var(--font-latin)", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
         mono: ["var(--font-mono)", "ui-monospace", "Consolas", "monospace"],
       },
       fontSize: {

@@ -50,16 +50,16 @@ export default function AppHeader() {
 
   const focusSearch = () => {
     const input = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement | null;
-    if (pathname === "/" && input) {
+    if (pathname === "/dashboard" && input) {
       input.focus();
       input.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
-      router.push("/");
+      router.push("/dashboard");
     }
   };
 
   const nav = [
-    { href: "/", label: "Dashboard", Icon: LayoutDashboard, show: true },
+    { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard, show: true },
     { href: "/search", label: "Search", Icon: Search, show: true },
     { href: "/workspace", label: "Workspace", Icon: Briefcase, show: !!currentUser },
     { href: "/admin", label: "Admin", Icon: Shield, show: !!currentUser?.is_superuser },
@@ -87,7 +87,7 @@ export default function AppHeader() {
 
           <nav className="hidden min-w-0 items-center gap-1 text-[14px] font-semibold sm:flex" aria-label="Main">
             {nav.map((item) => {
-              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              const active = pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
@@ -120,7 +120,7 @@ export default function AppHeader() {
           )}
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {pathname !== "/" && pathname !== "/search" && (
+            {pathname !== "/dashboard" && pathname !== "/search" && (
             <>
             <button
               type="button"
@@ -191,7 +191,7 @@ export default function AppHeader() {
       >
         <div className="flex items-stretch justify-around">
           {nav.map(({ href, label, Icon }) => {
-            const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+            const active = pathname.startsWith(href);
             return (
               <Link
                 key={href}

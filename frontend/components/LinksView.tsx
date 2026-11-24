@@ -39,7 +39,7 @@ export function targetLabel(link: Pick<RelLink, "target" | "target_reference_hin
 
 /** Opens the page a quote is printed on, in the reader. */
 export function quoteHref(link: Pick<RelLink, "source" | "page_number">) {
-  return link.page_number ? `/?doc=${link.source.id}&page=${link.page_number}` : `/?doc=${link.source.id}`;
+  return link.page_number ? `/dashboard?doc=${link.source.id}&page=${link.page_number}` : `/dashboard?doc=${link.source.id}`;
 }
 
 export function PageQuoteLink({ link }: { link: Pick<RelLink, "source" | "page_number"> }) {
@@ -92,13 +92,13 @@ export function LinkCard({ link, isAdmin, perspective }: { link: RelLink; isAdmi
     >
       <div className="flex flex-wrap items-center gap-2 text-[14px]">
         {perspective !== "source" && (
-          <Link href={`/?doc=${link.source.id}`} className="refno hover:underline">
+          <Link href={`/dashboard?doc=${link.source.id}`} className="refno hover:underline">
             {link.source.reference_number || "Circular"}
           </Link>
         )}
         <Tag tone={pending ? "muted" : "info"}>{relLabel(link.relationship_type)}</Tag>
         {link.target ? (
-          <Link href={`/?doc=${link.target.id}`} className="refno hover:underline">
+          <Link href={`/dashboard?doc=${link.target.id}`} className="refno hover:underline">
             {link.target.reference_number || link.target.title}
           </Link>
         ) : (
@@ -143,7 +143,7 @@ export function LinksTimeline({ timeline, isAdmin }: { timeline: RelTimeline; is
             />
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[13px] text-ink-3 tabular-nums">{shortDate(item.document.publication_date)}</span>
-              <Link href={`/?doc=${item.document.id}`} className="refno hover:underline">
+              <Link href={`/dashboard?doc=${item.document.id}`} className="refno hover:underline">
                 {item.document.reference_number || "Circular"}
               </Link>
               <InForceBadge info={info ? { status: info.status } : undefined} size="sm" plain />
@@ -280,7 +280,7 @@ export function LinksGraph({ graph, selectedEdgeId, onSelectEdge }: { graph: Rel
   const { placed, width, height } = useMemo(() => layout(graph), [graph]);
 
   const openNode = (n: RelGraphNode) => {
-    if (n.in_library && n.document_id) router.push(`/?doc=${n.document_id}`);
+    if (n.in_library && n.document_id) router.push(`/dashboard?doc=${n.document_id}`);
   };
 
   return (

@@ -515,7 +515,7 @@ function AdminConsole() {
             <Link href="/admin/login" className="btn-primary">
               {currentUser ? "Switch to an admin account" : "Admin login"}
             </Link>
-            <Link href="/" className="btn-secondary">
+            <Link href="/dashboard" className="btn-secondary">
               Back to circulars
             </Link>
           </div>

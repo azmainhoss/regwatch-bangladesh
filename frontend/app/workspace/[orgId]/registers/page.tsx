@@ -181,7 +181,7 @@ function RegistersInner() {
                 New register
               </button>
             )}
-            <Link href="/" className="btn-secondary min-h-[44px] sm:min-h-0">
+            <Link href="/dashboard" className="btn-secondary min-h-[44px] sm:min-h-0">
               Browse circulars
             </Link>
           </span>

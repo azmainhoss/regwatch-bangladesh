@@ -76,7 +76,7 @@ export default function AssignedPanel({ userId }: { userId: string }) {
                 >
                   {a.status === "DONE" ? <CheckCircle2 className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
                 </button>
-                <Link href={`/?doc=${a.document_id}`} className="min-w-0 flex-1 hover:underline">
+                <Link href={`/dashboard?doc=${a.document_id}`} className="min-w-0 flex-1 hover:underline">
                   <span className="flex flex-wrap items-baseline gap-x-2">
                     <span className={`refno ${a.status === "DONE" ? "line-through opacity-60" : ""}`}>{a.reference_number || "Circular"}</span>
                     <span className="text-[12.5px] text-ink-3">

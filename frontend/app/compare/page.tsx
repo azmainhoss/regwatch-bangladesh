@@ -189,7 +189,7 @@ function PageTag({ side, page }: { side: CompareSide; page?: number | null }) {
   if (!page) return null;
   return (
     <Link
-      href={`/?doc=${side.document_id}&page=${page}`}
+      href={`/dashboard?doc=${side.document_id}&page=${page}`}
       className="shrink-0 rounded-control px-1.5 py-px text-[12px] font-semibold text-accent ring-1 ring-inset ring-accent/25 hover:bg-accent-soft"
       title={`Open page ${page} of ${side.reference_number || "the circular"}`}
     >
@@ -437,7 +437,7 @@ function ComparePageInner() {
   return (
     <div className="space-y-5">
       <div>
-        <Link href={docParam ? `/?doc=${docParam}` : "/"} className="btn-ghost -ml-2">
+        <Link href={docParam ? `/dashboard?doc=${docParam}` : "/"} className="btn-ghost -ml-2">
           <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
           Back
         </Link>

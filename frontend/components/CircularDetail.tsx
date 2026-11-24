@@ -844,7 +844,7 @@ export default function CircularDetail(props: Props) {
                   <li key={item.id} className="space-y-1.5 py-3 first:pt-0 last:pb-0" data-testid="related-item" data-type={link?.shown_type}>
                     <div className="flex flex-wrap items-center gap-2">
                       {link?.target_document_id ? (
-                        <Link href={`/?doc=${link.target_document_id}`} className="refno hover:underline">
+                        <Link href={`/dashboard?doc=${link.target_document_id}`} className="refno hover:underline">
                           {label}
                         </Link>
                       ) : (
@@ -982,7 +982,7 @@ export default function CircularDetail(props: Props) {
   const openLeaf = (leaf: MindLeaf) => {
     setMapOpen(false);
     if (leaf.page) openPage(leaf.page, leaf.item?.quote, leaf.item?.quote_boxes);
-    else if (leaf.docId) window.location.href = `/?doc=${leaf.docId}`;
+    else if (leaf.docId) window.location.href = `/dashboard?doc=${leaf.docId}`;
   };
   const panelBtn = (tab: "pdf" | "pages") =>
     pagePanelOpen && panelTab === tab ? "btn-secondary border-accent/50 bg-accent-soft text-accent hover:bg-accent-soft" : "btn-secondary";

@@ -29,6 +29,8 @@ export interface FeedCounts {
   month: number;
   read_later: number;
   favourites: number;
+  library?: number;
+  uncited_points?: number;
   departments: Choice[];
   topics: Choice[];
 }

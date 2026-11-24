@@ -20,7 +20,7 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
     shortcuts: [
-      { name: "Read later", url: "/?box=later" },
+      { name: "Read later", url: "/dashboard?box=later" },
       { name: "Search", url: "/search" },
     ],
   };

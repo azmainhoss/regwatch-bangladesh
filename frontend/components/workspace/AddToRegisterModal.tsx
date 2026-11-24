@@ -201,7 +201,7 @@ export default function AddToRegisterModal({
             </span>
             {doc.in_force_by && (
               <span className="mt-2 flex flex-wrap gap-2">
-                <Link href={`/?doc=${doc.in_force_by.id}`} className="btn-secondary min-h-[44px] sm:min-h-0">
+                <Link href={`/dashboard?doc=${doc.in_force_by.id}`} className="btn-secondary min-h-[44px] sm:min-h-0">
                   Open {doc.in_force_by.reference_number || "it"}
                 </Link>
                 <button type="button" className="btn-secondary min-h-[44px] sm:min-h-0" onClick={() => setDocId(doc.in_force_by!.id)}>

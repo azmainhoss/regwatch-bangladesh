@@ -57,7 +57,7 @@ export default function Dashboard() {
     return (
       <EmptyState title="No registers yet. Start one from a circular." icon={<FileText className="h-6 w-6" />}>
         <span className="mt-2 flex flex-wrap justify-center gap-2">
-          <Link href="/" className="btn-primary min-h-[44px] sm:min-h-0">
+          <Link href="/dashboard" className="btn-primary min-h-[44px] sm:min-h-0">
             Browse circulars
           </Link>
           {perms?.manage_registers && (

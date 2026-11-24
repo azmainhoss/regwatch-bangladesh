@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, Noto_Sans_Bengali, Source_Sans_3 } from "next/font/google";
+import { JetBrains_Mono, Newsreader, Noto_Sans_Bengali, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import AppHeader from "../components/AppHeader";
 import Providers from "../components/Providers";
@@ -18,6 +18,14 @@ const bangla = Noto_Sans_Bengali({
   subsets: ["bengali"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-bangla",
+  display: "swap",
+});
+
+// Headline face for the home page.
+const serif = Newsreader({
+  subsets: ["latin"],
+  weight: ["500", "600"],
+  variable: "--font-serif",
   display: "swap",
 });
 
@@ -48,7 +56,7 @@ const themeScript = `try{if(localStorage.getItem('theme')==='dark'){document.doc
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${latin.variable} ${bangla.variable} ${mono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${latin.variable} ${bangla.variable} ${mono.variable} ${serif.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

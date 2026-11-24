@@ -90,7 +90,7 @@ function Highlighted({ snippet }: { snippet: SearchSnippet }) {
 }
 
 function openHref(documentId: string, page?: number) {
-  return page ? `/?doc=${documentId}&page=${page}` : `/?doc=${documentId}`;
+  return page ? `/dashboard?doc=${documentId}&page=${page}` : `/dashboard?doc=${documentId}`;
 }
 
 export default function SearchPage() {

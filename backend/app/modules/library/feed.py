@@ -45,6 +45,9 @@ class FeedCounts(BaseModel):
     month: int
     read_later: int
     favourites: int
+    # For the home page: circulars the reader can see, and shown summary points that have no page quote.
+    library: int = 0
+    uncited_points: int = 0
     departments: List[Choice]
     topics: List[Choice]
 
@@ -167,7 +170,18 @@ async def feed_counts(user: Optional[User] = Depends(get_listing_reader), db: As
         .where(*base)
         .group_by(DocumentTopic.topic)
     )).all())
+    from backend.app.modules.analysis.models import AnalysisClaim, ClaimCitation
+
+    library = (await db.execute(select(func.count()).select_from(Document).where(*base))).scalar_one()
+    uncited = (await db.execute(
+        select(func.count()).select_from(AnalysisClaim).where(
+            AnalysisClaim.check_status.notin_(("NOT_SHOWN", "REJECTED")),
+            ~exists(select(1).where(ClaimCitation.claim_id == AnalysisClaim.id)),
+        )
+    )).scalar_one()
     return FeedCounts(
+        library=library,
+        uncited_points=uncited,
         today=await count_since(today),
         week=await count_since(period_start("week", today)),
         month=await count_since(today.replace(day=1)),

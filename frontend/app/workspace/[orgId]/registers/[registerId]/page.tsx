@@ -77,7 +77,7 @@ function RegisterView() {
               Add from a circular
             </button>
           ) : (
-            <Link href="/" className="btn-secondary mt-2 min-h-[44px] sm:min-h-0">
+            <Link href="/dashboard" className="btn-secondary mt-2 min-h-[44px] sm:min-h-0">
               Browse circulars
             </Link>
           )}

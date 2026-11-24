@@ -41,7 +41,7 @@ export default function Backtrail({ documentId, status, back }: { documentId: st
 
   const linkTo = (l: RelLink, side: "source" | "target") => {
     const ref = side === "source" ? l.source : l.target;
-    return ref?.id ? `/?doc=${ref.id}` : null;
+    return ref?.id ? `/dashboard?doc=${ref.id}` : null;
   };
 
   return (
@@ -50,7 +50,7 @@ export default function Backtrail({ documentId, status, back }: { documentId: st
         <p className="flex flex-wrap items-center gap-1.5 text-ink-2">
           <CornerDownRight className="h-3.5 w-3.5 text-warn" />
           <span className="font-semibold text-warn">The rule now in force is in</span>
-          {chip(`/?doc=${current.id}`, current.reference_number || current.title)}
+          {chip(`/dashboard?doc=${current.id}`, current.reference_number || current.title)}
         </p>
       )}
       {changedBy.length > 0 && (
@@ -68,7 +68,7 @@ export default function Backtrail({ documentId, status, back }: { documentId: st
         <p className="flex flex-wrap items-center gap-1.5 text-ink-2">
           <CornerUpLeft className="h-3.5 w-3.5 text-ink-3" />
           <span>Back links:</span>
-          {back.slice(0, 8).map((l) => chip(l.docId ? `/?doc=${l.docId}` : null, l.label, l.quote))}
+          {back.slice(0, 8).map((l) => chip(l.docId ? `/dashboard?doc=${l.docId}` : null, l.label, l.quote))}
           {back.length > 8 && <span className="text-ink-3">+{back.length - 8} more</span>}
         </p>
       )}

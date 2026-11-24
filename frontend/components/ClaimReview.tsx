@@ -357,7 +357,7 @@ export default function ClaimReview({ initialPointId }: { initialPointId?: strin
 
       <div>
         <p className="text-[13px] text-ink-3">
-          <Link href={`/?doc=${current.circular.id}`} className="refno hover:underline">
+          <Link href={`/dashboard?doc=${current.circular.id}`} className="refno hover:underline">
             {current.circular.reference_number || "Circular"}
           </Link>
           <span className="ml-2">{current.circular.title}</span>
@@ -524,7 +524,7 @@ export default function ClaimReview({ initialPointId }: { initialPointId?: strin
           <ul className="mt-2 space-y-1.5 pb-1">
             {empty.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <Link href={`/?doc=${c.id}`} className="refno min-w-0 hover:underline">
+                <Link href={`/dashboard?doc=${c.id}`} className="refno min-w-0 hover:underline">
                   {c.reference_number || c.title}
                 </Link>
                 <button type="button" onClick={() => rerun(c.id)} disabled={reruns[c.id] === "running"} className="inline-flex min-h-9 items-center gap-1 font-semibold text-accent hover:underline disabled:opacity-60">

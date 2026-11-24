@@ -244,3 +244,18 @@ html.dark {
     display: block !important;
   }
 }
+
+/* Home page hero: the yellow marker sweeps in under "changed today." and the quote; the wire draws itself. */
+@keyframes hero-sweep { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }
+@keyframes hero-draw { from { stroke-dashoffset: 220; } to { stroke-dashoffset: 0; } }
+.hero-hl {
+  background-image: linear-gradient(rgb(var(--highlight)), rgb(var(--highlight)));
+  background-repeat: no-repeat;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: hero-sweep 1.6s 0.8s ease-out both;
+}
+.hero-wire { stroke-dasharray: 220; animation: hero-draw 1s 0.3s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .hero-hl, .hero-wire { animation: none; background-size: 100% 100%; stroke-dashoffset: 0; }
+}

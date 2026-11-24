@@ -5,6 +5,21 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 24 November 2026 (evening): home page
+
+- **New home page at amarcircular.com.** A headline ("Know what Bangladesh Bank changed today."), one line on what
+  the site does, an **Open the library — free** button, and three live numbers: circulars in the library, issued
+  this month, and shown points without a page cite (0). The picture beside it is a real point from BRPD-1 Circular
+  Letter No. 40, linked to its highlighted sentence on page 1; clicking it opens that circular.
+- Under the headline are the **Today / This week / This month / Read later** cards and **Ask a question**. A card
+  opens the dashboard with that filter on. Ask answers right on the home page.
+- **The dashboard moved to /dashboard** and works as before. Old links such as `/?doc=…` (emails, alerts, bookmarks)
+  still open the right circular there.
+- **New card look** on both pages: Today turns red with a NEW tag when something was issued today, This week is
+  solid green, This month light green, Read later white. The card whose filter is on gets a dark ring.
+
+---
+
 ## 24 November 2026: go-live day
 
 ### Hosting and setup

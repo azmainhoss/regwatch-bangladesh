@@ -90,7 +90,7 @@ export default function CircularLinksPage() {
   if (docError) {
     return (
       <div className="space-y-4">
-        <Link href="/" className="btn-ghost -ml-2">
+        <Link href="/dashboard" className="btn-ghost -ml-2">
           <ArrowLeft className="h-4 w-4" /> Circulars
         </Link>
         <Notice kind="error">{docError}</Notice>
@@ -105,7 +105,7 @@ export default function CircularLinksPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link href={id ? `/?doc=${id}` : "/"} className="btn-ghost -ml-2" data-testid="back-to-circular">
+        <Link href={id ? `/dashboard?doc=${id}` : "/"} className="btn-ghost -ml-2" data-testid="back-to-circular">
           <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
           Back to the circular
         </Link>
@@ -150,7 +150,7 @@ export default function CircularLinksPage() {
               <p className="text-[14.5px] text-ink-2">
                 Changed by{" "}
                 {info.byId ? (
-                  <Link href={`/?doc=${info.byId}`} className="refno hover:underline">
+                  <Link href={`/dashboard?doc=${info.byId}`} className="refno hover:underline">
                     {info.byRef}
                   </Link>
                 ) : (
@@ -161,7 +161,7 @@ export default function CircularLinksPage() {
             {status?.current_version && status.current_version.id !== id && (
               <p className="text-[14.5px] text-ink-2">
                 The current version is{" "}
-                <Link href={`/?doc=${status.current_version.id}`} className="refno hover:underline" data-testid="current-version-link">
+                <Link href={`/dashboard?doc=${status.current_version.id}`} className="refno hover:underline" data-testid="current-version-link">
                   {status.current_version.reference_number || status.current_version.title}
                 </Link>
                 .

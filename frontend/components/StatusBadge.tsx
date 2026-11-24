@@ -172,7 +172,7 @@ export function InForceBadge({ info, size = "md", plain = false }: { info?: InFo
   );
   if (!plain && info.byId && info.status !== "IN_FORCE") {
     return (
-      <Link href={`/?doc=${info.byId}`} title={title} data-testid="in-force-badge" data-status={info.status} className={`${cls} hover:brightness-95`}>
+      <Link href={`/dashboard?doc=${info.byId}`} title={title} data-testid="in-force-badge" data-status={info.status} className={`${cls} hover:brightness-95`}>
         {inner}
       </Link>
     );

@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, MessageSquareText, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { fetchResearchMatches, queryResearchAssistant, type ResearchAnswer, type ResearchCitation } from "@/services/api";
 import { Notice } from "@/components/ui";
 
 const hasBangla = (s?: string | null) => !!s && /[ঀ-৿]/.test(s);
-const openHref = (docId: string, page: number) => `/?doc=${docId}&page=${page}`;
+const openHref = (docId: string, page: number) => `/dashboard?doc=${docId}&page=${page}`;
 
 function Source({ c, strong }: { c: ResearchCitation; strong?: boolean }) {
   const body = (
@@ -76,23 +76,22 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
   const shown = answer || (asking && matches) || error;
 
   return (
-    <section aria-label="Ask a question" className="rounded-panel border border-line bg-surface p-3.5 sm:p-4">
+    <section aria-label="Ask a question" className="rounded-[14px] border border-line bg-surface p-3 sm:p-4">
       <form onSubmit={ask} className="flex flex-col gap-2 sm:flex-row">
         <label htmlFor="dash-ask" className="sr-only">
           Ask a question about the circulars
         </label>
         <div className="relative flex-1">
-          <MessageSquareText className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
           <input
             id="dash-ask"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Ask a question, e.g. What is the provision rate for SMA loans?"
             lang={hasBangla(q) ? "bn" : undefined}
-            className="field h-11 pl-9 text-[15px]"
+            className="field h-12 rounded-[10px] px-4 text-[16px]"
           />
         </div>
-        <button type="submit" disabled={asking || (signedIn && q.trim().length < 3)} className="btn-primary h-11 px-5">
+        <button type="submit" disabled={asking || (signedIn && q.trim().length < 3)} className="btn-primary h-12 rounded-[10px] px-7 text-[16px] font-bold">
           {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Register to ask"}
         </button>
       </form>
