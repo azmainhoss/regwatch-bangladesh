@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
 import bcrypt
@@ -15,6 +16,28 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         )
     except Exception:
         return False
+
+
+# bcrypt only reads the first 72 bytes of a password (bcrypt 5 refuses longer ones).
+MAX_PASSWORD_BYTES = 72
+
+
+def password_fingerprint(hashed_password: Optional[str]) -> str:
+    """A short value that changes whenever the password changes. Put in each token (claim "pwv"), so a
+    password reset ends every session signed in with the old password. Not reversible to the hash."""
+    return hashlib.sha256((hashed_password or "").encode("utf-8")).hexdigest()[:16]
+
+
+_DUMMY_HASH: Optional[str] = None
+
+
+def burn_password_check(plain_password: str) -> None:
+    """Spends the same time as a real password check, so a login for an unknown email takes as long
+    as one with a wrong password (the reply time does not tell which emails have an account)."""
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = get_password_hash("regwatch-timing-equaliser")
+    verify_password(plain_password, _DUMMY_HASH)
 
 
 def get_password_hash(password: str) -> str:

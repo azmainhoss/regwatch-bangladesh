@@ -173,7 +173,7 @@ async def test_page_image_is_a_real_image_and_is_cached(client):
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"] == "image/webp"
     assert resp.headers["x-page-dpi"] == "144"
-    assert resp.headers["cache-control"].startswith("public")
+    assert resp.headers["cache-control"] == "private, max-age=86400"  # browser cache only, never a shared cache
     img = Image.open(io.BytesIO(resp.content))
     assert img.format == "WEBP"
     # A4 at 144 dpi: 595 x 842 points -> about 1190 x 1684 pixels.

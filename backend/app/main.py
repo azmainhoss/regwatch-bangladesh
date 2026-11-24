@@ -94,9 +94,10 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="Bangladesh Regulatory Intelligence and Compliance SaaS Platform API",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    # The API map and its interactive pages are for development only: off on the live server.
+    openapi_url=None if settings.is_production else f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if settings.is_production else f"{settings.API_V1_STR}/docs",
+    redoc_url=None if settings.is_production else f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan
 )
 
@@ -139,7 +140,7 @@ async def db_health_check(db: AsyncSession = Depends(get_async_db)):
         return {
             "status": "unhealthy",
             "database": "error",
-            "detail": str(e)
+            "detail": "see the server log" if settings.is_production else str(e)
         }
 
 

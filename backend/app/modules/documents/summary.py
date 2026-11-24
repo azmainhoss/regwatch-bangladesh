@@ -5,7 +5,7 @@ import time
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,6 +98,9 @@ async def get_summary(
     days: int = 14,
     current_user: Optional[User] = Depends(get_document_reader),
 ):
+    # Internal progress page for the platform team (the screen is admin-only too).
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Administrators only.")
     days = max(1, min(days, 90))
     hit = _cache.get(days)
     if hit is None:

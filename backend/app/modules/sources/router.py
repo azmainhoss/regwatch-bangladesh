@@ -56,7 +56,7 @@ async def create_source(
 @router.get("/runs", response_model=List[SourceRunRead], dependencies=[Depends(get_current_user)])
 async def list_source_runs(
     source_id: Optional[UUID] = Query(None),
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_async_db)
 ):
     query = select(SourceRun).order_by(SourceRun.started_at.desc()).limit(limit)
@@ -69,7 +69,7 @@ async def list_source_runs(
 @router.get("/discoveries", response_model=List[SourceDiscoveryRead], dependencies=[Depends(get_current_user)])
 async def list_discoveries(
     status_filter: Optional[str] = Query(None),
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Admin Discovery Review Queue: Lists candidate circulars awaiting approval or review."""

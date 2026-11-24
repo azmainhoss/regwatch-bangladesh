@@ -1,11 +1,18 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.config import settings
-from backend.app.core.security import create_access_token, get_password_hash, verify_password
+from backend.app.core import ratelimit
+from backend.app.core.security import (
+    burn_password_check,
+    create_access_token,
+    get_password_hash,
+    password_fingerprint,
+    verify_password,
+)
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User, UserProfile
@@ -13,12 +20,28 @@ from backend.app.modules.identity.schemas import TokenResponse, UserCreate, User
 
 router = APIRouter(prefix="/auth", tags=["Identity & Auth"])
 
+# Brute-force limits (one server, one process). A person typing never gets near them.
+LOGIN_PER_IP = (30, 300)  # failed sign-ins from one address per 5 minutes
+LOGIN_FAILS_PER_EMAIL = (20, 900)  # wrong passwords for one account per 15 minutes, from anywhere
+REGISTER_PER_IP = (30, 3600)  # new accounts from one address per hour (a bank may sign up a team at once)
+
+
+def _token_for(user: User) -> str:
+    return create_access_token(
+        subject=str(user.id),
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        extra_claims={"pwv": password_fingerprint(user.hashed_password)},
+    )
+
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: UserCreate,
+    request: Request,
     db: AsyncSession = Depends(get_async_db)
 ):
+    ratelimit.enforce(f"register:{ratelimit.client_ip(request)}", *REGISTER_PER_IP,
+                      detail="Too many new accounts from this network. Please try again later.")
     existing = await db.execute(select(User).where(User.email == payload.email.lower()))
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -50,8 +73,7 @@ async def register(
         )
     await db.refresh(user)
 
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = create_access_token(subject=str(user.id), expires_delta=expires_delta)
+    token = _token_for(user)
 
     return TokenResponse(
         access_token=token,
@@ -64,12 +86,25 @@ async def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     payload: UserLogin,
+    request: Request,
     db: AsyncSession = Depends(get_async_db)
 ):
     req_email = payload.email.lower()
+    # Only failed sign-ins count, so many colleagues behind one office address can all sign in.
+    ip_key = f"login-ip:{ratelimit.client_ip(request)}"
+    if ratelimit.limiter.count(ip_key, LOGIN_PER_IP[1]) >= LOGIN_PER_IP[0]:
+        raise ratelimit.too_many("Too many sign-in attempts. Please wait a few minutes and try again.", LOGIN_PER_IP[1])
+    fails_key = f"login-fail:{req_email}"
+    if ratelimit.limiter.count(fails_key, LOGIN_FAILS_PER_EMAIL[1]) >= LOGIN_FAILS_PER_EMAIL[0]:
+        raise ratelimit.too_many("Too many wrong passwords for this account. Please wait 15 minutes and try again.",
+                                 LOGIN_FAILS_PER_EMAIL[1])
     res = await db.execute(select(User).where(User.email == req_email))
     user = res.scalar_one_or_none()
+    if user is None:
+        burn_password_check(payload.password)
     if not user or not verify_password(payload.password, user.hashed_password):
+        ratelimit.limiter.add(fails_key)
+        ratelimit.limiter.add(ip_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
@@ -80,8 +115,7 @@ async def login(
             detail="User account is deactivated"
         )
 
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = create_access_token(subject=str(user.id), expires_delta=expires_delta)
+    token = _token_for(user)
 
     return TokenResponse(
         access_token=token,

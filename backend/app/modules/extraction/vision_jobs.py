@@ -81,8 +81,10 @@ async def process_pending_vision_pages(
             DocumentPage.is_human_corrected.is_(False),
         )
         .join(Document, Document.id == DocumentVersion.document_id)
-        # Newest circulars first, so a new circular is never stuck behind the old archive.
-        .order_by(Document.publication_date.desc(), DocumentPage.created_at, DocumentPage.page_number)
+        # Shared Bangladesh Bank circulars before private uploads (whose date the uploader types), then newest
+        # first, so a new circular is never stuck behind the old archive or behind someone's uploads.
+        .order_by(Document.owner_user_id.is_not(None), Document.publication_date.desc(), DocumentPage.created_at,
+                  DocumentPage.page_number)
     )
     if version_id is not None:
         query = query.where(DocumentPage.document_version_id == version_id)

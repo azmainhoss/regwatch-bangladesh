@@ -10,8 +10,11 @@ APP=/opt/regwatch/app
 OUT=/var/backups/regwatch
 R2_BUCKET="${R2_BUCKET:-regwatch-backup}"
 STAMP=$(date -u +%Y-%m-%dT%H%MZ)
+# The copies hold password hashes and the banks' workspace data: readable by the app user only.
+umask 077
 
 mkdir -p "$OUT"
+chmod 700 "$OUT" 2>/dev/null || true
 sqlite3 "$APP/data/regwatch.db" ".backup $OUT/regwatch-$STAMP.db"
 sqlite3 "$OUT/regwatch-$STAMP.db" "pragma quick_check;" | grep -qx ok || { echo "Backup copy failed its check"; exit 1; }
 gzip -f "$OUT/regwatch-$STAMP.db"

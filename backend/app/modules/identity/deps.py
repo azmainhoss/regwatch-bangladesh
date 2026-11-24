@@ -4,7 +4,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.security import decode_access_token
+from backend.app.core.security import decode_access_token, password_fingerprint
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.models import User
 
@@ -22,6 +22,9 @@ async def get_current_user_optional(
         return None
     user_id = payload["sub"]
     user = await db.get(User, user_id)
+    # Tokens carry a fingerprint of the password they were issued for: a password reset signs out old sessions.
+    if user is not None and "pwv" in payload and payload["pwv"] != password_fingerprint(user.hashed_password):
+        return None
     return user
 
 

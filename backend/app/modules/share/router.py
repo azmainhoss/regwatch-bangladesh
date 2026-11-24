@@ -36,6 +36,9 @@ from backend.app.modules.plans.router import require
 
 router = APIRouter(prefix="/share", tags=["Share and assign"])
 
+# People one person may email a circular to per hour (the server's mail account has a daily cap).
+EMAIL_RECIPIENTS_PER_USER = (60, 3600)
+
 EMAIL_OFF = "Email is not set up on this server yet. Use \"Open in my mail app\" instead."
 
 
@@ -148,6 +151,10 @@ async def email_circular(body: EmailRequest, user: User = Depends(get_current_us
     doc = await get_visible_document(db, body.document_id, user)
     if not email_configured():
         raise HTTPException(status_code=409, detail=EMAIL_OFF)
+    from backend.app.core import ratelimit
+    ratelimit.enforce(f"share-email:{user.id}", *EMAIL_RECIPIENTS_PER_USER, cost=len(body.to),
+                      detail="You have emailed many people in the last hour. Please try again later, "
+                             "or use \"Open in my mail app\".")
     view, pdf = await _parts(db, doc, user, body.attach_pdf)
     msg = build_share_email(
         to=[str(t) for t in body.to], sender_name=_name(user), sender_email=user.email, doc=doc, view=view,

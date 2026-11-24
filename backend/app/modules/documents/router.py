@@ -10,6 +10,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.core import ratelimit
 from backend.app.core.storage import storage_service
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
@@ -42,6 +43,8 @@ from backend.app.modules.sources.models import Source
 router = APIRouter(prefix="/documents", tags=["Documents & Ingestion"])
 
 MAX_DOCUMENT_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+# Private uploads by one person (each is parsed on the server and its unread pages queue for the page reader).
+PRIVATE_UPLOADS_PER_USER = (20, 3600)
 
 
 async def _with_in_force(db: AsyncSession, docs, user: Optional[User]) -> List[DocumentRead]:
@@ -112,6 +115,8 @@ async def upload_document(
                 detail="Only platform administrators can upload to the shared library."
             )
         owner_user_id = current_user.id
+        ratelimit.enforce(f"upload:{current_user.id}", *PRIVATE_UPLOADS_PER_USER,
+                          detail="You have uploaded many circulars in the last hour. Please try again later.")
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
@@ -645,7 +650,8 @@ async def stream_document_pdf(
             "Content-Disposition": f"inline; filename={version.file_sha256[:12]}.pdf",
             "Content-Length": str(len(pdf_bytes)),
             "X-SHA256-Checksum": version.file_sha256,
-            "Cache-Control": "public, max-age=86400" if doc.owner_user_id is None else "private, no-store"
+            # "private": the browser keeps it, but no shared cache (a CDN or proxy) may hand it to someone not signed in.
+            "Cache-Control": "private, max-age=86400" if doc.owner_user_id is None else "private, no-store"
         }
     )
 
@@ -691,7 +697,8 @@ async def get_page_image(
         content=data,
         media_type=page_images.FORMATS[format],
         headers={
-            "Cache-Control": "public, max-age=86400" if doc.owner_user_id is None else "private, no-store",
+            # "private": the browser keeps it, but no shared cache (a CDN or proxy) may hand it to someone not signed in.
+            "Cache-Control": "private, max-age=86400" if doc.owner_user_id is None else "private, no-store",
             "X-Page-Dpi": str(snapped),
         },
     )

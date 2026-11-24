@@ -44,6 +44,8 @@ echo "== Firewall: SSH, HTTP, HTTPS only"
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow OpenSSH
+# Spaceship VPS runs SSH on 22022, not 22: allow every port sshd really listens on, so this never locks you out.
+for port in $(sshd -T 2>/dev/null | awk '$1=="port"{print $2}'); do ufw allow "$port/tcp"; done
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
@@ -67,12 +69,16 @@ echo "== App user and folders"
 id regwatch >/dev/null 2>&1 || useradd --system --create-home --home-dir /opt/regwatch --shell /bin/bash regwatch
 mkdir -p /opt/regwatch "$WEB" /var/backups/regwatch /var/log/caddy
 chown regwatch:regwatch /opt/regwatch "$WEB" /var/backups/regwatch
+chmod 750 /opt/regwatch
+chmod 700 /var/backups/regwatch
 
 if [ ! -d "$APP/.git" ]; then
   echo "== Code from $REPO_URL (a private repo asks for a GitHub token as the password)"
   sudo -u regwatch git clone --branch main "$REPO_URL" "$APP"
 fi
 sudo -u regwatch mkdir -p "$APP/data" "$APP/storage/originals" "$APP/storage/evidence"
+# The database and the banks' evidence files: the app user only.
+chmod 700 "$APP/data" "$APP/storage"
 
 if [ ! -f "$APP/.env" ]; then
   echo "== Production settings: $APP/.env (fill every CHANGE_ME before starting)"

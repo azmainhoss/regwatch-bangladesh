@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
@@ -15,10 +15,18 @@ class UserCreate(UserBase):
     full_name: str = Field(..., min_length=1, max_length=255)
     password: str = Field(..., min_length=8, description="Password must be at least 8 characters")
 
+    @field_validator("password")
+    @classmethod
+    def _password_fits_bcrypt(cls, value: str) -> str:
+        # bcrypt reads at most 72 bytes; a longer password used to fail with a server error.
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 bytes long (about 72 letters or digits).")
+        return value
+
 
 class UserLogin(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., max_length=1024)
 
 
 class UserRead(UserBase):

@@ -44,7 +44,10 @@ def render_page_image(pdf_bytes: bytes, page_number: int, dpi: int, fmt: str) ->
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         if page_number < 1 or page_number > len(doc):
             raise PageNotFound(page_number)
-        pix = doc[page_number - 1].get_pixmap(dpi=dpi, alpha=False)
+        from backend.app.modules.extraction.vision import capped_dpi
+
+        page = doc[page_number - 1]
+        pix = page.get_pixmap(dpi=capped_dpi(page, dpi), alpha=False)
         if fmt == "png":
             return pix.tobytes("png")
         from PIL import Image

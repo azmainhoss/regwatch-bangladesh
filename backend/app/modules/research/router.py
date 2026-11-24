@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database.session import get_async_db
@@ -12,8 +12,12 @@ from backend.app.modules.research.service import ResearchMatchesResponse, Resear
 router = APIRouter(prefix="/research", tags=["Regulatory Research Assistant"])
 
 
+# Questions from one person to the answer model, per 10 minutes. Matching quotes (/matches) stay unlimited.
+QUESTIONS_PER_USER = (30, 600)
+
+
 class ResearchQueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=4000)
     document_id: Optional[UUID] = None
     institution_id: Optional[UUID] = None
 
@@ -29,6 +33,9 @@ async def query_regulatory_assistant(
     """
     if not payload.query or len(payload.query.strip()) < 3:
         raise HTTPException(status_code=400, detail="Query string too short.")
+    from backend.app.core import ratelimit
+    ratelimit.enforce(f"ask:{current_user.id}", *QUESTIONS_PER_USER,
+                      detail="You have asked many questions in the last few minutes. Please wait a little and ask again.")
     from backend.app.modules.plans.router import use_question
     await use_question(db, current_user)  # the Free plan has a few questions a day
 

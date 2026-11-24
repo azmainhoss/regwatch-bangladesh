@@ -14,7 +14,18 @@ amarcircular.com {
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		# Narrow policy that cannot break Next.js or the PDF viewer: no injected <base>, no form posts to other sites.
+		# (Framing is already refused by X-Frame-Options. A full script policy needs per-request nonces in Next.js.)
+		Content-Security-Policy "base-uri 'self'; form-action 'self'"
 		-Server
+		-X-Powered-By
+	}
+
+	# The app never uses next/image. Its image optimiser has known remote-code-execution advisories in
+	# Next.js 14 (fixed only in 15.5+), so the route stays closed.
+	@nextimage path /_next/image*
+	handle @nextimage {
+		respond 404
 	}
 
 	# The interactive API docs and schema stay off the public site.
@@ -22,6 +33,10 @@ amarcircular.com {
 	handle @apidocs {
 		respond 404
 	}
+
+	# If Cloudflare's proxy (orange cloud) is switched on later, add a global option block at the top of this file:
+	#   { servers { trusted_proxies static <Cloudflare IP ranges> \n client_ip_headers CF-Connecting-IP } }
+	# otherwise every visitor looks like a Cloudflare address and the sign-in limits count them all together.
 
 	# The API and its file downloads. Uploads of circular PDFs can be large.
 	handle /api/* {

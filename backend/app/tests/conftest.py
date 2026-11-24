@@ -76,6 +76,15 @@ def _no_network(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Each test starts with empty rate-limit counters (they are per process, like on the server)."""
+    from backend.app.core.ratelimit import limiter
+
+    limiter.reset()
+    yield
+
+
 def pytest_sessionfinish(session, exitstatus):
     try:
         sync_engine.dispose()

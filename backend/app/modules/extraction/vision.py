@@ -170,12 +170,28 @@ def _call_lock(api_key: str = "") -> asyncio.Semaphore:
     return gate
 
 
+# Largest page picture drawn, in pixels (about 108 MB in memory). An A3 page at 300 dpi is 17 million pixels,
+# so real circular pages are never touched; a PDF page declared hundreds of inches wide is drawn smaller
+# instead of filling the server's memory.
+MAX_RENDER_PIXELS = 36_000_000
+
+
+def capped_dpi(page, dpi: int, max_pixels: int = MAX_RENDER_PIXELS) -> int:
+    """`dpi`, lowered just enough that the page picture stays under `max_pixels`."""
+    rect = page.rect
+    w_in, h_in = max(rect.width, 1.0) / 72.0, max(rect.height, 1.0) / 72.0
+    pixels = (w_in * dpi) * (h_in * dpi)
+    if pixels <= max_pixels:
+        return dpi
+    return max(1, int((max_pixels / (w_in * h_in)) ** 0.5))
+
+
 def render_page_png(pdf_bytes: bytes, page_number: int, dpi: Optional[int] = None) -> bytes:
     """Renders one 1-indexed page to PNG bytes."""
     dpi = dpi or settings.VISION_DPI
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         page = doc[page_number - 1]
-        pix = page.get_pixmap(dpi=dpi, alpha=False)
+        pix = page.get_pixmap(dpi=capped_dpi(page, dpi), alpha=False)
         return pix.tobytes("png")
 
 

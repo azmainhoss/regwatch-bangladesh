@@ -27,6 +27,19 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
+# Extra sandboxing: no devices, no kernel logs or clock, no new namespaces, no capabilities at all,
+# only ordinary network sockets. New files (database copies, page images) are not readable by other users.
+PrivateDevices=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0027
 
 [Install]
 WantedBy=multi-user.target
