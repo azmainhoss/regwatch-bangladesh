@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "@/services/api";
 import { fetchFeedCounts, type FeedCounts } from "@/services/libraryApi";
 import { useLists } from "@/services/listsStore";
@@ -14,19 +14,23 @@ import DashboardCards, { type Box } from "@/components/DashboardCards";
 const HERO_DOC = "ce648d4f-0e8e-4cc7-b4d0-481bb64617cb";
 
 /** amarcircular.com: what the site does, the four cards, and Ask. The library itself is at /dashboard. */
-function Home() {
+export default function HomePage() {
   const router = useRouter();
-  const params = useSearchParams();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [counts, setCounts] = useState<FeedCounts | null>(null);
   const lists = useLists();
 
   // Old links (emails, alerts, saved bookmarks) used "/?doc=…" and "/?box=…": they belong to the dashboard now.
-  const legacy = ["doc", "box", "page", "version"].some((k) => params.has(k));
+  // Read in an effect (not useSearchParams) so the page itself still renders on the server for search engines.
+  const [legacy, setLegacy] = useState(false);
   useEffect(() => {
-    if (legacy) router.replace(`/dashboard?${params.toString()}`);
-  }, [legacy, params, router]);
+    const params = new URLSearchParams(window.location.search);
+    if (["doc", "box", "page", "version"].some((k) => params.has(k))) {
+      setLegacy(true);
+      router.replace(`/dashboard?${params.toString()}`);
+    }
+  }, [router]);
 
   useEffect(() => {
     setUser(getStoredUser());
@@ -147,10 +151,3 @@ function Home() {
   );
 }
 
-export default function HomePage() {
-  return (
-    <Suspense fallback={null}>
-      <Home />
-    </Suspense>
-  );
-}
