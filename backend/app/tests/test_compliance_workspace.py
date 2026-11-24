@@ -566,7 +566,7 @@ async def test_matrix_members_departments_and_task_status(client):
     assert last.status_code == 400
     # unknown email, duplicate, department rules
     nope = await client.post(f"/api/v1/organizations/{ws.org_id}/members/by-email", headers=ws.headers("ORG_ADMIN"), json={"email": "nobody@nowhere.test", "role": "VIEWER"})
-    assert nope.status_code == 404 and nope.json()["detail"].startswith("No RegWatch account")
+    assert nope.status_code == 404 and nope.json()["detail"].startswith("No Amar Circular account")
     dup = await client.post(f"/api/v1/organizations/{ws.org_id}/members/by-email", headers=ws.headers("ORG_ADMIN"), json={"email": ws.users["VIEWER"].email, "role": "VIEWER"})
     assert dup.status_code == 400
     clash = await client.post(f"/api/v1/organizations/{ws.org_id}/departments", headers=ws.headers("ORG_ADMIN"), json={"name": "Dept ORG_ADMIN"})

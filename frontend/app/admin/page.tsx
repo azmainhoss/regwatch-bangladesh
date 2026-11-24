@@ -349,7 +349,7 @@ function AdminConsole() {
       if (run.access_restricted) {
         setMonitoringNotice({
           type: "warning",
-          text: "The website blocked this check, so it did not count. RegWatch does not try to get around blocks; it will try again later.",
+          text: "The website blocked this check, so it did not count. Amar Circular does not try to get around blocks; it will try again later.",
         });
       } else if (run.status !== "COMPLETED") {
         // A failed or blocked listing is never shown as "0 new".

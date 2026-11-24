@@ -363,10 +363,10 @@ async def test_email(admin: User = Depends(get_current_superuser), db: AsyncSess
         raise HTTPException(status_code=429, detail="Please wait 30 seconds between test emails.")
     _last_test_email[key] = now
     stamp = datetime.now(ZoneInfo(settings.MONITOR_TIMEZONE)).strftime("%d %b %Y, %H:%M")
-    text = f"Email from RegWatch works. Sent {stamp} Dhaka time."
+    text = f"Email from Amar Circular works. Sent {stamp} Dhaka time."
     row = EmailOutbox(
         user_id=admin.id, to_address=admin.email, kind="TEST", dedupe_key=f"test:{uuid4()}", notification_ids=[],
-        subject="RegWatch test email", text_body=text, html_body=f"<p>{html.escape(text)}</p>",
+        subject="Amar Circular test email", text_body=text, html_body=f"<p>{html.escape(text)}</p>",
         status="SENDING", attempts=0, next_attempt_at=_now(), locked_until=_now() + timedelta(minutes=5),
     )
     db.add(row)

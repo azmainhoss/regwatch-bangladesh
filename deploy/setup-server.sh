@@ -99,7 +99,8 @@ echo "== Services"
 install -m 644 "$APP"/deploy/systemd/*.service "$APP"/deploy/systemd/*.timer /etc/systemd/system/
 sed "s|amarcircular.com|$DOMAIN|g" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
 systemctl daemon-reload
-systemctl enable regwatch-backend regwatch-frontend regwatch-backup.timer caddy
+systemctl enable regwatch-backend regwatch-frontend caddy
+systemctl enable --now regwatch-backup.timer
 
 cat <<EOF
 

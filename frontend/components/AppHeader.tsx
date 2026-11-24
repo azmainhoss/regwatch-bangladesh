@@ -9,7 +9,7 @@ import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
 import BellButton from "./alerts/BellButton";
 import { startAlertsSync } from "../services/alertsStore";
-import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "../services/api";
+import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser, openRegister } from "../services/api";
 
 export const SEARCH_INPUT_ID = "circular-search";
 
@@ -18,7 +18,7 @@ function Mark() {
   return (
     <span aria-hidden className="relative grid h-7 w-7 place-items-center rounded-[5px] bg-accent text-accent-ink">
       <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-bl-[3px] bg-canvas/90" />
-      <span className="mt-1 text-[13px] font-bold leading-none">R</span>
+      <span className="mt-1 text-[13px] font-bold leading-none">A</span>
     </span>
   );
 }
@@ -77,10 +77,10 @@ export default function AppHeader() {
     <>
       <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
         <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
-          <Link href="/" className="flex min-h-[44px] shrink-0 items-center gap-2.5" aria-label="RegWatch home">
+          <Link href="/" className="flex min-h-[44px] shrink-0 items-center gap-2.5" aria-label="Amar Circular home">
             <Mark />
             <span className="hidden leading-tight sm:block">
-              <span className="block text-[15px] font-bold tracking-tight text-ink">RegWatch</span>
+              <span className="block text-[15px] font-bold tracking-tight text-ink">Amar Circular</span>
               <span className="hidden text-2xs font-medium text-ink-3 sm:block">Bangladesh Bank circulars</span>
             </span>
           </Link>
@@ -145,9 +145,10 @@ export default function AppHeader() {
 
             <button
               type="button"
-              onClick={() => setAccountOpen(true)}
+              data-free-click
+              onClick={() => (currentUser ? setAccountOpen(true) : openRegister())}
               className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-9 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
-              title={currentUser ? `Signed in as ${currentUser.email}` : "Sign in"}
+              title={currentUser ? `Signed in as ${currentUser.email}` : "Register now"}
             >
               {currentUser ? (
                 <>
@@ -159,12 +160,14 @@ export default function AppHeader() {
               ) : (
                 <>
                   <UserRound className="ml-1 h-4 w-4" strokeWidth={1.75} />
-                  <span className="pr-1.5 sm:pr-0">Sign in</span>
+                  <span className="pr-1.5 sm:pr-0">Register now</span>
                 </>
               )}
             </button>
 
-            <ThemeToggle />
+            <span data-free-click className="contents">
+              <ThemeToggle />
+            </span>
           </div>
         </div>
       </header>

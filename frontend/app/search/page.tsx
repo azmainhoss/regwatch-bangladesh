@@ -489,7 +489,7 @@ export default function SearchPage() {
       ) : (
         <section aria-label="Ask a question" className="space-y-4">
           {!currentUser ? (
-            <EmptyState title="Sign in to ask" icon={<MessageSquareText className="h-6 w-6" strokeWidth={1.5} />}>
+            <EmptyState title="Register to ask" icon={<MessageSquareText className="h-6 w-6" strokeWidth={1.5} />}>
               Questions are answered from the circulars you can read, with the exact page quoted.
               <div className="mt-3">
                 <button type="button" onClick={() => setAccountOpen(true)} className="btn-primary">

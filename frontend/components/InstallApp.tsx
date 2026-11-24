@@ -44,7 +44,7 @@ export default function InstallApp() {
   return (
     <div className="fixed inset-x-3 bottom-3 z-50 flex items-center gap-3 rounded-panel border border-line bg-surface px-4 py-3 shadow-pop sm:left-auto sm:right-4 sm:w-96">
       <Download className="h-5 w-5 shrink-0 text-accent" />
-      <p className="flex-1 text-[14px] text-ink">Install RegWatch as an app for one-tap access and alerts.</p>
+      <p className="flex-1 text-[14px] text-ink">Install Amar Circular as an app for one-tap access and alerts.</p>
       <button
         type="button"
         className="btn-primary px-3 py-1.5"

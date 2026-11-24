@@ -98,7 +98,7 @@ def _pick_sentence_ids(index: SentenceIndex, page_numbers: List[int], keywords: 
 _SOURCE_ID = re.compile(r"^\[?\s*(d\d+)\s*[.:]\s*(p\d+\.s\d+)\s*\]?$", re.IGNORECASE)
 
 
-RESEARCH_SYSTEM_PROMPT = """You are the Grounded Regulatory Research Assistant for RegWatch Bangladesh.
+RESEARCH_SYSTEM_PROMPT = """You are the Grounded Regulatory Research Assistant for Amar Circular.
 Answer the user's compliance question strictly using the provided regulatory document excerpts.
 
 SECURITY & ADVERSARIAL DEFENSE RULES:

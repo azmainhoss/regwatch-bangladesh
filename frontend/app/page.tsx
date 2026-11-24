@@ -498,7 +498,7 @@ function CircularsPageInner() {
               <span className="mt-1 block text-[28px] font-semibold leading-none tracking-tight text-ink tabular-nums">
                 {locked ? "-" : n === null ? <SkeletonLine className="mt-1 h-6 w-10" /> : n}
               </span>
-              <span className="mt-1.5 block text-[12px] text-ink-3">{locked ? "Sign in to save" : hint}</span>
+              <span className="mt-1.5 block text-[12px] text-ink-3">{locked ? "Register to save" : hint}</span>
             </button>
           );
         })}

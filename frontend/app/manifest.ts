@@ -1,10 +1,10 @@
 import type { MetadataRoute } from "next";
 
-/** Makes RegWatch installable as an app on Android (and desktop): its own icon, full screen, no browser bar. */
+/** Makes Amar Circular installable as an app on Android (and desktop): its own icon, full screen, no browser bar. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "RegWatch Bangladesh",
-    short_name: "RegWatch",
+    name: "Amar Circular",
+    short_name: "Amar Circular",
     description: "Every Bangladesh Bank circular, checked and explained, with the page it came from.",
     start_url: "/",
     scope: "/",

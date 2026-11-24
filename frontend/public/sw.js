@@ -1,4 +1,4 @@
-// RegWatch service worker: lets the app install on Android and open fast.
+// Amar Circular service worker: lets the app install on Android and open fast.
 // Pages and data always come fresh from the network (never a stale screen); only the app's own
 // static files are kept, and the last page is shown with a plain note if the phone is offline.
 const CACHE = "regwatch-static-v1";
@@ -39,7 +39,7 @@ self.addEventListener("fetch", (e) => {
       fetch(req).catch(
         () =>
           new Response(
-            "<!doctype html><meta name=viewport content='width=device-width'><body style='font-family:sans-serif;padding:24px;background:#0e1311;color:#e6ece9'><h2>You are offline</h2><p>RegWatch needs the internet to show the latest circulars. It opens again as soon as you are back online.</p></body>",
+            "<!doctype html><meta name=viewport content='width=device-width'><body style='font-family:sans-serif;padding:24px;background:#0e1311;color:#e6ece9'><h2>You are offline</h2><p>Amar Circular needs the internet to show the latest circulars. It opens again as soon as you are back online.</p></body>",
             { headers: { "Content-Type": "text/html" } },
           ),
       ),

@@ -436,7 +436,7 @@ export function uploadEvidence(o: string, taskId: string, file: File, notes: str
       if (xhr.status >= 200 && xhr.status < 300) resolve(body);
       else reject(new WorkspaceError(xhr.status, messageFrom(body, xhr.status), body?.current));
     };
-    xhr.onerror = () => reject(new WorkspaceError(0, `Cannot reach the RegWatch API at ${getApiBaseUrl()}. Check that the backend is running.`));
+    xhr.onerror = () => reject(new WorkspaceError(0, `Cannot reach the Amar Circular API at ${getApiBaseUrl()}. Check that the backend is running.`));
     xhr.onabort = () => reject(new WorkspaceError(0, "Upload cancelled."));
     const form = new FormData();
     form.append("file", file);

@@ -29,10 +29,10 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RegWatch Bangladesh",
+  title: "Amar Circular",
   description: "Bangladesh Bank circulars with page-cited analysis for bank compliance teams.",
-  applicationName: "RegWatch",
-  appleWebApp: { capable: true, title: "RegWatch", statusBarStyle: "black-translucent" },
+  applicationName: "Amar Circular",
+  appleWebApp: { capable: true, title: "Amar Circular", statusBarStyle: "black-translucent" },
   icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
@@ -59,7 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             footer={
               <footer className="border-t border-line pb-[calc(56px+env(safe-area-inset-bottom))] sm:pb-0">
                 <div className="mx-auto flex max-w-[1480px] flex-col gap-1 px-4 py-5 text-[13px] text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-                  <span>RegWatch Bangladesh. Every finding links back to the page it came from.</span>
+                  <span>Amar Circular. Every finding links back to the page it came from.</span>
                   <span>Source: Bangladesh Bank circulars</span>
                 </div>
               </footer>

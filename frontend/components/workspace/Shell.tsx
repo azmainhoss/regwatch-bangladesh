@@ -30,7 +30,7 @@ export function SignInGate({ user, setUser }: { user: AuthUser | null; setUser: 
   return (
     <div className="mx-auto max-w-lg rounded-panel border border-line bg-sunken/60 px-5 py-8 text-center">
       <Lock className="mx-auto h-6 w-6 text-ink-3" strokeWidth={1.75} />
-      <h1 className="mt-3 text-[18px] font-semibold text-ink">Sign in to use your bank&apos;s workspace</h1>
+      <h1 className="mt-3 text-[18px] font-semibold text-ink">Register to use your bank&apos;s workspace</h1>
       <p className="mt-1 text-[14px] text-ink-2">Registers, tasks and evidence are private to your bank.</p>
       <button type="button" className="btn-primary mt-4 min-h-[44px] sm:min-h-0" onClick={() => setOpen(true)}>
         Sign in

@@ -105,7 +105,7 @@ def build_share_email(
             lines.append("")
     if not any(p.values()):
         lines += ["The summary for this circular is not ready yet. The original PDF is attached.", ""]
-    lines += [f"Open it in RegWatch: {link}", "", "Every point above comes from the circular itself; the original PDF is attached."]
+    lines += [f"Open it in Amar Circular: {link}", "", "Every point above comes from the circular itself; the original PDF is attached."]
     text = "\n".join(lines)
 
     # HTML
@@ -131,7 +131,7 @@ def build_share_email(
         parts.append("<h3 style=\"font-size:15px;margin:10px 0 6px\">Mind map</h3>")
         parts.append(f"<img src=\"cid:{mind_cid[1:-1]}\" alt=\"Mind map of the circular\" style=\"max-width:100%;border:1px solid #d5dbd8;border-radius:8px\">")
     parts.append(
-        f"<p style=\"margin-top:18px\"><a href=\"{e(link)}\" style=\"background:#1f5c47;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600\">Open in RegWatch</a></p>"
+        f"<p style=\"margin-top:18px\"><a href=\"{e(link)}\" style=\"background:#1f5c47;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600\">Open in Amar Circular</a></p>"
     )
     parts.append("<p style=\"color:#5b6661;font-size:13px\">Every point above comes from the circular itself. The original PDF is attached.</p></div>")
     html_body = "".join(parts)

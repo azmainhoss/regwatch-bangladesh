@@ -16,7 +16,9 @@ from backend.app.core.security import (
 from backend.app.database.session import get_async_db
 from backend.app.modules.identity.deps import get_current_user
 from backend.app.modules.identity.models import User, UserProfile
-from backend.app.modules.identity.schemas import TokenResponse, UserCreate, UserLogin, UserRead
+import secrets
+
+from backend.app.modules.identity.schemas import QuickRegister, TokenResponse, UserCreate, UserLogin, UserRead
 
 router = APIRouter(prefix="/auth", tags=["Identity & Auth"])
 
@@ -26,10 +28,14 @@ LOGIN_FAILS_PER_EMAIL = (20, 900)  # wrong passwords for one account per 15 minu
 REGISTER_PER_IP = (30, 3600)  # new accounts from one address per hour (a bank may sign up a team at once)
 
 
-def _token_for(user: User) -> str:
+# Visitors who registered with 'Register now' stay in for 30 days; password accounts keep the normal expiry.
+QUICK_TOKEN_MINUTES = 30 * 24 * 60
+
+
+def _token_for(user: User, minutes: int | None = None) -> str:
     return create_access_token(
         subject=str(user.id),
-        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        expires_delta=timedelta(minutes=minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         extra_claims={"pwv": password_fingerprint(user.hashed_password)},
     )
 
@@ -80,6 +86,84 @@ async def register(
         token_type="bearer",
         expires_in_seconds=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=UserRead.model_validate(user)
+    )
+
+
+QUICK_SIGNUP = "quick"
+
+
+def _digits(phone: str | None) -> str:
+    return "".join(ch for ch in (phone or "") if ch.isdigit())
+
+
+@router.post("/quick-register", response_model=TokenResponse)
+async def quick_register(
+    payload: QuickRegister,
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    'Register now' on the public site: no password. A new email gets an account at once.
+    The same email again (another device) gets back in only with the same phone number,
+    so typing someone else's email is not enough. Password accounts (admins, banks) must sign in.
+    """
+    ratelimit.enforce(f"register:{ratelimit.client_ip(request)}", *REGISTER_PER_IP,
+                      detail="Too many registrations from this network. Please try again later.")
+    email = payload.email.lower()
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=email,
+            # Unusable password: nobody knows it, so password sign-in never works for this account.
+            hashed_password=get_password_hash(secrets.token_urlsafe(48)[:64]),
+            full_name=payload.full_name,
+            phone_number=payload.phone_number,
+            is_active=True,
+            is_superuser=False,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(UserProfile(
+            user_id=user.id,
+            designation=payload.designation,
+            preferences={"signup": QUICK_SIGNUP, "company": payload.company},
+        ))
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="This email was just registered. Please try again.")
+    else:
+        profile = (await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))).scalar_one_or_none()
+        prefs = dict(profile.preferences or {}) if profile is not None else {}
+        if prefs.get("signup") != QUICK_SIGNUP or user.is_superuser:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="This email already has a password account. Please sign in instead.")
+        fails_key = f"quick-fail:{email}"
+        if ratelimit.limiter.count(fails_key, LOGIN_FAILS_PER_EMAIL[1]) >= LOGIN_FAILS_PER_EMAIL[0]:
+            raise ratelimit.too_many("Too many attempts for this email. Please wait 15 minutes and try again.",
+                                     LOGIN_FAILS_PER_EMAIL[1])
+        if not secrets.compare_digest(_digits(user.phone_number), _digits(payload.phone_number)):
+            ratelimit.limiter.add(fails_key)
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="This email is already registered. Use the phone number you registered with.")
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is deactivated")
+        user.full_name = payload.full_name
+        prefs["company"] = payload.company
+        if profile is not None:
+            profile.designation = payload.designation
+            profile.preferences = prefs
+        await db.commit()
+    await db.refresh(user)
+
+    return TokenResponse(
+        access_token=_token_for(user, QUICK_TOKEN_MINUTES),
+        token_type="bearer",
+        expires_in_seconds=QUICK_TOKEN_MINUTES * 60,
+        user=UserRead.model_validate(user),
     )
 
 

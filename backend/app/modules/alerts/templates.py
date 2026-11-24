@@ -250,7 +250,7 @@ def instant_email(r: Rendered, base_url: str):
     h.append(
         f'<p style="margin:16px 0"><a href="{html.escape(_abs(base_url, r.link), quote=True)}" '
         'style="display:inline-block;background:#1d4ed8;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none">'
-        "Open in RegWatch</a></p>"
+        "Open in Amar Circular</a></p>"
     )
     h.append(
         f'<p style="font-size:12px;color:#6b7280;margin:24px 0 0">You get this email because of your alert settings. '
@@ -264,7 +264,7 @@ MAX_DIGEST_LINES = 50
 
 def digest_email(sections, total: int, base_url: str):
     """sections: list of (heading, [(title, link), ...]). Returns (subject, text, html)."""
-    subject = f"RegWatch daily summary: {total} {_plural(total, 'alert', 'alerts')}"
+    subject = f"Amar Circular daily summary: {total} {_plural(total, 'alert', 'alerts')}"
     text, h = [subject, ""], [
         '<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:16px;color:#1f2937">',
         f'<h1 style="font-size:18px;margin:0 0 12px">{html.escape(subject)}</h1>',

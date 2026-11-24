@@ -77,7 +77,7 @@ export default function AccountModal({ isOpen, onClose, currentUser, onUserChang
             title={mode === "signin" ? "Sign in" : "Create an account"}
             subtitle={
               mode === "signin"
-                ? "Sign in to your RegWatch account."
+                ? "Sign in to your Amar Circular account."
                 : "It takes a few seconds. You will be signed in at once."
             }
             onClose={onClose}

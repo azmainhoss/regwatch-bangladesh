@@ -61,7 +61,7 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}): Pro
   try {
     res = await fetch(targetUrl, { ...options, headers });
   } catch {
-    throw new ApiError(0, `Cannot reach the RegWatch API at ${getApiBaseUrl()}. Check that the backend is running.`);
+    throw new ApiError(0, `Cannot reach the Amar Circular API at ${getApiBaseUrl()}. Check that the backend is running.`);
   }
 
   // An expired or invalid token: drop the local session so the UI stops showing signed-in controls.
@@ -310,6 +310,32 @@ export async function registerUser(payload: {
   const user: AuthUser = data.user;
   storeSession(data.access_token, user);
   return user;
+}
+
+/** "Register now": no password. Name, email, phone, company and designation; signed in at once. */
+export async function quickRegister(payload: {
+  full_name: string;
+  email: string;
+  phone_number: string;
+  company: string;
+  designation: string;
+}): Promise<AuthUser> {
+  const res = await apiFetch(`/auth/quick-register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, "Registration failed");
+  const data = await res.json();
+  const user: AuthUser = data.user;
+  storeSession(data.access_token, user);
+  return user;
+}
+
+/** Opens the "Register now" dialog from anywhere (the header button, a gated click). */
+export const OPEN_REGISTER_EVENT = "amarcircular-open-register";
+export function openRegister() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(OPEN_REGISTER_EVENT));
 }
 
 /**

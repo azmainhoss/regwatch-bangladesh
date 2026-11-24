@@ -93,7 +93,7 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
           />
         </div>
         <button type="submit" disabled={asking || (signedIn && q.trim().length < 3)} className="btn-primary h-11 px-5">
-          {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Sign in to ask"}
+          {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Register to ask"}
         </button>
       </form>
 

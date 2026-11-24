@@ -10,7 +10,7 @@ DEV_SECRET_KEY = "dev-only-insecure-secret-key-change-me-0123456789abcdef"
 
 class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
-    APP_NAME: str = "RegWatch Bangladesh"
+    APP_NAME: str = "Amar Circular"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
     API_V1_STR: str = "/api/v1"
@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[SecretStr] = None  # never logged or returned
     SMTP_FROM: Optional[str] = None
-    SMTP_FROM_NAME: str = "RegWatch Bangladesh"
+    SMTP_FROM_NAME: str = "Amar Circular"
     SMTP_TLS_MODE: Literal["starttls", "ssl", "none"] = "starttls"
     SMTP_TIMEOUT_SECONDS: int = 20
     # Base address for links inside emails (no trailing slash).

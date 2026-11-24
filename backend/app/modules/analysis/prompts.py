@@ -19,7 +19,7 @@ from backend.app.modules.claims.wording import entity_names_for_prompt
 
 PROMPT_VERSION = "v4"
 
-SYSTEM_REGULATORY_PROMPT = """You are the Senior Regulatory Intelligence Engine for RegWatch Bangladesh.
+SYSTEM_REGULATORY_PROMPT = """You are the Senior Regulatory Intelligence Engine for Amar Circular.
 Your task is to analyze official publications issued by Bangladesh Bank (the central bank) and other financial authorities.
 
 STRICT INVARIANTS:

@@ -79,7 +79,7 @@ export default function WorkspacePicker() {
         </ul>
       ) : (
         <EmptyState title="You are not in a bank workspace yet." icon={<Building2 className="h-6 w-6" />}>
-          If your bank already uses RegWatch, ask your admin to add your email. Or create a workspace for your bank below.
+          If your bank already uses Amar Circular, ask your admin to add your email. Or create a workspace for your bank below.
         </EmptyState>
       )}
       <form onSubmit={create} className="panel space-y-3 px-4 py-4">

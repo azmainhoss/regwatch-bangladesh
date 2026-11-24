@@ -298,7 +298,7 @@ async def add_member_by_email(
     email = payload.email.strip().lower()
     user = (await db.execute(select(User).where(func.lower(User.email) == email))).scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="No RegWatch account uses that email. Ask them to sign up first.")
+        raise HTTPException(status_code=404, detail="No Amar Circular account uses that email. Ask them to sign up first.")
     existing = (await db.execute(
         select(OrganizationMember.id).where(
             OrganizationMember.organization_id == organization_id, OrganizationMember.user_id == user.id

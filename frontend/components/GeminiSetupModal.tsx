@@ -99,7 +99,7 @@ export default function GeminiSetupModal({ isOpen, onClose, isConfigured, active
         </ol>
 
         <p className="rounded-panel border border-line px-4 py-3 text-[13px] text-ink-3">
-          <strong className="text-ink-2">Privacy.</strong> RegWatch sends public Bangladesh Bank circulars to Gemini for reading. Under the free-tier terms,
+          <strong className="text-ink-2">Privacy.</strong> Amar Circular sends public Bangladesh Bank circulars to Gemini for reading. Under the free-tier terms,
           never send confidential customer data.
         </p>
       </div>

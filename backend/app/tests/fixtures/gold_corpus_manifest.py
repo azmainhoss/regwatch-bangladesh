@@ -1,5 +1,5 @@
 """
-Gold Benchmark Regulatory Corpus Manifest for RegWatch Bangladesh.
+Gold Benchmark Regulatory Corpus Manifest for Amar Circular.
 Strictly records the provenance, synthetic vs authentic status,
 expected ground truth, and known extraction limitations.
 """

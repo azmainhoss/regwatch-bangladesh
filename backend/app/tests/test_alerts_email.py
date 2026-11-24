@@ -177,7 +177,7 @@ async def test_instant_email_is_built_and_sent(client, smtp):
     link = f"http://app.test/workspace/{ws.org_id}/items/{iid}#task-{tid}"
     footer = "Change them here: http://app.test/alerts/settings"
     assert link in plain and link in html_part and footer in plain
-    assert "Open in RegWatch" in html_part
+    assert "Open in Amar Circular" in html_part
     row = await get_row(rows[0].id)
     assert row.status == "SENT" and row.sent_at is not None and row.attempts == 1
     attempts = await attempts_of(row.id)
@@ -361,7 +361,7 @@ async def test_daily_summary(client, smtp):
     rows = await outbox_for(user, "DIGEST")
     assert len(rows) == 1 and rows[0].dedupe_key == f"digest:{user.id}:2031-05-05"
     assert rows[0].notification_ids == [str(ids[0])]
-    assert rows[0].subject == "RegWatch daily summary: 1 alert" and "DIG-0" in rows[0].text_body
+    assert rows[0].subject == "Amar Circular daily summary: 1 alert" and "DIG-0" in rows[0].text_body
     assert "DIG-1" not in rows[0].text_body
     async with AsyncSessionLocal() as db:
         assert await build_digests(db, now_after + timedelta(hours=1)) == 0     # one a day
@@ -406,8 +406,8 @@ async def test_test_email_goes_only_to_the_caller(client, smtp):
     assert ok.status_code == 200 and ok.json()["ok"] is True and admin.email in ok.json()["detail"]
     assert [m[1] for m in srv.messages] == [[admin.email]]
     msg = email_lib.message_from_bytes(srv.messages[0][2], policy=email.policy.default)
-    assert msg["Subject"] == "RegWatch test email"
-    assert "Email from RegWatch works." in msg.get_body(("plain",)).get_content()
+    assert msg["Subject"] == "Amar Circular test email"
+    assert "Email from Amar Circular works." in msg.get_body(("plain",)).get_content()
     again = await client.post("/api/v1/alerts/admin/test-email", headers=H(admin_token))
     assert again.status_code == 429
     rows = await outbox_for(admin, "TEST")

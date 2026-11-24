@@ -1,5 +1,5 @@
 """
-Accuracy & Quality Engine for RegWatch Bangladesh.
+Accuracy & Quality Engine for Amar Circular.
 Implements the 3 independent quality dimensions defined in Phase 3.9:
   Dimension A: Citation Coverage
   Dimension B: Extraction Completeness (Precision, Recall, F1)

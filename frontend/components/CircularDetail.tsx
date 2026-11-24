@@ -898,7 +898,7 @@ export default function CircularDetail(props: Props) {
           <div className="flex items-start gap-3 rounded-panel border border-line bg-sunken/60 px-4 py-4">
             <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ink-3" strokeWidth={1.75} />
             <div>
-              <p className="max-w-prose text-[14.5px] text-ink-2">Sign in to ask questions about this circular and get answers with the page each quote is on.</p>
+              <p className="max-w-prose text-[14.5px] text-ink-2">Register free to ask questions about this circular and get answers with the page each quote is on.</p>
               <button type="button" onClick={onSignIn} className="btn-primary mt-3">
                 Sign in
               </button>
