@@ -485,6 +485,12 @@ function CircularsPageInner() {
               onClick={() => {
                 if (locked) return setAccountOpen(true);
                 setBox(active ? null : id);
+                // Show the result: the list starts below the question box and the filters.
+                if (!active) {
+                  requestAnimationFrame(() =>
+                    document.getElementById("circular-list-heading")?.scrollIntoView({ behavior: "smooth", block: "start" }),
+                  );
+                }
               }}
               aria-pressed={active}
               className={`group rounded-panel border px-3.5 py-3 text-left transition-colors ${
@@ -584,9 +590,24 @@ function CircularsPageInner() {
         })}
       </div>
 
-      <p className="-mt-2 text-[13px] text-ink-3" aria-live="polite">
-        {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? (total === 1 ? " matches" : " match") : " in the library"}`}
-      </p>
+      <div id="circular-list-heading" className="-mt-2 flex scroll-mt-20 flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-live="polite">
+        {box && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft py-1 pl-3 pr-1 text-[13.5px] font-semibold text-accent">
+            {BOXES.find((b) => b.id === box)?.hint}
+            <button
+              type="button"
+              onClick={() => setBox(null)}
+              aria-label="Show all circulars"
+              className="grid h-5 w-5 place-items-center rounded-full hover:bg-accent/15"
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={2.25} />
+            </button>
+          </span>
+        )}
+        <span>
+          {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? (total === 1 ? " matches" : " match") : " in the library"}`}
+        </span>
+      </div>
 
       <div className={`grid grid-cols-1 gap-6 ${focusReading ? "" : "lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"}`}>
         {/* List */}

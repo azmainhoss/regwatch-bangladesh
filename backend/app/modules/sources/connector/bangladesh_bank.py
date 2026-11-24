@@ -101,6 +101,17 @@ class BangladeshBankConnector(BaseSourceConnector):
         re.IGNORECASE,
     )
 
+    # Any department code, also new ones (BRD, FDIPP, ...): "BRD Circular No. 04", "FDIPP Circular Letter No. 01".
+    _REF_ANY = re.compile(
+        r"\b([A-Z][A-Z&]{1,9}(?:-\d{1,2})?(?:\s*\([A-Za-z\-]+\))?\s+(?:Circular\s+Letter|Circular|Letter)\s+No\.?\s*\d[\w\-\/]*)"
+    )
+
+    @classmethod
+    def reference_from_title(cls, title: str) -> Optional[str]:
+        """The circular's number from its listing title, e.g. "BRD Circular No. 04". Known departments first."""
+        m = cls._REF.search(title or "") or cls._REF_ANY.search(title or "")
+        return m.group(1).strip().rstrip(":.,;") if m else None
+
     @staticmethod
     def _clean_cell_text(cell_html: str) -> str:
         return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", cell_html))).strip()
@@ -138,8 +149,7 @@ class BangladeshBankConnector(BaseSourceConnector):
 
             pub_date = self.parse_publication_date(date_str)
             pub_type = self.infer_publication_type(title, None)
-            ref_match = self._REF.search(title)
-            ref_no = ref_match.group(1).strip() if ref_match else None
+            ref_no = self.reference_from_title(title)
 
             for lang, language, cell in (("en", "English", cells[2]), ("bn", "Bangla", cells[3])):
                 seen_urls = []

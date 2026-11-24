@@ -554,3 +554,12 @@ def test_allowed_origins_from_comma_list(monkeypatch):
     from backend.app.core.config import Settings
     monkeypatch.setenv("ALLOWED_ORIGINS", "https://app.example.com, https://admin.example.com")
     assert Settings(_env_file=None).ALLOWED_ORIGINS == ["https://app.example.com", "https://admin.example.com"]
+
+
+def test_reference_number_for_departments_not_in_the_known_list():
+    from backend.app.modules.sources.connector.bangladesh_bank import BangladeshBankConnector as C
+
+    assert C.reference_from_title("BRD Circular No. 04: Regarding Placement of Padma Bank PLC Under Resolution Process") == "BRD Circular No. 04"
+    assert C.reference_from_title("FDIPP Circular Letter No. 01: Amendment of the FDIPP Operating Guidelines") == "FDIPP Circular Letter No. 01"
+    assert C.reference_from_title("FEPD-1 Circular Letter No. 24: Regarding suspension") == "FEPD-1 Circular Letter No. 24"
+    assert C.reference_from_title("Regarding holiday on 16 December") is None
