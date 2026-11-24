@@ -2,7 +2,7 @@
 # Nightly backup (regwatch-backup.timer). A consistent copy of the database is taken while the app runs
 # (SQLite .backup), compressed, and kept for 14 days on the server. The copies and the storage/ PDFs are
 # also sent off the server to the first rclone remote that exists:
-#   offsite:  Backblaze B2 behind rclone "crypt" (encrypted before upload). Set up with deploy/setup-b2-backup.sh.
+#   offsite:  Cloudflare R2 (or Backblaze B2) behind rclone "crypt" (encrypted before upload). Set up with deploy/setup-offsite-backup.sh.
 #   r2:       Cloudflare R2 (older option), bucket R2_BUCKET below.
 set -euo pipefail
 
