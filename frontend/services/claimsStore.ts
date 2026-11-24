@@ -86,6 +86,9 @@ export interface ClaimsState {
 }
 
 const POLL_MS = 5000;
+// A circular whose points are settled is re-read once a minute (and at once when the tab comes back into view);
+// every 5 s only while its analysis runs or its points are being checked.
+const IDLE_POLL_MS = 60000;
 const REVIEW_POLL_MS = 15000;
 const PRELOAD_AHEAD = 5;
 export const SECTIONS: ClaimSection[] = ["summary", "changes", "requirements", "applies_to", "exemptions", "dates", "links", "clauses"];
@@ -388,17 +391,33 @@ export function useDocClaims(docId: string | null, admin: boolean): { view: Chec
   useEffect(() => {
     if (!docId) return;
     void loadDoc(docId, admin);
-    const tick = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    let last = Date.now();
+    const load = () => {
+      last = Date.now();
       void loadDoc(docId, admin);
     };
+    const changing = () => {
+      const v = (admin ? getClaimsState().byDocAdmin : getClaimsState().byDoc)[docId];
+      if (!v) return true;
+      if (v.state === "ANALYSING") return true;
+      const checking = v.counts?.checking ?? 0;
+      return checking > 0 && !v.checking?.paused && !v.checking?.paused_until;
+    };
+    const tick = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (changing() || Date.now() - last >= IDLE_POLL_MS) load();
+    };
+    const wake = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      load();
+    };
     const timer = window.setInterval(tick, POLL_MS);
-    window.addEventListener("focus", tick);
-    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", tick);
-      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
     };
   }, [docId, admin]);
   const view = docId ? (admin ? s.byDocAdmin : s.byDoc)[docId] : undefined;

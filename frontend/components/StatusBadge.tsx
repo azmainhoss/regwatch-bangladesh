@@ -38,6 +38,9 @@ const STATUSES: Record<string, StatusSpec> = {
   PUBLISHED_HUMAN_REVIEWED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_VERIFIED: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   PUBLISHED_MACHINE_PROCESSED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "Its points have not been checked yet" },
+  // Read and searchable, not analysed yet (most archive circulars).
+  EXTRACTED: { label: "Not checked yet", tone: "info", icon: Eye, hint: "This circular has not been analysed yet; its pages can be read and searched" },
+  EXTRACTING: { label: "Reading pages", tone: "info", icon: Loader2, spin: true },
   AWAITING_REVIEW: { label: "Checked", tone: "ok", icon: CheckCircle2, hint: "Every point shown was checked against the page" },
   NEEDS_REVISION: { label: "Needs revision", tone: "warn", icon: AlertTriangle },
   ANALYZING: { label: "Analysing", tone: "info", icon: Loader2, spin: true },

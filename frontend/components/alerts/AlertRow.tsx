@@ -96,7 +96,7 @@ export default function AlertRow({ alert, compact = false, onOpened }: { alert: 
         <span className="min-w-0 flex-1">
           {unread && <span className="sr-only">Unread. </span>}
           <span className={`block text-[14px] leading-snug text-ink ${compact ? "line-clamp-1" : ""} ${unread ? "font-bold" : "font-medium"}`}>{alert.title}</span>
-          <span className={`mt-0.5 block text-[13px] leading-snug text-ink-2 ${compact ? "line-clamp-2" : ""}`}>{alert.body}</span>
+          <span className={`mt-0.5 block text-[13px] leading-snug text-ink-2 ${compact ? "line-clamp-2" : ""}`}>{alert.body.replace(/(?<!\.)\.\.(?=\s|$)/g, ".") /* titles ending in "." gain a second one in the stored text */}</span>
           {!compact && alert.detail && (
             <span className="mt-1 block break-words text-[13px] leading-snug text-ink-2">
               <span className="font-semibold">Comment:</span> {alert.detail}

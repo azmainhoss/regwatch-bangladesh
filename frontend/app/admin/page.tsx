@@ -36,6 +36,7 @@ import {
   uploadDocument,
 } from "@/services/api";
 import GeminiSetupModal from "@/components/GeminiSetupModal";
+import LaptopUploadStatus from "@/components/admin/LaptopUploadStatus";
 import AccountModal from "@/components/AccountModal";
 import StatusBadge, { InForceBadge, PrivateTag, Tag } from "@/components/StatusBadge";
 import AdminLinksPanel from "@/components/AdminLinksPanel";
@@ -1144,6 +1145,7 @@ function AdminConsole() {
                 </dd>
               </div>
             </dl>
+            <LaptopUploadStatus />
           </section>
         )}
       </motion.div>

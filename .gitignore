@@ -98,3 +98,8 @@ MEMORY.md
 .claude/
 skills-lock.json
 
+
+# Local data written by scripts (undo files, sync state, logs)
+data/*.sql
+data/*.json
+data/*.log

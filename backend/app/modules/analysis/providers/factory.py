@@ -91,7 +91,7 @@ def get_probe_provider() -> BaseAIProvider:
 
 def get_answer_provider() -> BaseAIProvider:
     """Provider for "Ask" answers: the fast model, at most one retry, a shorter timeout."""
-    selected = normalize_provider_name(settings.ANALYSIS_PROVIDER)
+    selected = normalize_provider_name(settings.ANSWER_PROVIDER or settings.ANALYSIS_PROVIDER)
     provider = get_ai_provider(selected)
     if selected == "gemini":
         primary_model = settings.ANSWER_GEMINI_MODEL or configured_model("gemini")

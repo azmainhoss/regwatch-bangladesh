@@ -434,7 +434,8 @@ export function describeAudit(e: { action: string; entity_type: string; actor: {
     case "DEPARTMENT_DELETED":
       return `${who} deleted the department "${b.name ?? ""}"`;
     case "REPORT_EXPORTED":
-      return `${who} exported the ${a.format ?? ""} report`;
+      // Opening the report page records a "json" export; only the CSV is a file someone took away.
+      return a.format === "csv" ? `${who} downloaded the report as a CSV file` : `${who} opened the compliance report`;
     default:
       return `${who}: ${e.action.toLowerCase().replace(/_/g, " ")}`;
   }

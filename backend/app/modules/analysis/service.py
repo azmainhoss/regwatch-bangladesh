@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.core.storage import storage_service
 from backend.app.modules.analysis.leases import AnalysisLeaseManager
@@ -149,6 +150,11 @@ class AnalysisService:
         # Acquire durable database-backed lease across all workers/processes.
         # The lease is the concurrency guard; the document status is left alone
         # until a new analysis has been produced and saved.
+        if provider is None and settings.is_production:
+            from backend.app.modules.analysis.providers.factory import normalize_provider_name
+            if normalize_provider_name(provider_name or settings.ANALYSIS_PROVIDER) == "mock":
+                # Phase 1: no analysis model on this server; analyses are uploaded from the laptop.
+                raise ValueError("No analysis model is set up on this server. The analysis is added when it is uploaded.")
         worker_id = f"worker-{os.getpid()}-{uuid4().hex[:6]}"
         lease_token = await AnalysisLeaseManager.acquire_lease(db, doc.id, worker_id, lease_duration_seconds=900)
         await db.commit()

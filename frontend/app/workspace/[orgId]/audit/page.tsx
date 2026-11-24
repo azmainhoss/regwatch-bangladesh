@@ -57,11 +57,17 @@ export default function AuditPage() {
   const names = (id: string | null | undefined) => userName(ws, orgId, id);
   const entityLink = (e: AuditRead) => (e.entity_type === "compliance_item" ? `/workspace/${orgId}/items/${e.entity_id}` : null);
   const summary = (e: AuditRead) => {
+    if (e.action === "REPORT_EXPORTED") return ""; // the sentence says it all; "format: json" means nothing to a reader
     const keys = e.after && typeof e.after === "object" ? Object.keys(e.after).filter((k) => k !== "reason") : [];
     if (!keys.length) return "";
+    // Stored codes ("IN_PROGRESS") read as words ("in progress").
+    const word = (v: unknown) => {
+      const s = String(v ?? "none");
+      return /^[A-Z][A-Z_]+$/.test(s) ? s.toLowerCase().replace(/_/g, " ") : s;
+    };
     return keys
       .slice(0, 3)
-      .map((k) => `${k.replace(/_/g, " ")}: ${e.before && k in e.before ? `${String(e.before[k] ?? "none")} to ` : ""}${String(e.after[k] ?? "none").slice(0, 60)}`)
+      .map((k) => `${k.replace(/_/g, " ")}: ${e.before && k in e.before ? `${word(e.before[k])} to ` : ""}${word(e.after[k]).slice(0, 60)}`)
       .join("; ");
   };
 

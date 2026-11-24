@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, LayoutList, Network } from "lucide-react";
 import type { ClaimItem, ClaimSection, DocumentItem } from "@/services/api";
+import { titleWithoutRef } from "./ui";
 
 export interface MindLeaf {
   text: string;
@@ -168,7 +169,7 @@ function layout(branches: MindBranch[]) {
 /** The mind map as one SVG string. `interactive` adds data attributes the screen uses to open pages. */
 export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false): string {
   const { placed, height } = layout(branches);
-  const rootLines = wrap(doc.title.replace(doc.reference_number || "", "").replace(/^[\s:–-]+/, ""), 34, 5);
+  const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), 34, 5);
   const rootH = 34 + rootLines.length * 18 + 14;
   // Centred on short maps; on tall ones it stays near the top so it is in view when the map opens.
   const rootY = Math.max(12, Math.min(height / 2 - rootH / 2, 150));
@@ -257,7 +258,7 @@ export async function mindMapPng(doc: DocumentItem, branches: MindBranch[]): Pro
 /** Phones: the same branches as a readable outline of tappable cards, nothing cut short. */
 function Outline({ doc, branches, onOpenLeaf }: { doc: DocumentItem; branches: MindBranch[]; onOpenLeaf: (leaf: MindLeaf) => void }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const title = doc.title.replace(doc.reference_number || "", "").replace(/^[\s:–-]+/, "");
+  const title = titleWithoutRef(doc.title, doc.reference_number);
   return (
     <div className="space-y-4">
       <div className="rounded-panel bg-[#1f5c47] px-4 py-3 text-white dark:bg-[#2f7d63]">

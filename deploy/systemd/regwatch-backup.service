@@ -1,0 +1,11 @@
+[Unit]
+Description=RegWatch daily backup (database and PDFs to Cloudflare R2)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=regwatch
+Group=regwatch
+ExecStart=/opt/regwatch/app/deploy/backup.sh
+Nice=10
+IOSchedulingClass=idle

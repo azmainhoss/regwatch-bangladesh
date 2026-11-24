@@ -161,7 +161,7 @@ async def run_sweeps(db: AsyncSession) -> None:
             except Exception as exc:
                 await db.rollback()
                 logger.warning("Alert check failed: %s", type(exc).__name__)
-    for step in (sweeps.ensure_admin_queue_events, sweeps.sweep_published):
+    for step in (sweeps.ensure_admin_queue_events, sweeps.ensure_health_events, sweeps.sweep_published):
         try:
             await step(db)
             await db.commit()

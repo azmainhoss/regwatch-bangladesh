@@ -17,6 +17,7 @@ import {
   searchCirculars,
 } from "@/services/api";
 import AccountModal from "@/components/AccountModal";
+import { fetchFeedCounts } from "@/services/libraryApi";
 import StatusBadge, { PrivateTag, Tag } from "@/components/StatusBadge";
 import { EmptyState, Notice, SkeletonLine, hasBangla, titleWithoutRef } from "@/components/ui";
 
@@ -118,6 +119,14 @@ export default function SearchPage() {
   const [matches, setMatches] = useState<ResearchCitation[] | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
   const askId = useRef(0);
+
+  // Departments as the library has them (the dashboard's chips); the short list stays if this fails.
+  const [departments, setDepartments] = useState<string[]>(DEPARTMENTS);
+  useEffect(() => {
+    fetchFeedCounts()
+      .then((c) => c.departments.length > 0 && setDepartments(c.departments.map((d) => d.code)))
+      .catch(() => {});
+  }, []);
 
   // Signed-in user: cached copy first, then confirmed with the backend.
   useEffect(() => {
@@ -314,7 +323,7 @@ export default function SearchPage() {
               </label>
               <select id="f-dept" className="field h-10" value={filters.department} onChange={(e) => setFilter("department", e.target.value)}>
                 <option value="">All</option>
-                {DEPARTMENTS.map((d) => (
+                {departments.map((d) => (
                   <option key={d} value={d}>
                     {d}
                   </option>

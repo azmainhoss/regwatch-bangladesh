@@ -112,6 +112,7 @@ function CircularsPageInner() {
   const panelOpenRef = useRef(false);
   // Set when a circular was just opened at phone width, so its detail is scrolled into view.
   const wantScroll = useRef(false);
+  const openedByLink = useRef(false);
   selectedRef.current = selectedDoc;
   pageNumberRef.current = pageNumber;
   panelOpenRef.current = pagePanelOpen;
@@ -289,6 +290,7 @@ function CircularsPageInner() {
       .then((doc) => {
         if (!alive) return;
         seedDocuments([doc]);
+        openedByLink.current = true;
         handleSelectDoc(doc, versionParam);
         if (hasPage) {
           setPageNumber(wanted);
@@ -319,14 +321,18 @@ function CircularsPageInner() {
     const id = selectedDoc.id;
     const go = () => {
       const el = document.getElementById(`circular-${id}`) ?? document.getElementById("circular-standalone");
-      if (el && window.innerWidth < 1024) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      // A link opened while the page is still loading jumps straight there: a smooth scroll is cut short then.
+      if (el && window.innerWidth < 1024) el.scrollIntoView({ behavior: openedByLink.current ? "auto" : "smooth", block: "start" });
     };
     const t1 = window.setTimeout(go, 90);
     // Again once the row above has finished collapsing.
     const t2 = window.setTimeout(() => {
       go();
-      // A link opened before the list arrived: keep the wish until the row exists.
-      if (document.getElementById(`circular-${id}`) || document.getElementById("circular-standalone")) wantScroll.current = false;
+      // A link opened before the list arrived: keep the wish until the list (which sits above it) and the row exist.
+      if (!loading && (document.getElementById(`circular-${id}`) || document.getElementById("circular-standalone"))) {
+        wantScroll.current = false;
+        openedByLink.current = false;
+      }
     }, 420);
     return () => {
       window.clearTimeout(t1);
@@ -579,7 +585,7 @@ function CircularsPageInner() {
       </div>
 
       <p className="-mt-2 text-[13px] text-ink-3" aria-live="polite">
-        {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? " match" : " in the library"}`}
+        {loading ? "Loading..." : `${total} ${total === 1 ? "circular" : "circulars"}${box || search || activeChip !== "ALL" ? (total === 1 ? " matches" : " match") : " in the library"}`}
       </p>
 
       <div className={`grid grid-cols-1 gap-6 ${focusReading ? "" : "lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"}`}>

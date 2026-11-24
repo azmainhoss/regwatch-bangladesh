@@ -1,0 +1,32 @@
+[Unit]
+Description=RegWatch backend (FastAPI, with the checker, page reader and alerts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=regwatch
+Group=regwatch
+WorkingDirectory=/opt/regwatch/app
+EnvironmentFile=/opt/regwatch/app/.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+# One process only: the checker, page reader and alerts run inside it (SCHEDULER_ENABLED=true).
+ExecStart=/opt/regwatch/app/.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-server-header
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=1200M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/regwatch/app/data /opt/regwatch/app/storage
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

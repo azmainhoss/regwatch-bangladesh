@@ -470,6 +470,7 @@ export default function PagePanel({ documentId, versionId, pages, pageNumber, on
   return (
     <section
       aria-label="Source page"
+      data-fullscreen={full || undefined}
       className={`flex min-h-0 flex-col bg-surface ${
         full ? "fixed inset-0 z-[70] sm:inset-4 sm:rounded-panel sm:border sm:border-line sm:shadow-pop" : `h-full ${bare ? "" : "rounded-panel border border-line"}`
       }`}

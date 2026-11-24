@@ -5,7 +5,7 @@ import Link from "next/link";
 import { BookOpenText, ExternalLink, X } from "lucide-react";
 import { InForceBadge } from "../StatusBadge";
 import PagePanel from "../PagePanel";
-import { hasBangla } from "../ui";
+import { hasBangla, titleWithoutRef } from "../ui";
 import { fetchDocumentPages, type DocumentPage } from "@/services/api";
 import type { ItemRead } from "@/services/workspaceApi";
 import { formatDate } from "@/services/workspaceRules";
@@ -44,7 +44,7 @@ export default function SourceQuote({ item }: { item: ItemRead }) {
         </span>
         <InForceBadge info={{ status: s.in_force_status, byId: s.in_force_by?.id, byRef: s.in_force_by?.reference_number }} size="sm" />
       </div>
-      {s.title && <p className="text-[14px] text-ink-2">{s.title}</p>}
+      {s.title && <p className="text-[14px] text-ink-2">{titleWithoutRef(s.title, s.reference_number)}</p>}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
         {s.publication_date && <span>Published {formatDate(s.publication_date)}</span>}
       </div>

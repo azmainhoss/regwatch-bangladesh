@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # in .env). Off while either is empty: the page is then read by hand (scripts/held_pages.py).
     # If this fails too, the circular is held from analysis and the platform team gets an alert.
     STRONG_READER_API_KEY: Optional[str] = None
+    # Analyse new circulars by themselves once their pages are read. Phase 1 (analysis uploaded from the laptop)
+    # sets this to false. Never runs with the mock provider in production, whatever this says.
+    ANALYSIS_AUTO_ENABLED: bool = True
+    # Phase 1: the laptop uploads analyses it made with Claude (analysis/upload_router.py). The endpoints exist only
+    # when this machine token is set; it is long, random and separate from every user login.
+    ANALYSIS_UPLOAD_TOKEN: Optional[SecretStr] = None
     STRONG_READER_MODEL: Optional[str] = None
     STRONG_READER_DPI: int = 300
     UNREAD_REPORT_PATH: str = "data/unread_pages.md"
@@ -102,6 +108,9 @@ class Settings(BaseSettings):
     PROBE_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     PROBE_TIMEOUT_SECONDS: float = 15.0
     # "Ask" answers: fast model, one retry at most, shorter timeout (the matching quotes show at once).
+    # Provider for "Ask" answers. Empty = the same as ANALYSIS_PROVIDER. Phase 1 uses gemini here while the
+    # analysis itself is uploaded from the laptop (ANALYSIS_PROVIDER=mock, ANALYSIS_AUTO_ENABLED=false).
+    ANSWER_PROVIDER: str = ""
     ANSWER_GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     ANSWER_MAX_RETRIES: int = 1
     ANSWER_TIMEOUT_SECONDS: float = 45.0

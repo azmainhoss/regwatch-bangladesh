@@ -188,7 +188,7 @@ def _counts(claims: List[AnalysisClaim]) -> Dict[str, int]:
 
 
 async def _checking_info(db, doc: Document, checking: int) -> Dict[str, Any]:
-    info = {"minutes_left": 0, "paused_until": None}
+    info = {"minutes_left": 0, "paused_until": None, "paused": False}
     if not checking:
         return info
     from backend.app.modules.analysis.auto import reading_status
@@ -199,6 +199,8 @@ async def _checking_info(db, doc: Document, checking: int) -> Dict[str, Any]:
         r = {}
     info["minutes_left"] = max(1, int(r.get("minutes_left") or 0))
     if str(r.get("state", "")).startswith("PAUSED"):
+        # Nothing is checking right now (no key, not running, daily limit): no time left can be promised.
+        info["paused"] = True
         info["paused_until"] = r.get("resumes_at")
     return info
 
@@ -210,7 +212,7 @@ async def build_view(db, doc: Document, user, admin: bool = False) -> Dict[str, 
         "document_id": str(doc.id),
         "state": "ANALYSING" if running else "NO_ANALYSIS",
         "counts": {"total": 0, "shown": 0, "checking": 0, "waiting_for_team": 0, "not_shown": 0},
-        "checking": {"minutes_left": 0, "paused_until": None},
+        "checking": {"minutes_left": 0, "paused_until": None, "paused": False},
         "sections": {s: [] for s in SECTIONS},
         "hidden": [],
     }

@@ -129,7 +129,7 @@ export default function AddToRegisterModal({
     if (!doc || picked.length === 0) return;
     const source = { documentId: doc.id, reference: doc.reference_number, title: doc.title, publicationDate: null, versionId: doc.current_version_id };
     const chosen = picked.map((r) => r.o);
-    const newTitle = `${doc.reference_number || "Circular"}: ${doc.title}`.slice(0, 255);
+    const newTitle = `${doc.reference_number || "Circular"}: ${titleWithoutRef(doc.title, doc.reference_number)}`.slice(0, 255);
     onClose();
     const res = await addObligations(orgId, chosenRegister ? { registerId: chosenRegister } : { newTitle }, source, chosen);
     if (!res) return;

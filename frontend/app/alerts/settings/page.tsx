@@ -6,6 +6,7 @@ import { ArrowLeft, Check, X } from "lucide-react";
 import { Notice, SkeletonLine } from "@/components/ui";
 import AdminEmailBox from "@/components/alerts/AdminEmailBox";
 import SignInPrompt from "@/components/alerts/SignInPrompt";
+import { fetchFeedCounts } from "@/services/libraryApi";
 import { useSessionUser } from "@/components/workspace/Shell";
 import type { EmailMode, PreferencesRead } from "@/services/alertsApi";
 import {
@@ -80,6 +81,14 @@ function Settings({ email, isStaff }: { email: string; isStaff: boolean }) {
 
   useEffect(() => {
     void loadPrefs();
+  }, []);
+
+  // The departments the dashboard shows; old one-off codes ("FORM", "S.P.A") stay hidden unless already chosen.
+  const [realDepts, setRealDepts] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    fetchFeedCounts()
+      .then((c) => c.departments.length > 0 && setRealDepts(new Set(c.departments.map((d) => d.code.toUpperCase()))))
+      .catch(() => {});
   }, []);
 
   const header = (
@@ -221,7 +230,9 @@ function Settings({ email, isStaff }: { email: string; isStaff: boolean }) {
           <div>
             <p className="field-label">Departments</p>
             <div className="flex flex-wrap gap-2" role="group" aria-label="Departments">
-              {p.options.department_codes.map((d) => {
+              {p.options.department_codes
+                .filter((d) => !realDepts || realDepts.has(d.code.toUpperCase()) || p.library_department_codes.includes(d.code))
+                .map((d) => {
                 const on = p.library_department_codes.includes(d.code);
                 return (
                   <button key={d.code} type="button" aria-pressed={on} title={d.name} onClick={() => toggleDepartment(d.code)} className={chipCls(on)}>

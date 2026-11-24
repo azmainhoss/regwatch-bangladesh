@@ -23,7 +23,7 @@ from backend.app.modules.documents.models import Document, DocumentPage, Documen
 from backend.app.modules.organizations.models import Organization, OrganizationMember
 from backend.app.modules.relationships.models import DocumentRelationship
 from backend.app.modules.relationships.status import STATUS_BY_TYPE
-from backend.app.modules.sources.models import SourceDiscovery
+from backend.app.modules.sources.models import SourceDiscovery, SourceRun
 
 MAX_ITEM_IDS = 50
 
@@ -245,6 +245,60 @@ async def ensure_admin_queue_events(db, today: Optional[date] = None) -> int:
             entity_type="admin_queue", payload={"queue": queue, "count": count},
         )
         emitted += 1 if row is not None else 0
+    return emitted
+
+
+# ---------------------------------------------------------------------------
+# Health: the bb.org.bd checker and the laptop's analysis uploads (Phase 1)
+# ---------------------------------------------------------------------------
+CHECKER_STALE_HOURS = 3
+UPLOADS_STALE_HOURS = 24
+
+
+def _aware(dt: Optional[datetime]) -> Optional[datetime]:
+    return dt.replace(tzinfo=timezone.utc) if dt is not None and dt.tzinfo is None else dt
+
+
+async def ensure_health_events(db, now: Optional[datetime] = None) -> int:
+    """Tells administrators (once a day each) when no check of bb.org.bd has succeeded for 3 hours inside the
+    checking window, or when the laptop has sent no analysis for a day while recent circulars wait for one."""
+    now = now or datetime.now(timezone.utc)
+    today = rules.today_dhaka()
+    emitted = 0
+
+    if settings.SCHEDULER_ENABLED:
+        from zoneinfo import ZoneInfo
+        local = now.astimezone(ZoneInfo(settings.MONITOR_TIMEZONE))
+        # Only inside the window, and only once it has been open long enough for a check to be due.
+        if settings.MONITOR_WINDOW_START + CHECKER_STALE_HOURS <= local.hour < settings.MONITOR_WINDOW_END:
+            last_ok = _aware((await db.execute(
+                select(func.max(SourceRun.completed_at)).where(SourceRun.status == "COMPLETED")
+            )).scalar_one_or_none())
+            if last_ok is None or now - last_ok > timedelta(hours=CHECKER_STALE_HOURS):
+                hours = int((now - last_ok).total_seconds() // 3600) if last_ok else CHECKER_STALE_HOURS
+                row = await alerts_emit.emit(
+                    db, kind="ADMIN_QUEUE", dedupe_key=f"ADMIN_QUEUE:checker:{today}",
+                    entity_type="admin_queue", payload={"queue": "checker", "count": hours},
+                )
+                emitted += 1 if row is not None else 0
+
+    from backend.app.modules.analysis.upload_router import _configured_token, last_upload_at
+    if _configured_token():
+        waiting = (await db.execute(
+            select(func.count(Document.id)).where(
+                Document.owner_user_id.is_(None), Document.is_synthetic_fixture.is_(False),
+                Document.publication_date >= (now - timedelta(days=30)).date(),
+                Document.publication_status.in_(("EXTRACTED", "PUBLISHED_MACHINE_PROCESSED")),
+            )
+        )).scalar_one()
+        last = _aware(await last_upload_at(db))
+        if waiting and (last is None or now - last > timedelta(hours=UPLOADS_STALE_HOURS)):
+            hours = int((now - last).total_seconds() // 3600) if last else UPLOADS_STALE_HOURS
+            row = await alerts_emit.emit(
+                db, kind="ADMIN_QUEUE", dedupe_key=f"ADMIN_QUEUE:uploads:{today}",
+                entity_type="admin_queue", payload={"queue": "uploads", "count": hours},
+            )
+            emitted += 1 if row is not None else 0
     return emitted
 
 

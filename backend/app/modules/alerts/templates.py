@@ -188,6 +188,20 @@ def render(kind: str, p: Dict[str, Any], organization_id: Optional[str] = None) 
             title=f"Overdue task: {task_title}", body=f"It was due {fmt_date(p.get('due_date'))} at {org}.",
             detail=None, link=_task_link(p), severity="bad", org_name=org,
         )
+    if kind == "ADMIN_QUEUE" and p.get("queue") == "checker":
+        hours = int(p.get("count") or 0)
+        return Rendered(
+            title=f"No successful check of bb.org.bd for {hours} hours",
+            body="New circulars may be missed. Look at the source runs in the admin console.",
+            detail=None, link="/admin?tab=collection", severity="warn",
+        )
+    if kind == "ADMIN_QUEUE" and p.get("queue") == "uploads":
+        hours = int(p.get("count") or 0)
+        return Rendered(
+            title=f"No analysis uploaded from the laptop for {hours} hours",
+            body="New circulars are waiting for their summaries. Check the laptop's RegWatchPhase1Sync task and its log.",
+            detail=None, link="/admin?tab=engine", severity="warn",
+        )
     if kind == "ADMIN_QUEUE":
         one, many, tail, link = ADMIN_QUEUES.get(p.get("queue"), ("item", "items", "to review", "/admin"))
         n = int(p.get("count") or 0)

@@ -519,9 +519,12 @@ class SourceMonitoringService:
 
                     # Automatically trigger AI Regulatory Intelligence pipeline
                     try:
+                        from backend.app.modules.analysis.auto import auto_analysis_enabled
                         from backend.app.modules.analysis.service import AnalysisService
                         from backend.app.modules.extraction.strong_reader import page_is_read
 
+                        if not auto_analysis_enabled():
+                            raise ValueError("automatic analysis is off (Phase 1: the analysis is uploaded later)")
                         fresh = (await db.execute(
                             select(DocumentPage).where(DocumentPage.document_version_id == version.id)
                         )).scalars().all()

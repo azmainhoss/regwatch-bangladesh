@@ -70,6 +70,11 @@ html.dark {
 }
 
 @layer base {
+  /* Search fields carry their own clear button; the browser's built-in one would be a second "x". */
+  input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
   html {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;

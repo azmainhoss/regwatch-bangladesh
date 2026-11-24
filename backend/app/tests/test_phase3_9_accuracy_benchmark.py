@@ -65,7 +65,7 @@ def test_smespd_three_dimensional_quality_metrics():
 
 def test_second_genuine_document_generalisation_brpd15():
     """Evaluates BRPD Circular No. 15 (IFRS 9 Alignment) as an independent second genuine publication."""
-    pdf_path = "storage/originals/7f/8c/7f8c6f7d8506781369e2202b61ba85876d0cdefd4420faf2a4b717c8d4b7cc81.pdf"
+    pdf_path = "backend/app/tests/fixtures/corpus/gold_en_digital_master_policy.pdf"  # the same file, kept with the tests
     doc = fitz.open(pdf_path)
     pages = {i + 1: doc[i].get_text() for i in range(len(doc))}
 

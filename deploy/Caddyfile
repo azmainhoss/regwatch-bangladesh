@@ -1,0 +1,49 @@
+# /etc/caddy/Caddyfile. Caddy gets and renews the HTTPS certificate by itself.
+# Replace amarcircular.com if the domain changes, then: sudo systemctl reload caddy
+
+www.amarcircular.com {
+	redir https://amarcircular.com{uri} permanent
+}
+
+amarcircular.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
+	}
+
+	# The interactive API docs and schema stay off the public site.
+	@apidocs path /api/v1/docs* /api/v1/redoc* /api/v1/openapi.json
+	handle @apidocs {
+		respond 404
+	}
+
+	# The API and its file downloads. Uploads of circular PDFs can be large.
+	handle /api/* {
+		request_body {
+			max_size 60MB
+		}
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# Everything else is the Next.js app.
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	log {
+		output file /var/log/caddy/regwatch.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

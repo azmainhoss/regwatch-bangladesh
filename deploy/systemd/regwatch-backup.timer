@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the RegWatch backup every night at 02:30 Bangladesh time
+
+[Timer]
+OnCalendar=*-*-* 20:30:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

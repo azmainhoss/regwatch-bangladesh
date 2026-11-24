@@ -88,10 +88,29 @@ def page_matches_any_condition(terms: Sequence[str]):
     return or_(*[_has(text, v) for t in terms for v in term_variants(t)])
 
 
+# Bangla letters with a dot below are stored either as one code point or as letter + nukta (U+09BC),
+# depending on how the PDF or the page reader wrote them. Unicode normalisation does not join them
+# (they are composition exclusions), so both spellings are searched.
+_NUKTA_PAIRS = (("\u09DF", "\u09AF\u09BC"), ("\u09DC", "\u09A1\u09BC"), ("\u09DD", "\u09A2\u09BC"))
+
+
+def bangla_spellings(term: str) -> List[str]:
+    """The word as typed, plus its one-code-point and its letter-plus-nukta spelling when they differ."""
+    joined, split = term, term
+    for one, two in _NUKTA_PAIRS:
+        joined = joined.replace(two, one)
+        split = split.replace(one, two)
+    out = [term]
+    for v in (joined, split):
+        if v not in out:
+            out.append(v)
+    return out
+
+
 def term_variants(term: str) -> List[str]:
     """The word itself plus its other known names: "ECL" also matches "expected credit loss"."""
     from backend.app.modules.topics.taxonomy import words_for
-    return [term] + words_for(term)
+    return bangla_spellings(term) + words_for(term)
 
 
 def _meta_term(term: str):

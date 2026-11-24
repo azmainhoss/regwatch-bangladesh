@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowUpRight, BookOpenText, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, EyeOff, MoreHorizontal, FileDown, FileText, GitBranch, ListPlus, Lock, Mail, Network, RefreshCw, Send, ShieldCheck, Sparkles, UserPlus, X } from "lucide-react";
+import { ArrowUpRight, BookOpenText, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Eye, EyeOff, MoreHorizontal, FileDown, FileText, GitBranch, ListPlus, Lock, Mail, Network, RefreshCw, Send, ShieldCheck, Sparkles, UserPlus, X } from "lucide-react";
 import {
   AuthUser,
   ClaimItem,
@@ -219,7 +219,7 @@ function readingLine(total: number, waiting: number, r: ReadingStatus | null) {
     r?.analysis_after === "AUTOMATIC"
       ? " The summary and requirements are added by themselves right after."
       : r?.analysis_after === "LATER"
-        ? " The summary and requirements for older circulars are added later."
+        ? " The summary and requirements are added later."
         : " An administrator can run the analysis once all pages are read.";
   if (!r) return `Reading the page images: ${ready}. The text appears here by itself as each page is read.`;
   if (r.state === "PAUSED_DAILY_LIMIT") {
@@ -279,7 +279,7 @@ export default function CircularDetail(props: Props) {
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => obs.disconnect();
   }, []);
-  const [added, setAdded] = useState<{ orgId: string; registerId: string; count: number } | null>(null);
+  const [added, setAdded] = useState<{ orgId: string; registerId: string; count: number; skipped: number } | null>(null);
   const rights = useAddRights(!!currentUser);
   const wsState = useWorkspace();
   const status = String(doc.publication_status || "");
@@ -445,7 +445,7 @@ export default function CircularDetail(props: Props) {
   const lines = !isAdmin && view ? placeholderLines(view.hidden, view.checking) : [];
   const linesOf = (s: ClaimSection) => lines.filter((l) => l.section === s);
   const anyByTeam = SECTION_ORDER.some((s) => shownOf(s).some((i) => i.checked_by === "TEAM"));
-  const badge = view && view.state !== "NO_ANALYSIS" && counts && (status.startsWith("PUBLISHED") || status === "AWAITING_REVIEW") ? checkedBadge(counts, anyByTeam) : null;
+  const badge = view && view.state !== "NO_ANALYSIS" && counts && (status.startsWith("PUBLISHED") || status === "AWAITING_REVIEW") ? checkedBadge(view.checking.paused ? { ...counts, checking: 0 } : counts, anyByTeam) : null;
   const dateOf = (kind: string) => shownOf("dates").find((i) => i.fields.date_kind === kind)?.fields.date as string | undefined;
   const hasHeld = !!counts && counts.shown < counts.total;
   const summaryList = useShowAll(shownOf("summary").length, 4);
@@ -578,7 +578,10 @@ export default function CircularDetail(props: Props) {
         </p>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-[14px] text-ink-2">No analysis has been run on this circular yet.</span>
+        {/* Archive circulars already say so in the notice above; admins still get the line with its button. */}
+        {(isAdmin || reading?.analysis_after !== "LATER" || waitingCount > 0) && (
+          <span className="text-[14px] text-ink-2">No analysis has been run on this circular yet.</span>
+        )}
         {isAdmin && (
           <button type="button" onClick={() => runAnalysis()} disabled={analyzing} className="btn-secondary py-1">
             <Sparkles className="h-3.5 w-3.5" />
@@ -611,8 +614,8 @@ export default function CircularDetail(props: Props) {
       {isAdmin && counts && counts.checking > 0 && (
         <Notice kind="info">
           {counts.checking} {counts.checking === 1 ? "point is" : "points are"} still being checked against the page image,{" "}
-          {view.checking.paused_until
-            ? "checking resumes shortly."
+          {view.checking.paused_until || view.checking.paused
+            ? "checking is paused right now."
             : `${minutesText(view.checking.minutes_left)} left. This page updates by itself.`}
         </Notice>
       )}
@@ -631,7 +634,7 @@ export default function CircularDetail(props: Props) {
         {sectionHint("changes", "No changes to earlier circulars are listed. The requirements below are what this circular asks for.")}
       </Section>
 
-      <Section id="requirements" title="Requirements" count={shownOf("requirements").length}>
+      <Section id="requirements" title="Requirements" count={shownOf("requirements").length || undefined}>
         {shownOf("requirements").length > 0 && (
           <ol className="divide-y divide-line">
             {shownOf("requirements").slice(0, reqList.limit).map((item, i) => {
@@ -769,7 +772,7 @@ export default function CircularDetail(props: Props) {
       </Section>
 
       {(shownOf("links").length > 0 || heldOf("links").length > 0 || linesOf("links").length > 0) && (
-        <Section id="links" title="Related circulars" count={shownOf("links").length}>
+        <Section id="links" title="Related circulars" count={shownOf("links").length || undefined}>
           {shownOf("links").length > 0 && (
             <ul className="divide-y divide-line">
               {shownOf("links").slice(0, linkList.limit).map((item) => {
@@ -931,11 +934,12 @@ export default function CircularDetail(props: Props) {
           {badge ? (
             <span data-testid="checked-badge">
               <Tag tone={badge.tone} title={badge.hint}>
-                <CheckCircle2 className="h-3 w-3" strokeWidth={2} aria-hidden />
+                {badge.tone === "ok" ? <CheckCircle2 className="h-3 w-3" strokeWidth={2} aria-hidden /> : <Eye className="h-3 w-3" strokeWidth={2} aria-hidden />}
                 {badge.label}
               </Tag>
             </span>
-          ) : (
+          ) : claimsLoading && doc.publication_status.startsWith("PUBLISHED") ? null : (
+            // While the points load, "Checked" from the status alone could turn into "Not checked yet" a moment later.
             <StatusBadge status={doc.publication_status} />
           )}
           <InForceBadge info={inForce} />
@@ -1049,7 +1053,8 @@ export default function CircularDetail(props: Props) {
         )}
         {added && (
           <Notice kind="success" onDismiss={() => setAdded(null)}>
-            {added.count} item{added.count === 1 ? "" : "s"} added.{" "}
+            {added.count} item{added.count === 1 ? "" : "s"} added.
+            {added.skipped > 0 && ` ${added.skipped} not added: already in the register.`}{" "}
             <Link href={`/workspace/${added.orgId}/registers/${added.registerId}`} className="font-semibold text-accent underline">
               View register
             </Link>
@@ -1058,7 +1063,9 @@ export default function CircularDetail(props: Props) {
         {waitingCount > 0 && <Notice kind="info">{readingLine(pages.length, waitingCount, reading)}</Notice>}
         {waitingCount === 0 && view?.state === "NO_ANALYSIS" && reading?.analysis_after === "LATER" && (
           <Notice kind="info">
-            This is an older circular from the archive. Its full text is here now; the summary and requirements will be added later.
+            {status === "EXTRACTED"
+              ? "This is an older circular from the archive. Its full text is here now; the summary and requirements will be added later."
+              : "This circular is new. Its full text and the original PDF are here now; the summary and requirements are added within a day."}
           </Notice>
         )}
         {isAdmin && (
@@ -1123,7 +1130,7 @@ export default function CircularDetail(props: Props) {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: EASE_OUT }}
-            className="fixed inset-x-0 bottom-0 z-50 h-[88dvh] px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:sticky xl:top-[72px] xl:z-auto xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
+            className="fixed inset-x-0 bottom-0 z-50 h-[88dvh] px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:sticky xl:top-[72px] xl:z-auto xl:has-[[data-fullscreen]]:z-[70] xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
           >
             <div className="flex h-full flex-col overflow-hidden rounded-panel border border-line bg-surface shadow-pop xl:shadow-none">
               <div aria-hidden className="mx-auto mt-1.5 h-1 w-10 rounded-full bg-line-strong xl:hidden" />
@@ -1243,7 +1250,7 @@ export default function CircularDetail(props: Props) {
             rememberOrg(id);
           }}
           initialDocumentId={doc.id}
-          onAdded={(registerId, count) => count > 0 && rights.active && setAdded({ orgId: rights.active.id, registerId, count })}
+          onAdded={(registerId, count, skipped) => count > 0 && rights.active && setAdded({ orgId: rights.active.id, registerId, count, skipped: skipped ?? 0 })}
         />
       )}
     </article>

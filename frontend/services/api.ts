@@ -440,6 +440,21 @@ export interface Summary {
   caught: { title: string; reference: string | null; published: string | null; state: string; document_id: string | null }[];
 }
 
+/** Phase 1: analyses made on the laptop and uploaded (admin only). */
+export interface UploadStatus {
+  enabled: boolean;
+  last_upload_at: string | null;
+  hours_since_last_upload: number | null;
+  stale: boolean;
+  recent_circulars_waiting: number;
+}
+
+export async function fetchUploadStatus(): Promise<UploadStatus> {
+  const res = await apiFetch(`/analysis-upload/admin-status`, { cache: "no-store" });
+  if (!res.ok) await throwApiError(res, "Could not load the upload status");
+  return res.json();
+}
+
 export async function fetchSummary(days = 14): Promise<Summary> {
   const res = await apiFetch(`/summary?days=${days}`, { cache: "no-store" });
   if (!res.ok) await throwApiError(res, "Could not load the summary");
@@ -1198,7 +1213,7 @@ export interface CheckedView {
   document_id: string;
   state: "NO_ANALYSIS" | "ANALYSING" | "READY";
   counts: ClaimCounts;
-  checking: { minutes_left: number; paused_until: string | null };
+  checking: { minutes_left: number; paused_until: string | null; paused?: boolean };
   sections: Record<ClaimSection, ClaimItem[]>;
   hidden: HiddenPoint[];
 }

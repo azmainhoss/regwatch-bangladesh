@@ -149,11 +149,18 @@ export function EmptyState({ title, children, icon }: { title: string; children?
 export function titleWithoutRef(title: string, ref?: string | null) {
   if (!ref) return title;
   const t = title.trim();
-  if (t.toLowerCase().startsWith(ref.trim().toLowerCase())) {
-    const rest = t.slice(ref.trim().length).replace(/^[\s:.\-]+/, "");
+  // Numbers carry the year ("FEPD Circular No. 33/2025") while titles usually do not ("FEPD Circular No. 33: ...").
+  const full = ref.trim();
+  const noYear = full.replace(/\s*\/\s*\d{2,4}$/, "");
+  for (const r of noYear !== full ? [full, noYear] : [full]) {
+    if (!t.toLowerCase().startsWith(r.toLowerCase())) continue;
+    const next = t.charAt(r.length);
+    if (next && /[0-9A-Za-z]/.test(next)) continue; // "No. 3" must not cut "No. 33".
+    const rest = t.slice(r.length).replace(/^[\s:.\-]+/, "");
     if (rest.length > 3) return rest.charAt(0).toUpperCase() + rest.slice(1);
   }
-  return title;
+  // A few archive titles are only the number and a colon ("CGD Circular Letter No. 02:").
+  return title.replace(/\s*:\s*$/, "");
 }
 
 /** True when the text holds Bangla script, so it can be tagged lang="bn". */

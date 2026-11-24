@@ -568,7 +568,7 @@ export default function ClaimReview({ initialPointId }: { initialPointId?: strin
       ) : (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2 lg:items-start">
           {pointCard}
-          <div className={`${pageOpen ? "block" : "hidden"} h-[72vh] min-w-0 lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-7rem)]`} data-testid="review-page">
+          <div className={`${pageOpen ? "block" : "hidden"} h-[72vh] min-w-0 lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-7rem)] lg:has-[[data-fullscreen]]:z-[70]`} data-testid="review-page">
             {pages && current.version_id ? (
               <PagePanel
                 documentId={current.circular.id}

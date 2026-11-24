@@ -23,6 +23,19 @@ from backend.app.modules.documents.models import Document, DocumentPage
 from backend.app.modules.extraction.service import STATUS_PENDING_VISION
 
 LIVE_STATUS = "PUBLISHED_MACHINE_PROCESSED"
+
+
+def auto_analysis_enabled() -> bool:
+    """New circulars are analysed by themselves only with a real model. In Phase 1 the laptop uploads the
+    analysis instead (ANALYSIS_AUTO_ENABLED=false), and the mock provider never writes analyses in production."""
+    from backend.app.core.config import settings
+    from backend.app.modules.analysis.providers.factory import normalize_provider_name
+
+    if not settings.ANALYSIS_AUTO_ENABLED:
+        return False
+    if settings.is_production and normalize_provider_name(settings.ANALYSIS_PROVIDER) == "mock":
+        return False
+    return True
 RETRY_AFTER_SECONDS = 3600
 _last_try: Dict[UUID, float] = {}
 
@@ -74,6 +87,8 @@ async def ready_live_circulars(db: AsyncSession, limit: int = 3) -> List[UUID]:
 
 async def analyze_ready_live_circulars(session_factory, limit: int = 3) -> int:
     """Analyses live-found circulars whose pages are now all read. Returns how many were analysed."""
+    if not auto_analysis_enabled():
+        return 0
     from backend.app.modules.analysis.service import AnalysisService
     from backend.app.modules.extraction.strong_reader import rescue_unread_live_pages
 
@@ -132,7 +147,7 @@ async def reading_status(db: AsyncSession, doc: Document) -> dict:
     out = {"document_id": str(doc.id), "pages_total": total, "pages_waiting": waiting,
            "quote_checks_waiting": quote_waiting,
            "pages_ahead": 0, "minutes_left": 0, "state": "DONE", "resumes_at": None,
-           "analysis_after": "AUTOMATIC" if doc.publication_status == LIVE_STATUS else
+           "analysis_after": ("AUTOMATIC" if auto_analysis_enabled() else "LATER") if doc.publication_status == LIVE_STATUS else
                              ("LATER" if doc.publication_status == "EXTRACTED" else "ON_REQUEST")}
     if not waiting and not quote_waiting:
         return out

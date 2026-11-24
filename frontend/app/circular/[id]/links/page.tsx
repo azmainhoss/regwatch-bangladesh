@@ -171,7 +171,8 @@ export default function CircularLinksPage() {
               <Notice kind="warning">The links form a loop (each circular says it replaces the other), so no single current version can be named. Please review them.</Notice>
             )}
             <p className="max-w-prose text-[13px] text-ink-3">
-              Only links that have been confirmed count. Links still awaiting review are shown below in a lighter style and change nothing.
+              Only links that have been confirmed count.
+              {waiting.length > 0 && " Links still awaiting review are shown below in a lighter style and change nothing."}
             </p>
           </div>
         )}

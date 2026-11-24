@@ -82,8 +82,13 @@ class LocalStorageService(BaseStorageService):
 
         return rel_path, sha256_hash, file_size
 
+    def _full_path(self, storage_path: str) -> Path:
+        # Paths saved on Windows use backslashes ("originals\\7e\\e7\\x.pdf"); on macOS and
+        # Linux those would be one odd file name, so read them as folder separators.
+        return (self.root_dir / storage_path.replace("\\", "/")).resolve()
+
     def get_file_bytes(self, storage_path: str) -> bytes:
-        full_path = (self.root_dir / storage_path).resolve()
+        full_path = self._full_path(storage_path)
         if not full_path.is_relative_to(self.root_dir):
             raise PermissionError("Access outside storage boundary prohibited.")
         if not full_path.exists():
@@ -92,14 +97,14 @@ class LocalStorageService(BaseStorageService):
             return f.read()
 
     def get_absolute_path(self, storage_path: str) -> Path:
-        full_path = (self.root_dir / storage_path).resolve()
+        full_path = self._full_path(storage_path)
         if not full_path.is_relative_to(self.root_dir):
             raise PermissionError("Access outside storage boundary prohibited.")
         return full_path
 
     def file_exists(self, storage_path: str) -> bool:
         try:
-            full_path = (self.root_dir / storage_path).resolve()
+            full_path = self._full_path(storage_path)
             return full_path.is_relative_to(self.root_dir) and full_path.exists()
         except Exception:
             return False

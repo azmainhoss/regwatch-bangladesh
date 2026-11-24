@@ -100,7 +100,7 @@ function clockTime(iso?: string | null): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left: number; paused_until: string | null }): PlaceholderLine[] {
+export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left: number; paused_until: string | null; paused?: boolean }): PlaceholderLine[] {
   const out: PlaceholderLine[] = [];
   const states: HiddenState[] = ["waiting_for_team", "not_shown", "checking"];
   for (const section of SECTION_ORDER) {
@@ -122,6 +122,9 @@ export function placeholderLines(hidden: HiddenPoint[], checking: { minutes_left
       } else if (checking.paused_until) {
         const at = clockTime(checking.paused_until);
         before = `${what} ${be} still being checked against the page image. Checking resumes${at ? ` at about ${at}` : " shortly"}. `;
+      } else if (checking.paused) {
+        // Checking is not running and has no restart time: say so plainly, without a time.
+        before = `${what} ${n === 1 ? "has" : "have"} not been checked against the page image yet. `;
       } else {
         before = `${what} ${be} still being checked against the page image, ${minutesText(checking.minutes_left)} left. This page updates by itself. `;
       }
@@ -137,8 +140,13 @@ export function checkedTag(item: ClaimItem): string {
 }
 
 /** The badge a reader sees for the whole circular. */
-export function checkedBadge(counts: { total: number; shown: number }, anyByTeam: boolean): { label: string; hint: string; tone: "ok" | "info" } | null {
+export function checkedBadge(counts: { total: number; shown: number; checking?: number }, anyByTeam: boolean): { label: string; hint: string; tone: "ok" | "info" } | null {
   if (counts.total === 0) return null;
+  // Nothing shown yet: "Checked" would promise points the reader cannot see.
+  if (counts.shown === 0)
+    return counts.checking
+      ? { label: "Being checked", hint: "Its points are still being checked against the page image", tone: "info" }
+      : { label: "Not checked yet", hint: "None of its points has passed every check yet", tone: "info" };
   if (anyByTeam) return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
   return { label: "Checked", hint: "Every point shown here was checked against the page", tone: "ok" };
 }

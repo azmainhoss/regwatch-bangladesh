@@ -7,7 +7,8 @@ Start with `HANDOFF.md` for current work, and `DECISIONS.md` for older decisions
 The checklist lives in the Claude Doc "RegWatch go-live checklist": https://claude.ai/artifact/C5EBxUcvJKnsFawf42Yrew
 
 Decided:
-- **Summaries for new circulars:** Claude Sonnet 5.5 through the Batch API, about $10/month. This replaces the earlier choice of Opus 5.5 (about $21/month with Batch) to save cost. Before fully switching, compare Sonnet with Opus on 20–30 circulars that are already analysed.
+- **Phase 1, until revenue:** the server checks bb.org.bd hourly and shows new circulars straight away with a "Not checked yet" badge. The laptop runs Claude analysis with the owner's Pro account twice a day and uploads the results through a protected endpoint, one circular at a time. Never copy the database file over the server's. Running cost is the server only. Move to Phase 2 at the first paying bank, if the laptop misses more than a day, or if a bank asks for same-day summaries.
+- **Phase 2, summaries for new circulars:** Claude Sonnet 5.5 through the Batch API, about $10/month. This replaces the earlier choice of Opus 5.5 (about $21/month with Batch) to save cost. Before fully switching, compare Sonnet with Opus on 20–30 circulars that are already analysed.
 - **Page reading:** Gemini 3.5 Flash-Lite (`gemini-flash-lite-latest`). The free tier is acceptable because the PDFs are public. Paid is $0.30 in / $2.50 out per million tokens.
 - **Don't use free Gemini for summaries**, and don't use Vercel Hobby: its terms forbid commercial use.
 - **Server (final, 2026-11-24):** Spaceship VPS Standard 1 in Singapore: 1 AMD core, 2 GB RAM, 25 GB NVMe, 1 TB transfer. Prepaid yearly at $42.44/year (about $3.54/month), with a 7-day free trial. Spaceship also registers the domain.

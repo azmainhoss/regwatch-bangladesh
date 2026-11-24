@@ -190,6 +190,13 @@ function clip(text: string, n: number) {
   return `${(atWord > n * 0.6 ? cut.slice(0, atWord) : cut).replace(/[\s,.;:–-]+$/, "")}…`;
 }
 
+/** A number short enough for its box: the year is on the line below, and "Cir. Letter" keeps the number itself in view. */
+function boxRef(ref: string) {
+  if (ref.length <= 25) return ref;
+  const r = ref.replace(/\s*\/\s*\d{2,4}$/, "");
+  return r.length <= 25 ? r : r.replace(/\bCircular Letter\b/i, "Cir. Letter");
+}
+
 /** "FEID Circular No. 01 dated 27 January 2025" -> number and date, so neither is cut off in a small box. */
 function splitCitation(text: string): { ref: string; when: string } {
   const m = text.match(/^(.*?)(?:,?\s+(?:dated|dt\.?|of|issued on)\s+)(.+)$/i);
@@ -386,7 +393,7 @@ export function LinksGraph({ graph, selectedEdgeId, onSelectEdge }: { graph: Rel
                 style={{ fill: style.fill, stroke: node.is_center ? "rgb(var(--accent))" : style.stroke }}
               />
               <text x={12} y={22} fontSize={13} fontWeight={700} style={{ fill: node.in_library ? "rgb(var(--ink))" : "rgb(var(--ink-2))" }}>
-                {clip(node.in_library ? node.reference_number || node.title : splitCitation(node.reference_number || node.title).ref, 25)}
+                {clip(boxRef(node.in_library ? node.reference_number || node.title : splitCitation(node.reference_number || node.title).ref), 25)}
               </text>
               <text x={12} y={39} fontSize={11.5} style={{ fill: "rgb(var(--ink-2))" }}>
                 {clip(

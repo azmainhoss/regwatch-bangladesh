@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { EmptyState, SkeletonLine } from "@/components/ui";
+import { entityLabel } from "@/services/claimWords";
 import { Tag } from "@/components/StatusBadge";
 import AddToRegisterModal from "@/components/workspace/AddToRegisterModal";
 import { DepartmentSelect, LeadSelect } from "@/components/workspace/AssignControls";
@@ -213,7 +214,10 @@ export default function ItemPage() {
               {item.applicability_summary && (
                 <div>
                   <h3 className="section-title">Who it applies to</h3>
-                  <p className="mt-1 text-[14.5px] leading-relaxed text-ink-2">{item.applicability_summary}</p>
+                  <p className="mt-1 text-[14.5px] leading-relaxed text-ink-2">
+                    {/* Stored as institution codes ("AUTHORIZED_DEALER"); shown in words. */}
+                    {item.applicability_summary.split(/\s*,\s*/).map((c) => entityLabel(c)).join(", ")}
+                  </p>
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
