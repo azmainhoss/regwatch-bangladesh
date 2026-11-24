@@ -1,8 +1,8 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL, serverApi } from "@/services/serverApi";
 
-// Rebuilt at most once an hour.
-export const revalidate = 3600;
+// Built on request (not at build time, when the backend may be restarting); the circular list is cached an hour.
+export const dynamic = "force-dynamic";
 
 /** Home and every indexable circular page (those with an AI verified analysis). */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
