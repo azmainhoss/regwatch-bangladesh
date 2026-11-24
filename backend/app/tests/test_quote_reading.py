@@ -685,3 +685,76 @@ async def test_no_reading_call_is_made_inside_a_web_request(client, monkeypatch)
         json={"corrected_text": "\n".join(LINES), "correction_notes": "same words"}, headers=auth(admin_token),
     )
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Self-correction: both readers agree, ours differs only in a figure
+# ---------------------------------------------------------------------------
+def test_figure_fixes_only_for_safe_figure_differences():
+    # a legacy-font text layer reversed the digits; both readers agree on 717
+    assert R.figure_fixes("প্রজ্ঞাপন নং-বিআরপিডি-২(আর-১)১৭৭/২০২৬-৩০৫৮ এর অনুলিপি", "প্রজ্ঞাপন নং-বিআরপিডি-২(আর-১)৭১৭/২০২৬-৩০৫৮ এর অনুলিপি") == [["177", "717"]]
+    # single digits (even written "০৩") are never changed
+    assert R.figure_fixes("পরবর্তী ০৩ (তিন) মাসের মধ্যে", "পরবর্তী ০৫ (তিন) মাসের মধ্যে") is None
+    # a figure the PDF's text layer confirms is ours, not theirs
+    assert R.figure_fixes("Circular No. 14 dated 2012", "Circular No. 41 dated 2012", confirmed=["14"]) is None
+    # words differ too: not a figure-only difference
+    assert R.figure_fixes("২৫ কোটি টাকা ঋণ", "২৫ কোটি টাকা নতুন ঋণ") is None
+    assert R.figure_fixes("Circular No. 14 applies", "Circular No. 41 no longer applies") is None
+    # the same old figure kept elsewhere would be rewritten too: refused
+    assert R.figure_fixes("ধারা ১৭৭ এবং ১৭৭ উপধারা", "ধারা ৭১৭ এবং ১৭৭ উপধারা") is None
+    # the count of figures must match
+    assert R.figure_fixes("No. 14 of 2012", "No. 14") is None
+
+
+def test_apply_figure_fixes_changes_whole_figures_in_both_scripts():
+    out = R.apply_figure_fixes("notification no. 177 (১৭৭); 1177 and ১১৭৭ stay", [["177", "717"]])
+    assert out == "notification no. 717 (৭১৭); 1177 and ১১৭৭ stay"
+
+
+@pytest.mark.asyncio
+async def test_two_agreeing_readings_correct_our_figure_and_the_point_is_shown_with_it(monkeypatch):
+    doc, _v, pages, analysis = await image_circular(monkeypatch)
+    async with AsyncSessionLocal() as db:
+        page = await db.get(DocumentPage, pages[0].id)
+        page.native_text = None  # an image-read page: no text layer to confirm our figures
+        await db.commit()
+    theirs = LINES[3].replace("No. 14", "No. 41")
+    first = [[ln] for ln in LINES]
+    first[3] = [theirs]
+    fake = FakeService([first, [[theirs]]])
+    async with AsyncSessionLocal() as db:
+        summary = await J.process_pending_quote_checks(db, limit=10, send=fake.sender())
+    assert summary["corrected"] == 1 and summary["misread"] == 0 and summary["clean"] == 4
+
+    row = [r for r in await waiting_rows(pages[0].id) if r.sentence_id == "p1.s4"][0]
+    assert row.status == "CORRECTED" and R.fixes_of(row) == [["14", "41"]]
+
+    claims = await claims_of(analysis.id)
+    cited = [c for c in claims if "p1.s4" in [i for ids in (c.evidence or {}).values() for i in (ids or [])]]
+    assert cited
+    for c in cited:
+        reading = [ch for ch in c.checks if ch["name"] == "QUOTE_READING"]
+        assert reading and reading[0]["result"] == "PASS"
+        assert "14" not in json.dumps(c.fields) or "41" in json.dumps(c.fields)
+    changed = [c for c in cited if c.original_fields is not None]
+    assert changed, [(c.kind, c.fields) for c in cited]
+    for c in changed:
+        assert "41" in json.dumps(c.fields, ensure_ascii=False)
+        assert (c.review_note or "").startswith("Figures corrected from two agreeing page readings")
+    # the quote readers see carries the corrected figure
+    async with AsyncSessionLocal() as db:
+        from backend.app.modules.analysis.models import ClaimCitation
+        quotes = (await db.execute(select(ClaimCitation.quoted_text).where(ClaimCitation.claim_id.in_([c.id for c in cited])))).scalars().all()
+    assert quotes and all("No. 14 " not in q for q in quotes) and any("No. 41" in q for q in quotes)
+
+
+@pytest.mark.asyncio
+async def test_agreeing_readings_with_a_word_difference_stay_misread(monkeypatch):
+    doc, _v, pages, analysis = await image_circular(monkeypatch)
+    dropped = LINES[2].replace("shall not", "shall")
+    first = [[ln] for ln in LINES]
+    first[2] = [dropped]
+    fake = FakeService([first, [[dropped]]])
+    async with AsyncSessionLocal() as db:
+        summary = await J.process_pending_quote_checks(db, limit=10, send=fake.sender())
+    assert summary["misread"] == 1 and summary["corrected"] == 0

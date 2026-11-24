@@ -34,7 +34,7 @@ Sender = Callable[..., Awaitable[Any]]
 
 def new_summary() -> Dict[str, Any]:
     return {
-        "pages": 0, "checked": 0, "clean": 0, "misread": 0, "unclear": 0, "not_needed": 0,
+        "pages": 0, "checked": 0, "clean": 0, "misread": 0, "unclear": 0, "corrected": 0, "not_needed": 0,
         "failed": 0, "calls": 0, "waiting_busy": 0, "waiting_no_key": 0, "out_of_quota": False,
         "claims_rerouted": 0, "batch_full": False,
     }
@@ -147,7 +147,7 @@ async def process_pending_quote_checks(
             logger.warning(f"Second reading skipped for page {page.page_number}: {type(e).__name__}")
             pdf_bytes = b""
         page_summary = await R.check_page(page, rows, pdf_bytes, send, codes)
-        for key in ("checked", "clean", "misread", "unclear", "not_needed", "failed", "calls", "waiting_busy"):
+        for key in ("checked", "clean", "misread", "unclear", "corrected", "not_needed", "failed", "calls", "waiting_busy"):
             summary[key] += page_summary.get(key, 0)
         summary["pages"] += 1
         await db.commit()

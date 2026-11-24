@@ -276,6 +276,67 @@ def same_reading(
     return levenshtein(ca, cb) / len(ca) <= share
 
 
+# ----- self-correction: both readers agree, our text differs only in figures --------------------------------
+_TO_BANGLA_DIGITS = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+_FIGURE = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?!\d)")  # 177/2026-3058 gives 177, 2026, 3058
+FIX_MIN_DIGITS = 2  # single digits (list numbers, "3 months") are never changed by a correction
+
+
+def _ascii_digits(text: str) -> str:
+    return (text or "").translate(W._BANGLA_DIGITS)
+
+
+def figure_fixes(ours: str, agreed: str, confirmed: Iterable[str] = (), codes: Iterable[str] = ()) -> Optional[List[List[str]]]:
+    """[[old, new], ...] when two agreeing readings differ from our text only in figures, else None.
+
+    Safe by construction: the same count of figures on both sides; every changed figure has 2+ digits and is
+    not confirmed by the PDF's text layer; one old figure never maps to two new ones; and our text with the
+    readers' figures put in must then agree with the readers in everything else (words, "no" words, codes).
+    """
+    a, b = _ascii_digits(ours), _ascii_digits(agreed)
+    na, nb = _FIGURE.findall(a), _FIGURE.findall(b)
+    if not na or len(na) != len(nb):
+        return None
+    pairs = [(x, y) for x, y in zip(na, nb) if x != y]
+    if not pairs:
+        return None
+    sure = {re.sub(r"\D", "", c) for c in confirmed if not str(c).startswith("date:")}
+    mapping: Dict[str, str] = {}
+    for x, y in pairs:
+        digits = re.sub(r"\D", "", x)
+        if len(digits.lstrip("0")) < FIX_MIN_DIGITS or digits in sure:  # "০৩" is a single digit
+            return None
+        if mapping.get(x, y) != y:
+            return None
+        mapping[x] = y
+    # a figure kept unchanged elsewhere in the same text must not share an old value (it would be rewritten too)
+    if any(x == old for x, y in zip(na, nb) if x == y for old in mapping):
+        return None
+    it = iter(nb)
+    patched = _FIGURE.sub(lambda _m: next(it), a)
+    if not same_reading(patched, b, (), codes):
+        return None
+    return [[x, y] for x, y in mapping.items()]
+
+
+def apply_figure_fixes(text: Any, fixes: Iterable[Iterable[str]]) -> Any:
+    """The text with each old figure replaced by the new one, in Latin and Bangla digits (whole figures only)."""
+    if not isinstance(text, str) or not text:
+        return text
+    for old, new in fixes:
+        for o, n in ((old, new), (old.translate(_TO_BANGLA_DIGITS), new.translate(_TO_BANGLA_DIGITS))):
+            text = re.sub(rf"(?<![\d০-৯]){re.escape(o)}(?![\d০-৯])", n, text)
+    return text
+
+
+def fixes_of(row: Any) -> List[List[str]]:
+    """The figure fixes stored on a CORRECTED reading row."""
+    for item in reversed(list(row.reads or [])):
+        if isinstance(item, dict) and item.get("kind") == "AGREED" and isinstance(item.get("fixes"), list):
+            return [list(p) for p in item["fixes"] if isinstance(p, (list, tuple)) and len(p) == 2]
+    return []
+
+
 # ----- cropping and the call -------------------------------------------------
 def union_box(page: Any, line_indexes: List[int]) -> Optional[List[int]]:
     """The union of the lines' boxes ([ymin, xmin, ymax, xmax], 0-1000), or None when a line has no box."""
@@ -434,7 +495,7 @@ def _stop_reason(result: Any, summary: Dict[str, Any]) -> bool:
 async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, codes: Iterable[str] = ()) -> Dict[str, Any]:
     """Judges every waiting row of one page. Returns counts; also `out_of_quota`, `no_key`, `stop` when the job should stop."""
     summary: Dict[str, Any] = {
-        "checked": 0, "clean": 0, "misread": 0, "unclear": 0, "not_needed": 0, "failed": 0, "calls": 0,
+        "checked": 0, "clean": 0, "misread": 0, "unclear": 0, "corrected": 0, "not_needed": 0, "failed": 0, "calls": 0,
         "waiting_busy": 0,
     }
     current_sha = page_text_sha(page.cleaned_text or page.raw_text or "")
@@ -573,7 +634,14 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
             if judge(r, text):
                 _finish(r, "CLEAN", summary)
             elif same_reading(first_text, text, (), codes):
-                _finish(r, "MISREAD", summary)
+                # Two independent readings agree and ours differs. When the difference is only in figures our
+                # text layer does not confirm, ours is the wrong one: correct it instead of hiding the point.
+                fixes = figure_fixes(r.our_text or "", first_text, confirmed[id(r)], codes)
+                if fixes:
+                    r.reads = list(r.reads or []) + [{"kind": "AGREED", "text": first_text, "fixes": fixes}]
+                    _finish(r, "CORRECTED", summary)
+                else:
+                    _finish(r, "MISREAD", summary)
             else:
                 _finish(r, "UNCLEAR", summary)
 

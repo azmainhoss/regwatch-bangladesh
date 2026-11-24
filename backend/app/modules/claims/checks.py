@@ -61,6 +61,8 @@ class CheckContext:
     reading: Dict[str, str] = field(default_factory=dict)
     # target hint -> (library document id or None, its publication date or None)
     link_targets: Dict[str, Tuple[Any, Optional[date]]] = field(default_factory=dict)
+    # sentence ID -> [[old, new], ...] figure fixes from two agreeing page readings (reading status CORRECTED)
+    fixes: Dict[str, List[List[str]]] = field(default_factory=dict)
 
     @property
     def addressee_text(self) -> str:
@@ -96,8 +98,18 @@ def known_ids(claim: Any, ctx: CheckContext, key: str = "quote") -> List[str]:
     return [i for i in ids if i in ctx.index.sentences]
 
 
+def sentence_text(ctx: CheckContext, sid: str) -> str:
+    """A sentence as printed: our reading, with the figures two agreeing page readings corrected."""
+    text = ctx.index.sentences[sid].text
+    if sid in ctx.fixes:
+        from backend.app.modules.claims.reading import apply_figure_fixes
+
+        text = apply_figure_fixes(text, ctx.fixes[sid])
+    return text
+
+
 def evidence_text(claim: Any, ctx: CheckContext, key: str = "quote") -> str:
-    return " ".join(ctx.index.sentences[i].text for i in known_ids(claim, ctx, key))
+    return " ".join(sentence_text(ctx, i) for i in known_ids(claim, ctx, key))
 
 
 def all_evidence_ids(claim: Any, ctx: CheckContext) -> List[str]:
@@ -161,7 +173,7 @@ def check_quote_reading(claim: Any, ctx: CheckContext) -> Optional[Dict[str, Any
         if status == "UNCLEAR":
             return result("QUOTE_READING", FAIL, f"Part of page {page} could not be read clearly.")
     for status, page in statuses:
-        if status not in ("CLEAN", "NOT_NEEDED"):
+        if status not in ("CLEAN", "NOT_NEEDED", "CORRECTED"):
             return result("QUOTE_READING", WAIT, f"Waiting for the second reading of page {page}.")
     return result("QUOTE_READING", PASS)
 
@@ -484,6 +496,12 @@ async def run_code_checks(db, claims, index: SentenceIndex, doc: Any, pages, rea
         reading=dict(reading or {}),
         link_targets=await load_link_targets(db, claims, getattr(doc, "id", None)),
     )
+    if any(v == "CORRECTED" for v in ctx.reading.values()):
+        from backend.app.modules.claims.autofix import apply_reading_fixes, load_fixes
+
+        ctx.fixes = await load_fixes(db, pages, ctx.reading)
+        for claim in claims:
+            await apply_reading_fixes(db, claim, ctx)
     for claim in claims:
         apply_checks(claim, ctx)
     return ctx

@@ -3,6 +3,8 @@
 For every quote reading that ended MISREAD or UNCLEAR:
 - a stored reading of our lines that the current comparison accepts (Bangla spelling variants, wider
   focus) -> CLEAN;
+- two stored readings that agree with each other and differ from ours only in figures our text layer does
+  not confirm -> CORRECTED (the claims get the corrected figures, see claims/autofix.py);
 - every stored reading missed our lines (the strip held other lines because the line box was off) ->
   WAITING with its readings cleared, so the page reader reads it again with the wider strip and the
   whole-page fallback (automatic, within the daily Gemini quota);
@@ -50,7 +52,15 @@ def verdict(row) -> str:
                 texts.append(found)
     if not texts:
         return "REREAD" if reads else "KEEP"
-    return "CLEAN" if any(R.same_reading(ours, t, row.numbers_confirmed or [], CODES) for t in texts) else "KEEP"
+    if any(R.same_reading(ours, t, row.numbers_confirmed or [], CODES) for t in texts):
+        return "CLEAN"
+    # two readings that agree with each other and differ from ours only in figures: correct ours
+    if len(texts) >= 2 and R.same_reading(texts[0], texts[1], (), CODES):
+        fixes = R.figure_fixes(ours, texts[0], row.numbers_confirmed or [], CODES)
+        if fixes:
+            row._agreed = {"kind": "AGREED", "text": texts[0], "fixes": fixes}
+            return "CORRECTED"
+    return "KEEP"
 
 
 CODES: list = []
@@ -83,6 +93,10 @@ async def main(write: bool) -> None:
                 continue
             if v == "CLEAN":
                 row.status, row.last_error = "CLEAN", None
+                row.checked_at = datetime.utcnow()
+            elif v == "CORRECTED":
+                row.reads = list(row.reads or []) + [row._agreed]
+                row.status, row.last_error = "CORRECTED", None
                 row.checked_at = datetime.utcnow()
             else:
                 row.status, row.reads, row.last_error, row.attempts, row.checked_at = "WAITING", [], None, 0, None
