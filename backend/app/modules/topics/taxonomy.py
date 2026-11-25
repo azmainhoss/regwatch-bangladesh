@@ -106,6 +106,12 @@ SYNONYMS: List[Tuple[str, ...]] = [
     ("MFS", "mobile financial service", "mobile financial services"),
     ("NPL", "non-performing loan", "nonperforming loan", "classified loan"),
     ("SMA", "special mention account"),
+    # Loan classification grades (BRPD master circulars on classification and provisioning).
+    ("STD", "standard", "unclassified"),
+    ("SS", "sub-standard", "substandard"),
+    ("DF", "doubtful"),
+    ("BL", "bad/loss", "bad loss", "bad & loss"),
+    ("UC", "unclassified"),
     ("SME", "small and medium enterprise", "CMSME", "MSME"),
     ("CMSME", "cottage, micro, small and medium", "SME"),
     ("LC", "letter of credit", "letters of credit"),

@@ -55,8 +55,40 @@ FALLBACK_CHARS_PER_PAGE = 1200  # when no sentence matches a keyword (e.g. Engli
 MATCHES_SHOWN = 8
 
 
+# Question words carry no meaning for finding pages ("what" is on almost every page).
+_QUESTION_WORDS = {
+    "what", "whats", "which", "when", "where", "whom", "whose", "does", "should", "could", "would", "will", "shall",
+    "have", "there", "this", "that", "these", "those", "about", "tell", "explain", "please", "with", "from", "into",
+    "under", "much", "many", "give", "list", "show", "according",
+}
+
+
 def _keywords(query: str) -> List[str]:
-    return list(dict.fromkeys(k.lower() for k in _WORD.findall(query) if len(k) > 3))
+    """The words that find pages for Ask. Short forms are kept and spelled out with the domain synonyms
+    (topics/taxonomy.SYNONYMS): "STD provision rate" finds pages on "standard" loans and "provision"/"প্রভিশন".
+    Before, every word of 3 letters or fewer was dropped, so "STD", "SMA", "CRR" and "SLR" were lost."""
+    from backend.app.modules.topics.taxonomy import SYNONYMS
+
+    groups = {}
+    for group in SYNONYMS:
+        for w in group:
+            groups.setdefault(w.lower(), group)
+    out: List[str] = []
+    for word in _WORD.findall(query):
+        low = word.lower()
+        if low in _QUESTION_WORDS:
+            continue
+        group = groups.get(low)
+        if group:
+            for w in group:
+                wl = w.lower()
+                # A 2-3 letter short form would match inside other words ("sma" in "small"): use its spelled-out forms.
+                if len(wl) > 3 or not wl.isascii():
+                    out.append(wl)
+            continue
+        if len(low) > 3 or (word.isupper() and len(word) >= 2):
+            out.append(low)
+    return list(dict.fromkeys(out))
 
 
 def _sentence_hits(text: str, keywords: List[str]) -> int:
