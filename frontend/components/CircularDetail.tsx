@@ -259,8 +259,10 @@ export default function CircularDetail(props: Props) {
 
   const [analyzing, setAnalyzing] = useState(false);
   // Every section starts folded (owner, 2026-11-26); the mind map above them shows the whole circular at a glance.
+  // Phones fold the mind map too: in full it runs several screens and pushes the sections far down.
   const FOLDABLE = ["summary", "changes", "requirements", "applies", "dates", "exemptions", "links", "ask"];
-  const allFoldedState = () => Object.fromEntries(FOLDABLE.map((k) => [k, true])) as Record<string, boolean>;
+  const allFoldedState = () =>
+    ({ ...Object.fromEntries(FOLDABLE.map((k) => [k, true])), mindmap: typeof window !== "undefined" && window.innerWidth < 640 }) as Record<string, boolean>;
   const [folded, setFolded] = useState<Record<string, boolean>>(allFoldedState);
   useEffect(() => setFolded(allFoldedState()), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const fold = { folded, toggle: (id: string) => setFolded((f) => ({ ...f, [id]: !f[id] })) };
@@ -670,7 +672,7 @@ export default function CircularDetail(props: Props) {
       <div className="-mb-1 flex justify-end">
         <button
           type="button"
-          onClick={() => setFolded(allFolded ? {} : allFoldedState())}
+          onClick={() => setFolded((f) => ({ ...Object.fromEntries(FOLDABLE.map((k) => [k, !allFolded])), mindmap: f.mindmap }))}
           className="rounded-control px-2 py-1 text-[13px] font-semibold text-ink-3 hover:bg-sunken hover:text-ink"
         >
           {allFolded ? "Expand all" : "Collapse all"}
@@ -695,10 +697,11 @@ export default function CircularDetail(props: Props) {
       )}
 
       {branches.length > 0 && (
-        <section className="border-t border-line pt-4" data-testid="inline-mind-map">
-          <h3 className="section-title mb-3">Mind map</h3>
-          <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} full />
-        </section>
+        <div data-testid="inline-mind-map">
+          <Section id="mindmap" title="Mind map">
+            <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} full />
+          </Section>
+        </div>
       )}
 
       <Section id="summary" title="Summary" count={shownOf("summary").length || undefined}>
