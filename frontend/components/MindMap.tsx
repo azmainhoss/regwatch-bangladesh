@@ -417,7 +417,7 @@ export default function MindMap({
           >
             <div
               className="mind-map [&_svg]:h-auto [&_svg]:w-full"
-              style={narrow ? { width: "100%" } : { minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
+              style={narrow ? { width: "100%", maxWidth: 440 } : { minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
               onClick={(e) => {
                 if (drag.current?.moved) return;
                 pick(e);
