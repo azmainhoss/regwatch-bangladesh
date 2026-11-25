@@ -419,10 +419,8 @@ function CircularsPageInner() {
   const laterList = lists.lists.find((l) => l.kind === "READ_LATER");
   const filtered = box === "later" && laterList ? documents.filter((d) => laterList.document_ids.includes(d.id)) : documents;
   const boxCount = (b: Box) => (counts ? (b === "later" ? (laterList ? laterList.document_ids.length : counts.read_later) : counts[b]) : null);
-  // Departments: the five largest as pills, the rest in a searchable "More" list, each with its full name.
+  // Departments: all in one searchable list, each with its full name where known.
   const allDepts: Choice[] = counts?.departments ?? [];
-  const topDepts = allDepts.slice(0, 5);
-  const deptPills = dept !== "ALL" && !topDepts.some((d) => d.code === dept) ? [...topDepts, ...allDepts.filter((d) => d.code === dept)] : topDepts;
   const deptName = (code: string) => {
     const fromDb = institutions.flatMap((i) => i.departments).find((d) => d.code === code)?.name;
     return fromDb && fromDb !== code ? fromDb : DEPT_NAMES[code];
@@ -556,68 +554,10 @@ function CircularsPageInner() {
 
       {currentUser && <AssignedPanel userId={currentUser.id} />}
 
-      <DashboardAsk signedIn={!!currentUser} onSignIn={() => setAccountOpen(true)} />
+      <DashboardAsk signedIn={!!currentUser} onSearch={setSearch} initial={search} inputId={SEARCH_INPUT_ID} />
 
-      {/* Search and filters */}
-      <div className="relative w-full md:w-[28rem]">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
-        <label htmlFor={SEARCH_INPUT_ID} className="sr-only">
-          Search circulars
-        </label>
-        <input
-          id={SEARCH_INPUT_ID}
-          type="search"
-          placeholder="Search number, title or words inside (e.g. ECL)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="field h-10 pl-9 pr-9"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            aria-label="Clear search"
-            className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      <div aria-label="Filter by department and category" className="-mx-1 -mt-2 flex flex-wrap items-center gap-1.5 px-1 pb-1">
-        {[{ code: "ALL", label: "All", count: -1 }, ...deptPills].map((d) => {
-          const active = dept === d.code;
-          return (
-            <button
-              key={`dept-${d.code}`}
-              aria-pressed={active}
-              type="button"
-              title={d.code !== "ALL" ? deptName(d.code) : undefined}
-              onClick={() => setDept(d.code)}
-              className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
-                active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
-              }`}
-            >
-              {active && (
-                <motion.span layoutId="dept-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
-              )}
-              <span className="relative">
-                {d.label}
-                {d.count > 0 && <span className={`ml-1.5 text-[12px] tabular-nums ${active ? "opacity-80" : "text-ink-3"}`}>{d.count}</span>}
-              </span>
-            </button>
-          );
-        })}
-        {allDepts.length > 5 && (
-          <FilterMenu
-            label="More departments"
-            title="Departments"
-            placeholder="Search departments"
-            value={dept}
-            onChange={setDept}
-            options={[{ code: "ALL", label: "All departments" }, ...allDepts.map((d) => ({ code: d.code, label: d.code, sub: deptName(d.code), count: d.count }))]}
-          />
-        )}
+      {/* Filters: category, then department (all departments in one searchable list). Search is the box above. */}
+      <div aria-label="Filter by category and department" className="-mt-1 flex flex-wrap items-center gap-2">
         <FilterMenu
           label={topic === "ALL" ? "Category" : shortTopic(topicNames[topic] || topic)}
           title="Categories"
@@ -627,6 +567,20 @@ function CircularsPageInner() {
           onChange={setTopic}
           options={[{ code: "ALL", label: "All categories" }, ...topicOptions.map((t) => ({ code: t.code, label: topicNames[t.code] || t.label, count: t.count }))]}
         />
+        <FilterMenu
+          label={dept === "ALL" ? "Department" : dept}
+          title="Departments"
+          placeholder="Search departments"
+          value={dept}
+          active={dept !== "ALL"}
+          onChange={setDept}
+          options={[{ code: "ALL", label: "All departments" }, ...allDepts.map((d) => ({ code: d.code, label: d.code, sub: deptName(d.code), count: d.count }))]}
+        />
+        {(topic !== "ALL" || dept !== "ALL") && (
+          <button type="button" onClick={() => { setTopic("ALL"); setDept("ALL"); }} className="text-[13.5px] font-semibold text-accent hover:underline">
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div id="circular-list-heading" className="-mt-2 flex scroll-mt-20 flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-live="polite">

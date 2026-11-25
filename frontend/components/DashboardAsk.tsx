@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, X } from "lucide-react";
+import { ArrowUp, Loader2, X } from "lucide-react";
 import { fetchResearchMatches, queryResearchAssistant, type ResearchAnswer, type ResearchCitation, openRegister } from "@/services/api";
 import { Notice } from "@/components/ui";
 
@@ -33,19 +33,57 @@ function Source({ c, strong }: { c: ResearchCitation; strong?: boolean }) {
   );
 }
 
-/** "Ask a question" on the home screen: answers from every circular, each point tied to its page. */
-export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
-  const [q, setQ] = useState("");
+const QUESTION_START =
+  /^(what|whats|what's|how|when|where|which|who|whom|whose|why|is|are|was|were|does|do|did|can|could|should|shall|will|would|may|must|has|have|explain|tell|list|give|show me|compare)\b/i;
+const BANGLA_QUESTION = /(কি|কী|কেন|কীভাবে|কিভাবে|কখন|কোথায়|কোন|কত|কে|কারা)/;
+
+/** A question goes to Ask; anything else filters the circular list (owner, 2026-11-26: one box, auto-detect). */
+export function isQuestion(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 3) return false;
+  return t.endsWith("?") || t.endsWith("？") || QUESTION_START.test(t) || BANGLA_QUESTION.test(t);
+}
+
+/**
+ * One box for search and Ask. Typing that is not a question filters the list as you type (onSearch); a question
+ * (ends with "?" or starts with what / how / when / ...) is sent to Ask with Enter or the arrow button. On the home
+ * page (no list) a plain search opens the dashboard with it.
+ */
+export default function DashboardAsk({
+  signedIn,
+  onSearch,
+  initial = "",
+  inputId = "dash-ask",
+}: {
+  signedIn: boolean;
+  onSignIn?: () => void;
+  /** Live search of the list. Without it (home page), Enter on a plain search opens the dashboard. */
+  onSearch?: (text: string) => void;
+  initial?: string;
+  inputId?: string;
+}) {
+  const [q, setQ] = useState(initial);
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState<ResearchAnswer | null>(null);
   const [matches, setMatches] = useState<ResearchCitation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const id = useRef(0);
+  const question = isQuestion(q);
 
-  const ask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!signedIn) return openRegister("register");
+  const change = (text: string) => {
+    setQ(text);
+    // A question does not filter the list (it would match almost nothing); plain words do, as you type.
+    if (onSearch) onSearch(isQuestion(text) ? "" : text);
+  };
+
+  const ask = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     const text = q.trim();
+    if (!question) {
+      if (!onSearch && text) window.location.href = `/dashboard?q=${encodeURIComponent(text)}`;
+      return;
+    }
+    if (!signedIn) return openRegister("register");
     if (text.length < 3 || asking) return;
     const mine = ++id.current;
     setAsking(true);
@@ -76,28 +114,50 @@ export default function DashboardAsk({ signedIn, onSignIn }: { signedIn: boolean
   const shown = answer || (asking && matches) || error;
 
   return (
-    <section aria-label="Ask a question" className="rounded-[14px] border border-line bg-surface p-3 sm:p-4">
-      <form onSubmit={ask} className="flex flex-col gap-2 sm:flex-row">
-        <label htmlFor="dash-ask" className="sr-only">
-          Ask a question about the circulars
+    <section aria-label="Search or ask" className="mx-auto w-full max-w-[760px]">
+      <form onSubmit={ask} className="relative rounded-[20px] border border-line-strong bg-surface shadow-panel transition-colors focus-within:border-accent">
+        <label htmlFor={inputId} className="sr-only">
+          Search circulars or ask a question
         </label>
-        <div className="relative flex-1">
-          <input
-            id="dash-ask"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Ask, e.g. SMA loan provision rate?"
-            lang={hasBangla(q) ? "bn" : undefined}
-            className="field h-12 rounded-[10px] px-4 text-[16px]"
-          />
+        <textarea
+          id={inputId}
+          value={q}
+          rows={2}
+          onChange={(e) => change(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void ask();
+            }
+          }}
+          placeholder="Search circulars, or ask a question (e.g. What is the SMA loan provision rate?)"
+          lang={hasBangla(q) ? "bn" : undefined}
+          className="block min-h-[96px] w-full resize-none rounded-[20px] bg-transparent px-5 pb-12 pt-4 text-[16px] leading-relaxed text-ink placeholder:text-ink-3 focus:outline-none"
+        />
+        <div className="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-3">
+          <span className="truncate text-[12.5px] text-ink-3">
+            {q.trim() ? (question ? (signedIn ? "Question: press Enter to ask" : "Question: register free to ask") : "Searching the circulars as you type") : ""}
+          </span>
+          <span className="pointer-events-auto flex items-center gap-2">
+            {q && (
+              <button type="button" onClick={() => { change(""); clear(); }} aria-label="Clear" className="grid h-8 w-8 place-items-center rounded-full text-ink-3 hover:bg-sunken hover:text-ink">
+                <X className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={asking || !q.trim() || (!question && !!onSearch)}
+              aria-label={question ? "Ask" : "Search"}
+              className="grid h-10 w-10 place-items-center rounded-full bg-accent text-accent-ink transition-colors hover:bg-accent-hover disabled:opacity-40"
+            >
+              {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-5 w-5" strokeWidth={2.25} />}
+            </button>
+          </span>
         </div>
-        <button type="submit" disabled={asking || (signedIn && q.trim().length < 3)} className="btn-primary h-12 rounded-[10px] px-7 text-[16px] font-bold">
-          {asking ? <Loader2 className="h-4 w-4 animate-spin" /> : signedIn ? "Ask" : "Register free to ask"}
-        </button>
       </form>
 
       {shown && (
-        <div className="mt-3 space-y-2.5" aria-live="polite">
+        <div className="mt-3 space-y-2.5 rounded-[14px] border border-line bg-surface p-4" aria-live="polite">
           <div className="flex items-center justify-between">
             <p className="text-[12.5px] font-semibold uppercase tracking-wide text-ink-3">{answer ? "Answer" : asking ? "Matching lines while the answer is written" : ""}</p>
             <button type="button" onClick={clear} className="grid h-7 w-7 place-items-center rounded-control text-ink-3 hover:bg-sunken hover:text-ink" aria-label="Close the answer">
