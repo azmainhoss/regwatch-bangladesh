@@ -53,6 +53,9 @@ _BANGLA_DEPARTMENTS = {
     "ismd": ("আইএসএমডি",),
     "did": ("ডিআইডি",),
     "gbcsrd": ("জিবিসিএসআরডি",),
+    "sdad": ("এসডিএডি",),
+    "brd": ("বিআরডি",),
+    "dbi": ("ডিবিআই",),
 }
 _BANGLA_WORDS = (
     ("মাস্টার সার্কুলার", "master circular"), ("সার্কুলার লেটার", "circular letter"), ("সার্কুলার-লেটার", "circular letter"),
