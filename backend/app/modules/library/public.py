@@ -24,6 +24,8 @@ from backend.app.modules.documents.access import shared_documents_condition
 from backend.app.modules.documents.models import Document
 from backend.app.modules.documents.synthetic import synthetic_sql_condition
 from backend.app.modules.institutions.models import InstitutionDepartment
+from backend.app.modules.topics.models import DocumentTopic
+from backend.app.modules.topics.taxonomy import TOPIC_BY_CODE, TOPICS
 
 router = APIRouter(prefix="/public", tags=["Public circular pages"])
 
@@ -34,6 +36,15 @@ _NUMBER = re.compile(r"No\.?\s*([0-9]+)(?:\s*[/-]\s*((?:19|20)[0-9]{2}))?", re.I
 _TITLE_REF = re.compile(r"^[^:]{0,80}\bNo\.?\s*[0-9]+(?:\s*[/-]\s*[0-9]{2,4})?\s*[:.\-–]\s*", re.I)
 _FILLER = {"regarding", "re", "about", "the", "a", "an", "of", "on", "in", "for", "and", "to", "with", "by", "at", "from"}
 _MAX_WORDS = 8
+
+
+_REF_IN_TITLE = re.compile(r"^([^:]{0,80}\bNo\.?\s*[0-9]+(?:\s*[/-]\s*[0-9]{2,4})?)\s*[:.\-–]", re.I)
+
+
+def _reference_from_title(title: Optional[str]) -> Optional[str]:
+    """"BRD Circular No. 04" from "BRD Circular No. 04: Regarding ..." when the reference field is empty."""
+    m = _REF_IN_TITLE.match(title or "")
+    return m.group(1).strip() if m else None
 
 
 def _ascii_words(text: str) -> List[str]:
@@ -77,7 +88,7 @@ def path_of(doc: Document, dept: Optional[str]) -> str:
 # ---------------------------------------------------------------------------------------------- the path index
 
 _INDEX_TTL = 600.0
-_index: Dict[str, Any] = {"at": 0.0, "by_path": {}, "by_id": {}, "by_prefix": {}}
+_index: Dict[str, Any] = {"at": 0.0, "by_path": {}, "by_id": {}, "by_prefix": {}, "items": []}
 
 
 async def _build_index(db: AsyncSession) -> Dict[str, Any]:
@@ -92,6 +103,11 @@ async def _build_index(db: AsyncSession) -> Dict[str, Any]:
     by_path: Dict[str, str] = {}
     by_id: Dict[str, Tuple[str, bool, Optional[date]]] = {}
     by_prefix: Dict[str, List[str]] = {}
+    items: List[Dict[str, Any]] = []
+    topic_rows = (await db.execute(select(DocumentTopic.document_id, DocumentTopic.topic))).all()
+    topics_of: Dict[str, List[str]] = {}
+    for doc_id, topic in topic_rows:
+        topics_of.setdefault(str(doc_id), []).append(topic)
     for doc, dept in rows:
         path = path_of(doc, dept)
         if path in by_path:  # Two circulars with the same number, year and title words: the later one gets its id.
@@ -100,7 +116,21 @@ async def _build_index(db: AsyncSession) -> Dict[str, Any]:
         by_id[str(doc.id)] = (path, doc.publication_status in INDEXABLE, doc.publication_date)
         prefix = f"{dept_code(doc, dept)}/{number_part(doc)}"
         by_prefix.setdefault(prefix, []).append(str(doc.id))
-    return {"at": time.monotonic(), "by_path": by_path, "by_id": by_id, "by_prefix": by_prefix}
+        items.append(
+            {
+                "id": str(doc.id),
+                "path": path,
+                "dept": dept_code(doc, dept),
+                "reference_number": doc.reference_number or _reference_from_title(doc.title),
+                "title": _TITLE_REF.sub("", doc.title or "", count=1) or (doc.title or ""),
+                "title_bn": doc.title_bn,
+                "publication_date": doc.publication_date,
+                "indexable": doc.publication_status in INDEXABLE,
+                "topics": topics_of.get(str(doc.id), []),
+            }
+        )
+    items.reverse()  # newest first
+    return {"at": time.monotonic(), "by_path": by_path, "by_id": by_id, "by_prefix": by_prefix, "items": items}
 
 
 async def path_index(db: AsyncSession, fresh: bool = False) -> Dict[str, Any]:
@@ -141,6 +171,7 @@ class PublicCircular(BaseModel):
     applies_to: List[PublicPoint] = []
     exemptions: List[PublicPoint] = []
     pages: int = 0
+    source_url: Optional[str] = None
 
 
 @router.get("/circulars/paths", response_model=List[PathEntry])
@@ -228,5 +259,212 @@ async def circular_by_path(dept: str, slug: str, db: AsyncSession = Depends(get_
         publication_date=doc.publication_date,
         status_label=status_label,
         pages=pages,
+        source_url=doc.source_url if (doc.source_url or "").startswith("https://www.bb.org.bd/") else None,
         **out,
     )
+
+
+# ------------------------------------------------------------------------------------------- hub pages (SEO)
+
+# Full names of the Bangladesh Bank departments that issue most circulars. A department not listed shows its code.
+DEPARTMENT_NAMES: Dict[str, str] = {
+    "brpd": "Banking Regulation and Policy Department",
+    "fepd": "Foreign Exchange Policy Department",
+    "feod": "Foreign Exchange Operation Department",
+    "dos": "Department of Off-site Supervision",
+    "dfim": "Department of Financial Institutions and Markets",
+    "psd": "Payment Systems Department",
+    "dmd": "Debt Management Department",
+    "smespd": "SME and Special Programmes Department",
+    "acd": "Agricultural Credit Department",
+    "acspd": "Agricultural Credit and Special Programs Department",
+    "sfd": "Sustainable Finance Department",
+    "bfiu": "Bangladesh Financial Intelligence Unit",
+    "mpd": "Monetary Policy Department",
+    "dcm": "Department of Currency Management",
+    "gbcsrd": "Green Banking and CSR Department",
+    "cib": "Credit Information Bureau",
+    "dbi": "Department of Banking Inspection",
+    "fe": "Foreign Exchange",
+}
+# A hub page needs this many analysed circulars, so search engines never see thin pages.
+HUB_MIN_INDEXABLE = 3
+HUB_LIMIT = 300
+
+
+class HubLink(BaseModel):
+    code: str
+    name: str
+    total: int
+    analysed: int
+
+
+class Hubs(BaseModel):
+    departments: List[HubLink]
+    topics: List[HubLink]
+    years: List[HubLink]
+    total: int
+    analysed: int
+
+
+class ListItem(BaseModel):
+    path: str
+    reference_number: Optional[str] = None
+    title: str
+    title_bn: Optional[str] = None
+    department: str
+    publication_date: Optional[date] = None
+    analysed: bool
+    topics: List[str] = []
+
+
+class CircularList(BaseModel):
+    kind: str
+    code: str
+    name: str
+    name_bn: Optional[str] = None
+    total: int
+    analysed: int
+    items: List[ListItem]
+    indexable: bool
+
+
+def _item(it: Dict[str, Any]) -> ListItem:
+    return ListItem(
+        path=it["path"],
+        reference_number=it["reference_number"],
+        title=it["title"],
+        title_bn=it["title_bn"],
+        department=it["dept"].upper(),
+        publication_date=it["publication_date"],
+        analysed=it["indexable"],
+        topics=it["topics"],
+    )
+
+
+def _hubs_from(items: List[Dict[str, Any]]) -> Hubs:
+    dept: Dict[str, List[int]] = {}
+    topic: Dict[str, List[int]] = {}
+    year: Dict[str, List[int]] = {}
+    for it in items:
+        ok = 1 if it["indexable"] else 0
+        keys = [(dept, it["dept"])] + [(topic, t) for t in it["topics"]]
+        if it["publication_date"]:
+            keys.append((year, str(it["publication_date"].year)))
+        for bucket, key in keys:
+            c = bucket.setdefault(key, [0, 0])
+            c[0] += 1
+            c[1] += ok
+    depts = [
+        HubLink(code=k, name=DEPARTMENT_NAMES.get(k, k.upper()), total=v[0], analysed=v[1])
+        for k, v in dept.items()
+        if v[1] >= HUB_MIN_INDEXABLE and k != "bb"  # "bb": circulars whose department is unknown
+    ]
+    depts.sort(key=lambda h: -h.total)
+    topics = [
+        HubLink(code=t.code.lower().replace("_", "-"), name=t.label, total=topic[t.code][0], analysed=topic[t.code][1])
+        for t in TOPICS
+        if t.code in topic and t.code != "OTHER" and topic[t.code][1] >= HUB_MIN_INDEXABLE
+    ]
+    topics.sort(key=lambda h: -h.total)
+    years = [HubLink(code=k, name=k, total=v[0], analysed=v[1]) for k, v in year.items() if v[1] >= HUB_MIN_INDEXABLE]
+    years.sort(key=lambda h: h.code, reverse=True)
+    return Hubs(
+        departments=depts, topics=topics, years=years, total=len(items), analysed=sum(1 for i in items if i["indexable"])
+    )
+
+
+@router.get("/hubs", response_model=Hubs)
+async def hubs(db: AsyncSession = Depends(get_async_db)):
+    """Departments, subjects and years that have their own list page (only those with enough analysed circulars)."""
+    return _hubs_from((await path_index(db))["items"])
+
+
+def _topic_code(slug: str) -> Optional[str]:
+    code = slug.upper().replace("-", "_")
+    return code if code in TOPIC_BY_CODE and code != "OTHER" else None
+
+
+@router.get("/lists/{kind}/{code}", response_model=CircularList)
+async def circular_list(kind: str, code: str, db: AsyncSession = Depends(get_async_db)):
+    """Circulars of one department (`dept/brpd`), subject (`topic/ecl`), year (`year/2026`) or the newest
+    (`latest/all`), newest first. Analysed circulars are kept first when the list is capped."""
+    items = (await path_index(db))["items"]
+    code = code.lower()
+    name_bn = None
+    if kind == "dept":
+        chosen = [i for i in items if i["dept"] == code]
+        name = DEPARTMENT_NAMES.get(code, code.upper())
+        name_bn = (
+            await db.execute(
+                select(InstitutionDepartment.name_bn).where(InstitutionDepartment.code == code.upper()).limit(1)
+            )
+        ).scalar()
+    elif kind == "topic":
+        t = _topic_code(code)
+        if not t:
+            raise HTTPException(status_code=404, detail="Not found")
+        chosen = [i for i in items if t in i["topics"]]
+        name = TOPIC_BY_CODE[t].label
+    elif kind == "year":
+        if not re.fullmatch(r"(19|20)[0-9]{2}", code):
+            raise HTTPException(status_code=404, detail="Not found")
+        chosen = [i for i in items if i["publication_date"] and str(i["publication_date"].year) == code]
+        name = code
+    elif kind == "latest":
+        chosen = items
+        name = "Latest"
+    else:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not chosen:
+        raise HTTPException(status_code=404, detail="Not found")
+    analysed = [i for i in chosen if i["indexable"]]
+    rest = [i for i in chosen if not i["indexable"]]
+    if kind == "latest":
+        shown = chosen[:60]
+    else:
+        shown = analysed[:HUB_LIMIT] + rest[: max(0, HUB_LIMIT - len(analysed))]
+        shown.sort(key=lambda i: (i["publication_date"] or date.min), reverse=True)
+    return CircularList(
+        kind=kind,
+        code=code,
+        name=name,
+        name_bn=name_bn,
+        total=len(chosen),
+        analysed=len(analysed),
+        items=[_item(i) for i in shown],
+        indexable=len(analysed) >= HUB_MIN_INDEXABLE,
+    )
+
+
+@router.get("/related/{document_id}", response_model=List[ListItem])
+async def related(document_id: str, db: AsyncSession = Depends(get_async_db)):
+    """Up to 8 analysed circulars close to this one: same department and shared subjects first, newest first."""
+    items = (await path_index(db))["items"]
+    me = next((i for i in items if i["id"] == document_id), None)
+    if not me:
+        raise HTTPException(status_code=404, detail="Circular not found")
+    mine = set(me["topics"]) - {"OTHER"}
+
+    def score(i: Dict[str, Any]) -> int:
+        return (2 if i["dept"] == me["dept"] else 0) + len(mine & set(i["topics"]))
+
+    cands = [i for i in items if i["id"] != document_id and i["indexable"] and score(i) > 0]
+    cands.sort(key=lambda i: (score(i), i["publication_date"] or date.min), reverse=True)
+    return [_item(i) for i in cands[:8]]
+
+
+@router.get("/topics-of/{document_id}", response_model=List[HubLink])
+async def circular_topics(document_id: str, db: AsyncSession = Depends(get_async_db)):
+    """The subject pages this circular belongs to (for links on its page)."""
+    idx = await path_index(db)
+    me = next((i for i in idx["items"] if i["id"] == document_id), None)
+    if not me:
+        raise HTTPException(status_code=404, detail="Circular not found")
+    hub = {h.code for h in _hubs_from(idx["items"]).topics}
+    out = []
+    for t in me["topics"]:
+        slug = t.lower().replace("_", "-")
+        if slug in hub:
+            out.append(HubLink(code=slug, name=TOPIC_BY_CODE[t].label, total=0, analysed=0))
+    return out

@@ -31,3 +31,31 @@ def test_department_from_table_or_reference():
     assert dept_code(d, "BRPD") == "brpd"
     assert dept_code(d, None) == "brpd"
     assert path_of(d, "BRPD").startswith("/circular/brpd/39-2026")
+
+
+# ---- list pages (SEO hubs)
+from backend.app.modules.library.public import HUB_MIN_INDEXABLE, _hubs_from, _reference_from_title
+
+
+def item(dept, ok, topics=(), year=2026):
+    return {"dept": dept, "indexable": ok, "topics": list(topics), "publication_date": date(year, 1, 1)}
+
+
+def test_hub_needs_enough_analysed_circulars():
+    items = [item("brpd", True, ["CREDIT"])] * HUB_MIN_INDEXABLE + [item("psd", True)] * (HUB_MIN_INDEXABLE - 1) + [item("psd", False)] * 50
+    h = _hubs_from(items)
+    assert [d.code for d in h.departments] == ["brpd"]
+    assert [t.code for t in h.topics] == ["credit"]
+    assert h.departments[0].name == "Banking Regulation and Policy Department"
+
+
+def test_unknown_department_and_other_topic_get_no_page():
+    items = [item("bb", True, ["OTHER"])] * 10
+    h = _hubs_from(items)
+    assert h.departments == [] and h.topics == []
+    assert [y.code for y in h.years] == ["2026"]
+
+
+def test_reference_read_from_title_when_missing():
+    assert _reference_from_title("BRD Circular No. 04: Regarding Placement of Padma Bank PLC") == "BRD Circular No. 04"
+    assert _reference_from_title("Some notice without a number") is None

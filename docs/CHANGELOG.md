@@ -5,6 +5,27 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 26 November 2026: search engine pages (SEO)
+
+- **Keyword research** (`docs/seo/KEYWORDS.md`): "bangladesh bank circular" is searched about 12,100 times a
+  month in Bangladesh, "brpd circular" 1,900, "bfiu circular 26" 1,000, all with low difficulty. People search by
+  department and number, which is how circular pages are already addressed.
+- **List pages** that search engines can read: `/circulars` (newest), `/circulars/<department>` (BRPD, FEPD, DOS,
+  BFIU and 22 more), `/circulars/<year>` and `/circulars/topic/<subject>` (29 subjects). A page exists only when at
+  least 3 of its circulars have a summary. Each has a short unique intro, Bangla line, breadcrumbs and links to all
+  the other lists.
+- **Circular pages:** title starts with the full reference and year ("BRPD Circular No. 16/2022: ..."), a Bangla
+  reference line ("বিআরপিডি সার্কুলার নং ১৬/২০২২"), a link to the original PDF on bb.org.bd, subject links and up
+  to 8 related circulars.
+- **Site-wide:** keyword title and description, Organization and WebSite (with search box) structured data, footer
+  links to the main lists, Search Console and Bing verification tags read from `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`
+  and `NEXT_PUBLIC_BING_SITE_VERIFICATION`, `/llms.txt` for AI search, and the sitemap now lists the list pages too.
+- **IndexNow:** the live server tells Bing about new pages every hour (`modules/library/indexnow.py`, key file in
+  `frontend/public/`). Google reads the sitemap instead.
+- Future SEO work is dated in TickTick, project "amarcircular seo".
+
+---
+
 ## 24 November 2026 (night): site behind Cloudflare
 
 - **The domain's DNS moved from Spaceship to Cloudflare** (free plan). The domain stays registered at Spaceship.

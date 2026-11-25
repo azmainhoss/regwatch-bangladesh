@@ -78,10 +78,15 @@ async def lifespan(app: FastAPI):
     # Load the page text the Ask screen searches, so the first question is fast too.
     from backend.app.modules.research import page_cache
     search_warm = asyncio.create_task(asyncio.to_thread(page_cache.page_cache.sync)) if page_cache.enabled() else None
+    # Tell Bing about new public pages every hour (live server only).
+    from backend.app.modules.library import indexnow
+    indexnow_task = asyncio.create_task(indexnow.loop()) if indexnow.enabled() else None
     yield
     warm_task.cancel()
     if search_warm:
         search_warm.cancel()
+    if indexnow_task:
+        indexnow_task.cancel()
     logger.info("Shutting down application...")
     if run_alerts:
         await alerts_worker.stop()

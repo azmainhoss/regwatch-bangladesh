@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
-import { ArrowRight, CheckCircle2, Eye, FileText } from "lucide-react";
+import { ArrowRight, CheckCircle2, Download, Eye, FileText } from "lucide-react";
 import { SITE_URL, serverApi } from "@/services/serverApi";
+import { bnRef, getRelated, getTopicsOf, refLabel } from "@/services/publicApi";
+import { Breadcrumbs, CircularRows } from "@/components/seo/CircularHub";
 
 /**
  * A circular's public page: rendered on the server so search engines and shared links see the real content
@@ -32,6 +34,7 @@ interface PublicCircular {
   applies_to: Point[];
   exemptions: Point[];
   pages: number;
+  source_url?: string | null;
 }
 
 type Params = { params: { dept: string; slug: string } };
@@ -53,14 +56,16 @@ function longDate(value?: string | null) {
 
 function description(c: PublicCircular) {
   const first = c.summary[0]?.text || c.requirements[0]?.text || c.title;
-  const text = `${c.reference_number ? `${c.reference_number}, ` : ""}${longDate(c.publication_date)}. ${first}`;
+  const ref = refLabel(c.reference_number, c.publication_date);
+  const text = `${ref ? `${ref}, ` : ""}${longDate(c.publication_date)}. ${first}`;
   return text.length > 158 ? `${text.slice(0, 155).trimEnd()}…` : text;
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const c = await load(params.dept, params.slug);
   if (!c) return { title: "Circular not found | Amar Circular", robots: { index: false } };
-  const title = `${c.reference_number ? `${c.reference_number}: ` : ""}${c.title} | Amar Circular`;
+  const ref = refLabel(c.reference_number, c.publication_date);
+  const title = `${ref ? `${ref}: ` : ""}${c.title} | Amar Circular`;
   const desc = description(c);
   const url = `${SITE_URL}${c.path}`;
   return {
@@ -90,44 +95,44 @@ export default async function CircularPage({ params }: Params) {
   const reader = `/dashboard?doc=${c.id}`;
   const any = SECTIONS.some((s) => c[s.key].length > 0);
   const verified = c.status_label === "AI verified";
+  const ref = refLabel(c.reference_number, c.publication_date);
+  const bn = bnRef(c.reference_number, c.publication_date);
+  const deptCode = c.path.split("/")[2] || c.department.toLowerCase();
+  const [related, topics] = await Promise.all([getRelated(c.id).catch(() => null), getTopicsOf(c.id).catch(() => null)]);
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
-    headline: `${c.reference_number ? `${c.reference_number}: ` : ""}${c.title}`.slice(0, 110),
+    headline: `${ref ? `${ref}: ` : ""}${c.title}`.slice(0, 110),
+    alternativeHeadline: [bn, c.title_bn].filter(Boolean).join(": ") || undefined,
+    description: description(c),
     datePublished: c.publication_date ?? undefined,
     inLanguage: "en",
     mainEntityOfPage: `${SITE_URL}${c.path}`,
-    publisher: { "@type": "Organization", name: "Amar Circular", url: SITE_URL },
-    about: "Bangladesh Bank circular",
+    author: { "@type": "Organization", name: "Amar Circular", url: SITE_URL },
+    publisher: { "@type": "Organization", name: "Amar Circular", url: SITE_URL, logo: `${SITE_URL}/icons/icon-512.png` },
+    about: { "@type": "GovernmentOrganization", name: "Bangladesh Bank", url: "https://www.bb.org.bd" },
+    isBasedOn: c.source_url || undefined,
+    keywords: [ref, bn, `${c.department} circular`, "Bangladesh Bank circular", ...(topics || []).map((t) => t.name)]
+      .filter(Boolean)
+      .join(", "),
   };
 
   return (
     <article className="mx-auto max-w-[820px] py-2 sm:py-6">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
 
-      <nav aria-label="Breadcrumb" className="mb-5 text-[13px] text-ink-3">
-        <ol className="flex flex-wrap items-center gap-1.5">
-          <li>
-            <Link href="/" className="hover:text-ink">
-              Home
-            </Link>
-          </li>
-          <li aria-hidden>›</li>
-          <li>
-            <Link href="/dashboard" className="hover:text-ink">
-              Library
-            </Link>
-          </li>
-          <li aria-hidden>›</li>
-          <li>{c.department}</li>
-          <li aria-hidden>›</li>
-          <li className="font-semibold text-ink-2">{c.reference_number || "Circular"}</li>
-        </ol>
-      </nav>
+      <Breadcrumbs
+        trail={[
+          { name: "Home", href: "/" },
+          { name: "Circulars", href: "/circulars" },
+          { name: c.department, href: `/circulars/${deptCode}` },
+          { name: ref || "Circular" },
+        ]}
+      />
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-[13px]">
-          <span className="font-semibold text-accent">{c.reference_number || "Circular"}</span>
+          <span className="font-semibold text-accent">{ref || "Circular"}</span>
           {c.status_label && (
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-semibold ${
@@ -144,9 +149,9 @@ export default async function CircularPage({ params }: Params) {
           </span>
         </div>
         <h1 className="font-serif text-[30px] font-medium leading-[1.15] text-ink sm:text-[38px]">{c.title}</h1>
-        {c.title_bn && (
+        {(c.title_bn || bn) && (
           <p lang="bn" className="font-bangla text-[17px] text-ink-2">
-            {c.title_bn}
+            {[bn, c.title_bn].filter(Boolean).join(": ")}
           </p>
         )}
         <div className="flex flex-wrap gap-3 pt-1">
@@ -156,7 +161,26 @@ export default async function CircularPage({ params }: Params) {
           <Link href={`/circular/${c.id}/links`} className="btn-secondary h-11 px-5 text-[15px]">
             History &amp; links
           </Link>
+          {c.source_url && (
+            <a href={c.source_url} rel="noopener" target="_blank" className="btn-secondary h-11 px-5 text-[15px]">
+              <Download className="h-4 w-4" aria-hidden /> Original PDF (bb.org.bd)
+            </a>
+          )}
         </div>
+        {topics && topics.length > 0 && (
+          <ul className="flex flex-wrap gap-2 pt-1" aria-label="Subjects">
+            {topics.map((t) => (
+              <li key={t.code}>
+                <Link
+                  href={`/circulars/topic/${t.code}`}
+                  className="inline-flex rounded-full border border-line bg-surface px-3 py-1 text-[13px] text-ink-2 hover:border-accent hover:text-ink"
+                >
+                  {t.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </header>
 
       {any ? (
@@ -196,8 +220,18 @@ export default async function CircularPage({ params }: Params) {
         </div>
       )}
 
+      {related && related.length > 0 && (
+        <CircularRows
+          heading="Related circulars"
+          list={{ kind: "latest", code: "", name: "", total: related.length, analysed: related.length, items: related, indexable: true }}
+        />
+      )}
+
       <p className="mt-10 border-t border-line pt-4 text-[13px] text-ink-3">
-        Source: Bangladesh Bank. Each point links to the page of the original circular it comes from.
+        Source: Bangladesh Bank. Each point links to the page of the original circular it comes from.{" "}
+        <Link href={`/circulars/${deptCode}`} className="font-semibold text-accent hover:underline">
+          All {c.department} circulars
+        </Link>
       </p>
     </article>
   );
