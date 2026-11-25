@@ -1,3 +1,8 @@
+# Visitor analytics (26 Nov 2026)
+
+- **PostHog** (us.posthog.com, project "Amar Circular", id 767935, signed in with Google). Code: `frontend/services/analytics.ts` + `components/Analytics.tsx`. Runs only on amarcircular.com; sent through `/ingest` (rewrites in `next.config.js`) so ad blockers don't drop it. Records page views, time on page, clicks, heatmaps and session replays (typed text masked). Signed-in readers are identified by account id with email, name, phone, admin flag; company and designation are added when a reader finishes sign-up step 3. Events: `signed_up`, `signup_details_completed`.
+- Project settings done: session replay on, heatmaps on, time zone Asia/Dhaka. Still to do after the first real events: an internal-users filter on `is_admin = true`.
+
 # START HERE (24 Nov 2026): go-live polish, sign-in gate, free launch
 
 - **Launch is free for everyone, sign-in required.** Plans and prices are gone from every screen (`/plans` redirects home); the Free plan in `plans/plans.py` allows every feature with no question cap. Signed-out visitors see only a full-page sign-in (`components/AuthGate.tsx`, `AuthForm.tsx`); the backend refuses anonymous reads too (`documents/access.py` `get_document_reader` -> 401, plus `/institutions`, `/sources*`, `/documents/provider-status`, `/feed/topics`, `/plans`). Health and `/auth/*` stay open. Tests read as an ordinary signed-in user (`tests/factories.py` `signed_in_reader`); `test_sign_in_required.py` checks the 401s.
