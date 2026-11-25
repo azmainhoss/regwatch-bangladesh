@@ -7,7 +7,7 @@
  *
  * The same drawing is used on screen (`MindMap`) and turned into a picture for emails (`mindMapPng`).
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import type { ClaimItem, ClaimSection, DocumentItem } from "@/services/api";
 import { titleWithoutRef } from "./ui";
@@ -229,6 +229,75 @@ export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette
   return parts.join("");
 }
 
+// ------------------------------------------------------------------------- narrow layout
+
+const NW = 360;
+const N_TRUNK = 24;
+const N_PILL_X = 40;
+const N_LEAF_X = 58;
+const N_LEAF_W = NW - N_LEAF_X - 10;
+const N_CHARS = 36;
+
+/** The same map drawn top to bottom, for phones and narrow panes: it fits the width, so nothing scrolls sideways. */
+export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false, full = false): string {
+  const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), 42, full ? 8 : 5);
+  const rootY = 10;
+  const rootH = 32 + rootLines.length * 18 + 10;
+  let y = rootY + rootH + 20;
+  const body: string[] = [];
+  let lastMid = rootY + rootH;
+  for (const b of branches) {
+    const c = b.color;
+    const pillW = Math.min(NW - N_PILL_X - 10, b.label.length * 8 + 30);
+    const pMid = y + 15;
+    lastMid = pMid;
+    body.push(`<path d="M ${N_TRUNK} ${pMid} H ${N_PILL_X}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.85"/>`);
+    body.push(`<rect x="${N_PILL_X}" y="${y}" width="${pillW}" height="30" rx="15" fill="${c}"/>`);
+    body.push(`<text x="${N_PILL_X + pillW / 2}" y="${pMid + 5}" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">${esc(b.label)}</text>`);
+    y += 30 + 8;
+    const shown = full ? b.leaves : b.leaves.slice(0, MAX_LEAVES);
+    const items: { leaf: MindLeaf; idx: number; more?: boolean }[] = shown.map((leaf, idx) => ({ leaf, idx }));
+    if (!full && b.leaves.length > MAX_LEAVES) items.push({ leaf: { text: `+ ${b.leaves.length - MAX_LEAVES} more in the circular` }, idx: -1, more: true });
+    const stemTop = y - 8;
+    let stemBottom = stemTop;
+    const stemX = N_PILL_X + 10;
+    for (const it of items) {
+      const lines = wrap(it.leaf.text, N_CHARS, full ? 99 : MAX_LINES);
+      const h = lines.length * LINE + 10;
+      const lMid = y + Math.min(h / 2, 16);
+      stemBottom = lMid;
+      body.push(`<path d="M ${stemX} ${lMid} H ${N_LEAF_X}" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>`);
+      const clickable = interactive && !it.more && (it.leaf.page || it.leaf.docId);
+      const attrs = clickable ? ` data-branch="${esc(b.key)}" data-leaf="${it.idx}" style="cursor:pointer" role="button" tabindex="0"` : "";
+      body.push(`<g${attrs}>`);
+      body.push(`<rect x="${N_LEAF_X}" y="${y}" width="${N_LEAF_W}" height="${h}" rx="8" fill="${c}" fill-opacity="0.09" stroke="${c}" stroke-opacity="0.35"/>`);
+      lines.forEach((line, i) => {
+        body.push(`<text x="${N_LEAF_X + 10}" y="${y + 19 + i * LINE}" font-size="13" fill="${it.more ? p.ink2 : p.ink}">${esc(line)}</text>`);
+      });
+      if (it.leaf.page) {
+        body.push(`<text x="${N_LEAF_X + N_LEAF_W - 8}" y="${y + 15}" text-anchor="end" font-size="10.5" fill="${p.ink2}">p. ${it.leaf.page}</text>`);
+      }
+      body.push(`</g>`);
+      y += h + 8;
+    }
+    if (items.length) body.unshift(`<path d="M ${stemX} ${stemTop} V ${stemBottom}" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>`);
+    y += 14;
+  }
+  const height = Math.max(y, 160);
+  const parts: string[] = [];
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${NW} ${height}" width="${NW}" height="${height}" font-family="Source Sans 3, Segoe UI, Roboto, Noto Sans Bengali, Arial, sans-serif">`);
+  parts.push(`<rect width="${NW}" height="${height}" fill="${p.bg}"/>`);
+  parts.push(`<path d="M ${N_TRUNK} ${rootY + rootH} V ${lastMid}" fill="none" stroke="${p.ink2}" stroke-width="2" opacity="0.55"/>`);
+  parts.push(...body);
+  parts.push(`<rect x="10" y="${rootY}" width="${NW - 20}" height="${rootH}" rx="12" fill="${p.rootBg}"/>`);
+  parts.push(`<text x="24" y="${rootY + 24}" font-size="14" font-weight="700" fill="${p.rootInk}">${esc(doc.reference_number || "Circular")}</text>`);
+  rootLines.forEach((line, i) => {
+    parts.push(`<text x="24" y="${rootY + 46 + i * 18}" font-size="13.5" fill="${p.rootInk}" opacity="0.92">${esc(line)}</text>`);
+  });
+  parts.push(`</svg>`);
+  return parts.join("");
+}
+
 /** The mind map as a PNG data URL (for emails). */
 export async function mindMapPng(doc: DocumentItem, branches: MindBranch[]): Promise<string | null> {
   if (branches.length === 0) return null;
@@ -271,8 +340,22 @@ export default function MindMap({
   full?: boolean;
 }) {
   const palette: Palette = dark ? { bg: "transparent", ink: "#e6ece9", ink2: "#9aa7a1", line: "#33403a", rootBg: "#2f7d63", rootInk: "#ffffff" } : { ...LIGHT, bg: "transparent" };
-  const svg = useMemo(() => mindMapSvg(doc, branches, palette, true, full), [doc, branches, dark, full]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Narrow spaces (phones, the reader beside an open side panel) get the top-to-bottom drawing that fits the width.
+  const box = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < 600));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const svg = useMemo(
+    () => (narrow ? mindMapSvgNarrow(doc, branches, palette, true, full) : mindMapSvg(doc, branches, palette, true, full)),
+    [doc, branches, dark, full, narrow], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const [zoom, setZoom] = useState(1);
+  useEffect(() => setZoom(1), [narrow]);
   const pane = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
 
@@ -293,10 +376,12 @@ export default function MindMap({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="relative">
-          {/* Zoom (buttons) and pan (scroll, or drag with the mouse) for large maps. */}
-          <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-control border border-line bg-surface/95 p-0.5 shadow-panel">
+    <div ref={box} className="space-y-2">
+      {/* Zoom (buttons) and pan (scroll, or drag with the mouse) for large maps; above the map so they never cover it.
+          The narrow drawing already fits the width and needs no zoom. */}
+      {!narrow && (
+        <div className="flex justify-end">
+          <div className="flex gap-1 rounded-control border border-line bg-surface p-0.5">
             <button type="button" aria-label="Zoom out" disabled={zoom <= 1} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} className="grid h-8 w-8 place-items-center rounded text-ink-2 hover:bg-sunken disabled:opacity-40">
               <Minus className="h-4 w-4" />
             </button>
@@ -308,9 +393,12 @@ export default function MindMap({
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
           </div>
+        </div>
+      )}
+      <div>
           <div
             ref={pane}
-            className={`-mx-4 ${full ? "" : "max-h-[72vh] "}overflow-auto px-4 sm:mx-0 sm:px-0 ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
+            className={`${narrow ? "" : "-mx-4 px-4 sm:mx-0 sm:px-0 "}${full ? "" : "max-h-[72vh] "}overflow-auto ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
             onPointerDown={(e) => {
               if (zoom <= 1 || e.pointerType !== "mouse" || !pane.current) return;
               drag.current = { x: e.clientX, y: e.clientY, left: pane.current.scrollLeft, top: pane.current.scrollTop, moved: false };
@@ -329,7 +417,7 @@ export default function MindMap({
           >
             <div
               className="mind-map [&_svg]:h-auto [&_svg]:w-full"
-              style={{ minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
+              style={narrow ? { width: "100%" } : { minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
               onClick={(e) => {
                 if (drag.current?.moved) return;
                 pick(e);
