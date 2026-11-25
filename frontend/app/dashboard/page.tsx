@@ -426,6 +426,9 @@ function CircularsPageInner() {
     return fromDb && fromDb !== code ? fromDb : DEPT_NAMES[code];
   };
   const topicOptions = (counts?.topics ?? []).slice().sort((a, b) => b.count - a.count);
+  // The three largest categories as pills (plus the selected one if it is not among them); the rest under "More".
+  const topTopics = topicOptions.slice(0, 3);
+  const topicPills = topic !== "ALL" && !topTopics.some((t) => t.code === topic) ? [...topTopics, ...topicOptions.filter((t) => t.code === topic)] : topTopics;
   const anyFilter = !!(box || search || dept !== "ALL" || topic !== "ALL");
 
   // The circulars before and after the open one in the list, for the arrows and the J / K keys.
@@ -554,34 +557,54 @@ function CircularsPageInner() {
 
       {currentUser && <AssignedPanel userId={currentUser.id} />}
 
-      <DashboardAsk signedIn={!!currentUser} onSearch={setSearch} initial={search} inputId={SEARCH_INPUT_ID} />
-
-      {/* Filters: category, then department (all departments in one searchable list). Search is the box above. */}
-      <div aria-label="Filter by category and department" className="-mt-1 flex flex-wrap items-center gap-2">
-        <FilterMenu
-          label={topic === "ALL" ? "Category" : shortTopic(topicNames[topic] || topic)}
-          title="Categories"
-          placeholder="Search categories"
-          value={topic}
-          active={topic !== "ALL"}
-          onChange={setTopic}
-          options={[{ code: "ALL", label: "All categories" }, ...topicOptions.map((t) => ({ code: t.code, label: topicNames[t.code] || t.label, count: t.count }))]}
-        />
-        <FilterMenu
-          label={dept === "ALL" ? "Department" : dept}
-          title="Departments"
-          placeholder="Search departments"
-          value={dept}
-          active={dept !== "ALL"}
-          onChange={setDept}
-          options={[{ code: "ALL", label: "All departments" }, ...allDepts.map((d) => ({ code: d.code, label: d.code, sub: deptName(d.code), count: d.count }))]}
-        />
-        {(topic !== "ALL" || dept !== "ALL") && (
-          <button type="button" onClick={() => { setTopic("ALL"); setDept("ALL"); }} className="text-[13.5px] font-semibold text-accent hover:underline">
-            Clear filters
-          </button>
-        )}
-      </div>
+      {/* Search and Ask in one box, with the filters centred right under it. */}
+      <section className="pt-6 sm:pt-10" aria-label="Search, ask and filter">
+        <h2 className="mb-4 text-center font-serif text-[26px] font-medium tracking-[-0.01em] text-ink sm:text-[32px]">Amar Circular Intelligence</h2>
+        <DashboardAsk signedIn={!!currentUser} onSearch={setSearch} initial={search} inputId={SEARCH_INPUT_ID} />
+        <div aria-label="Filter by category and department" className="mx-auto mt-4 flex max-w-[760px] flex-wrap items-center justify-center gap-1.5">
+          {[{ code: "ALL", label: "All", count: -1 }, ...topicPills].map((t) => {
+            const active = topic === t.code;
+            return (
+              <button
+                key={`topic-${t.code}`}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setTopic(t.code)}
+                className={`relative shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13.5px] font-semibold transition-colors ${
+                  active ? "text-accent-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
+                }`}
+              >
+                {active && (
+                  <motion.span layoutId="topic-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+                )}
+                <span className="relative">
+                  {t.code === "ALL" ? "All" : shortTopic(topicNames[t.code] || t.label)}
+                  {t.count > 0 && <span className={`ml-1.5 text-[12px] tabular-nums ${active ? "opacity-80" : "text-ink-3"}`}>{t.count}</span>}
+                </span>
+              </button>
+            );
+          })}
+          {topicOptions.length > 3 && (
+            <FilterMenu
+              label="More categories"
+              title="Categories"
+              placeholder="Search categories"
+              value={topic}
+              onChange={setTopic}
+              options={[{ code: "ALL", label: "All categories" }, ...topicOptions.map((t) => ({ code: t.code, label: topicNames[t.code] || t.label, count: t.count }))]}
+            />
+          )}
+          <FilterMenu
+            label={dept === "ALL" ? "Department" : dept}
+            title="Departments"
+            placeholder="Search departments"
+            value={dept}
+            active={dept !== "ALL"}
+            onChange={setDept}
+            options={[{ code: "ALL", label: "All departments" }, ...allDepts.map((d) => ({ code: d.code, label: d.code, sub: deptName(d.code), count: d.count }))]}
+          />
+        </div>
+      </section>
 
       <div id="circular-list-heading" className="-mt-2 flex scroll-mt-20 flex-wrap items-center gap-2 text-[13px] text-ink-3" aria-live="polite">
         {box && (
