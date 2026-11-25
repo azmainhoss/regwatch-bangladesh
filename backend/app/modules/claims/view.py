@@ -122,6 +122,7 @@ def _reader_fields(claim: AnalysisClaim) -> Dict[str, Any]:
 async def _link_targets(db, claims: List[AnalysisClaim], user) -> Dict[str, Dict[str, Any]]:
     """For each shown link claim: the circular it names, when the reader may read that circular."""
     from backend.app.modules.relationships.models import DocumentRelationship
+    from backend.app.modules.library.public import _TITLE_REF
     from backend.app.modules.relationships.status import load_visible_docs
 
     link_claims = [c for c in claims if c.kind == "LINK"]
@@ -145,6 +146,8 @@ async def _link_targets(db, claims: List[AnalysisClaim], user) -> Dict[str, Dict
         out[str(c.id)] = {
             "target_document_id": str(doc.id) if doc else None,
             "target_reference": (doc.reference_number if doc and doc.reference_number else None) or (c.fields or {}).get("target_hint"),
+            # The related circular's own title without its "XYZ Circular No. N:" start, for labels.
+            "target_title": (_TITLE_REF.sub("", doc.title or "", count=1).strip() or (doc.title or "").strip() or None) if doc else None,
         }
     return out
 
@@ -166,6 +169,7 @@ def _item(claim: AnalysisClaim, pages: Dict[str, int], targets: Dict[str, Dict[s
         item["link"] = {
             "target_document_id": target.get("target_document_id"),
             "target_reference": target.get("target_reference"),
+            "target_title": target.get("target_title"),
             "shown_type": S.shown_link_type(claim) if S.is_shown(claim) else "REFERENCES",
         }
     if admin:

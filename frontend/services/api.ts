@@ -1271,7 +1271,7 @@ export interface ClaimItem {
   /** Not confirmed by every check: shown with "Check page N" instead of "Checked". */
   check_page?: boolean;
   obligation_id?: string;
-  link?: { target_document_id: string | null; target_reference: string | null; shown_type: string };
+  link?: { target_document_id: string | null; target_reference: string | null; target_title?: string | null; shown_type: string };
   /** Administrators only. */
   status?: string;
   shown?: boolean;

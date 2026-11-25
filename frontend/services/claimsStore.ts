@@ -634,7 +634,7 @@ function decidedItem(item: ClaimItem, action: ClaimAction, body: ClaimDecisionBo
   if (item.kind === "LINK") {
     const claimed = String(fields.claimed_type ?? "REFERENCES");
     next.fields = { ...fields, shown_type: claimed };
-    next.link = { target_document_id: item.link?.target_document_id ?? null, target_reference: item.link?.target_reference ?? null, shown_type: claimed };
+    next.link = { target_document_id: item.link?.target_document_id ?? null, target_reference: item.link?.target_reference ?? null, target_title: item.link?.target_title ?? null, shown_type: claimed };
   }
   return next;
 }

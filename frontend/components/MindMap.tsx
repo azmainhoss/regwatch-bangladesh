@@ -42,6 +42,13 @@ const fmtDate = (v?: string | null) => {
   return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };
 const readable = (v?: string | null) => (v ? v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ") : "");
+/** A related circular's title, cut at a word when very long (the leaf opens the circular for the rest). */
+const shortTitle = (t: string, max = 110) => {
+  const s = t.replace(/\s+/g, " ").trim().replace(/[\s.]+$/, "");
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  return cut.slice(0, cut.lastIndexOf(" ") > 40 ? cut.lastIndexOf(" ") : max).replace(/[\s,;:.\-–]+$/, "") + "…";
+};
 
 /** The branches of a circular's mind map, from the points readers can see. */
 export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => ClaimItem[], entityLabel: (e: any) => string): MindBranch[] {
@@ -77,7 +84,13 @@ export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => C
       label: "Related circulars",
       color: BRANCH_COLORS.links,
       leaves: shownOf("links").map((i) => ({
-        ...leaf(i, `${readable(i.link?.shown_type || "mentions")} ${i.link?.target_reference || i.fields.target_hint || "a circular"}`),
+        // The related circular's title leads ("Repeals: Inclusion of ..."); its number only when no title is known.
+        ...leaf(
+          i,
+          i.link?.target_title
+            ? `${readable(i.link.shown_type || "mentions")}: ${shortTitle(i.link.target_title)}`
+            : `${readable(i.link?.shown_type || "mentions")} ${i.link?.target_reference || i.fields.target_hint || "a circular"}`,
+        ),
         docId: i.link?.target_document_id ?? null,
       })),
     },
