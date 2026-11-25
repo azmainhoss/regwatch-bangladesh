@@ -1,13 +1,15 @@
-# START HERE (26 Nov 2026): SEO set up (committed locally, not deployed)
+# START HERE (26 Nov 2026): SEO live
 
 - What was built is in `docs/CHANGELOG.md` (26 Nov) and the keyword research in `docs/seo/KEYWORDS.md`.
-- **To go live:** push `main` and run the deploy. After deploy, check `/circulars`, `/circulars/brpd`, `/sitemap.xml`
-  (about 730 addresses) and `/60b49caa6f7be62ceb2165ea3dc93699.txt` (IndexNow key). The backend log shows
-  `IndexNow: sent N new pages` about 3 minutes after start.
-- **Owner steps:** verify the domain in Google Search Console (Cloudflare one-click DNS), submit the sitemap, then
-  import into Bing Webmaster Tools. DNS verification needs no code. Only if a meta-tag method is used instead: put
-  `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` / `NEXT_PUBLIC_BING_SITE_VERIFICATION` in `/opt/regwatch/app/frontend/.env.production`
-  on the server (Next reads it at build time) and redeploy.
+- **Deployed 26 Nov.** Live: `/circulars`, `/circulars/<dept|year>`, `/circulars/topic/<subject>`, `/llms.txt`,
+  sitemap with about 450 addresses, IndexNow key at `/60b49caa6f7be62ceb2165ea3dc93699.txt`.
+- **Google Search Console:** domain property amarcircular.com (Google account hozaifah626), verified by a TXT record
+  in Cloudflare; sitemap submitted; home, /circulars, /circulars/brpd, /circulars/2026 sent for indexing.
+- **Bing Webmaster Tools:** amarcircular.com verified by a CNAME record in Cloudflare; sitemap submitted.
+- **IndexNow:** first try got 403 "SiteVerificationNotCompleted" (normal for a new key); it retries hourly. Check
+  `journalctl -u regwatch-backend | grep IndexNow` for "sent N new pages".
+- Only "AI verified" circulars are indexable (393 live). 275 "AI draft" circulars are `noindex`; whether to index
+  them is the owner's call.
 - **Dated future tasks** (content, links, weekly checks): TickTick project "amarcircular seo".
 - OpenSEO (app.openseo.so) account exists, free trial, about $0.30 credit left. Its keyword tool works in the browser.
 
