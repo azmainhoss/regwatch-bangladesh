@@ -34,6 +34,9 @@ export default function DashboardCards({
   signedIn,
   onPick,
   compact = false,
+  total,
+  allActive = false,
+  onAll,
 }: {
   count: (b: Box) => number | null;
   active?: Box | null;
@@ -41,9 +44,38 @@ export default function DashboardCards({
   onPick: (b: Box) => void;
   /** Inside the home page hero: tighter, so four fit beside the picture. */
   compact?: boolean;
+  /** "All circulars": the whole library's count (live). Shown as the first card when given. */
+  total?: number | null;
+  allActive?: boolean;
+  onAll?: () => void;
 }) {
+  const withAll = total !== undefined;
   return (
-    <div className={`grid grid-cols-2 gap-3 ${compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
+    <div className={`grid grid-cols-2 gap-3 ${withAll ? (compact ? "sm:grid-cols-5" : "md:grid-cols-5 md:gap-4") : compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
+      {withAll && (
+        <button
+          type="button"
+          onClick={onAll}
+          aria-pressed={allActive}
+          className={`col-span-2 rounded-[14px] border-2 px-4 py-4 text-left transition-colors sm:col-span-1 ${compact ? "" : "sm:px-5 sm:py-5"} ${
+            allActive ? "border-accent bg-accent text-accent-ink shadow-panel" : "border-accent/25 bg-accent-soft text-ink hover:border-accent/50"
+          }`}
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-[15px] font-bold">All circulars</span>
+            {allActive && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-accent-ink/20 px-2 py-0.5 text-[11px] font-bold tracking-wide">
+                <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" />
+                Selected
+              </span>
+            )}
+          </span>
+          <span className={`mt-2 block ${compact ? "text-[30px]" : "text-[34px]"} font-bold leading-none tracking-tight tabular-nums`}>
+            {total === null ? <SkeletonLine className="mt-1 h-8 w-16" /> : total.toLocaleString("en-US")}
+          </span>
+          <span className={`mt-2.5 block text-[14px] ${allActive ? "opacity-90" : "text-ink-2"}`}>In the library</span>
+        </button>
+      )}
       {CARDS.map(({ id, label, hint }) => {
         const n = count(id);
         const locked = id === "later" && !signedIn;

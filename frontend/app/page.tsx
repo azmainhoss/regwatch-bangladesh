@@ -47,6 +47,13 @@ export default function HomePage() {
       .then(setCounts)
       .catch(() => undefined);
   }, [user?.id, lists.version]);
+  // Live numbers: re-read every 5 minutes while the page is visible.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") fetchFeedCounts().then(setCounts).catch(() => undefined);
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   if (legacy) return null;
 
@@ -73,7 +80,7 @@ export default function HomePage() {
             where to find it in the original document.
           </p>
           <div className="mt-2">
-            <DashboardCards count={count} signedIn={!!user} onPick={pick} compact />
+            <DashboardCards total={counts ? counts.library ?? null : null} onAll={() => router.push("/dashboard")} count={count} signedIn={!!user} onPick={pick} compact />
           </div>
         </div>
 

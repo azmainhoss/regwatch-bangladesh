@@ -262,6 +262,14 @@ function CircularsPageInner() {
     loadCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, lists.version]);
+  // The numbers stay live: re-read every 5 minutes while the page is open and visible.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadCounts();
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (box === "later" && lists.version > 0) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -539,6 +547,13 @@ function CircularsPageInner() {
 
       {/* Today / This week / This month / Read later */}
       <DashboardCards
+        total={counts ? counts.library ?? null : null}
+        allActive={!box && !search && dept === "ALL" && topic === "ALL"}
+        onAll={() => {
+          setBox(null);
+          setDept("ALL");
+          setTopic("ALL");
+        }}
         count={boxCount}
         active={box}
         signedIn={!!currentUser}
