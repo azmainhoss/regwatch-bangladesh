@@ -8,7 +8,7 @@
  * The same drawing is used on screen (`MindMap`) and turned into a picture for emails (`mindMapPng`).
  */
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, LayoutList, Minus, Network, Plus, RotateCcw } from "lucide-react";
+import { Minus, Plus, RotateCcw } from "lucide-react";
 import type { ClaimItem, ClaimSection, DocumentItem } from "@/services/api";
 import { titleWithoutRef } from "./ui";
 
@@ -256,76 +256,6 @@ export async function mindMapPng(doc: DocumentItem, branches: MindBranch[]): Pro
   }
 }
 
-/** Phones: the same branches as a readable outline of tappable cards, nothing cut short. */
-function Outline({ doc, branches, onOpenLeaf, full }: { doc: DocumentItem; branches: MindBranch[]; onOpenLeaf: (leaf: MindLeaf) => void; full?: boolean }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const title = titleWithoutRef(doc.title, doc.reference_number);
-  return (
-    <div className="space-y-4">
-      <div className="rounded-panel bg-[#1f5c47] px-4 py-3 text-white dark:bg-[#2f7d63]">
-        <p className="text-[14px] font-bold">{doc.reference_number || "Circular"}</p>
-        <p className="mt-0.5 text-[14px] leading-snug opacity-95">{title}</p>
-      </div>
-      {branches.map((b) => {
-        const all = full || !!open[b.key];
-        const shown = all ? b.leaves : b.leaves.slice(0, 5);
-        return (
-          <section key={b.key} className="relative border-l-[3px] pl-3" style={{ borderColor: b.color }}>
-            <h4 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-ink">
-              <span className="rounded-full px-2.5 py-0.5 text-[12.5px] font-semibold text-white" style={{ background: b.color }}>
-                {b.label}
-              </span>
-              <span className="text-[12.5px] font-normal text-ink-3 tabular-nums">{b.leaves.length}</span>
-            </h4>
-            <ul className="space-y-1.5">
-              {shown.map((l, i) => {
-                const can = !!(l.page || l.docId);
-                const body = (
-                  <>
-                    <span className="min-w-0 flex-1 break-words text-[14px] leading-snug text-ink" lang={/[\u0980-\u09FF]/.test(l.text) ? "bn" : undefined}>
-                      {l.text}
-                    </span>
-                    {l.page ? (
-                      <span className="shrink-0 rounded-control px-1.5 py-0.5 text-[11.5px] font-semibold text-ink-3 ring-1 ring-inset ring-line">p. {l.page}</span>
-                    ) : can ? (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
-                    ) : null}
-                  </>
-                );
-                const cls = "flex w-full items-start gap-2 rounded-control px-2.5 py-2 text-left";
-                const tint = { background: `${b.color}14`, boxShadow: `inset 0 0 0 1px ${b.color}40` };
-                return (
-                  <li key={i}>
-                    {can ? (
-                      <button type="button" onClick={() => onOpenLeaf(l)} className={`${cls} active:opacity-80`} style={tint}>
-                        {body}
-                      </button>
-                    ) : (
-                      <div className={cls} style={tint}>
-                        {body}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {!full && b.leaves.length > 5 && (
-              <button
-                type="button"
-                onClick={() => setOpen((o) => ({ ...o, [b.key]: !all }))}
-                className="mt-1.5 inline-flex items-center gap-1 text-[13px] font-semibold text-accent"
-              >
-                <ChevronDown className={`h-4 w-4 transition-transform ${all ? "rotate-180" : ""}`} aria-hidden />
-                {all ? "Show fewer" : `Show ${b.leaves.length - 5} more`}
-              </button>
-            )}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function MindMap({
   doc,
   branches,
@@ -342,8 +272,6 @@ export default function MindMap({
 }) {
   const palette: Palette = dark ? { bg: "transparent", ink: "#e6ece9", ink2: "#9aa7a1", line: "#33403a", rootBg: "#2f7d63", rootInk: "#ffffff" } : { ...LIGHT, bg: "transparent" };
   const svg = useMemo(() => mindMapSvg(doc, branches, palette, true, full), [doc, branches, dark, full]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Phones get the outline first: the full diagram is too wide to read at phone size.
-  const [view, setView] = useState<"outline" | "diagram">(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "outline" : "diagram"));
   const [zoom, setZoom] = useState(1);
   const pane = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
@@ -364,31 +292,9 @@ export default function MindMap({
     if (leaf) onOpenLeaf(leaf);
   };
 
-  const tab = (id: "outline" | "diagram", label: string, Icon: typeof Network) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={view === id}
-      onClick={() => setView(id)}
-      className={`inline-flex items-center gap-1.5 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold transition-colors ${
-        view === id ? "bg-surface text-ink shadow-sm" : "text-ink-3 hover:text-ink"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-      {label}
-    </button>
-  );
-
   return (
     <div className="space-y-3">
-      <div role="tablist" aria-label="Show the mind map as" className="inline-flex rounded-control bg-sunken p-0.5">
-        {tab("diagram", "Diagram", Network)}
-        {tab("outline", "Outline", LayoutList)}
-      </div>
-      {view === "outline" ? (
-        <Outline doc={doc} branches={branches} onOpenLeaf={onOpenLeaf} full={full} />
-      ) : (
-        <div className="relative">
+      <div className="relative">
           {/* Zoom (buttons) and pan (scroll, or drag with the mouse) for large maps. */}
           <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-control border border-line bg-surface/95 p-0.5 shadow-panel">
             <button type="button" aria-label="Zoom out" disabled={zoom <= 1} onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} className="grid h-8 w-8 place-items-center rounded text-ink-2 hover:bg-sunken disabled:opacity-40">
@@ -434,7 +340,6 @@ export default function MindMap({
             />
           </div>
         </div>
-      )}
     </div>
   );
 }
