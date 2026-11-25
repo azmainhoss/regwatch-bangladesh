@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import { Check } from "lucide-react";
 import { SkeletonLine } from "@/components/ui";
 import type { Period } from "@/services/libraryApi";
@@ -50,14 +51,13 @@ export default function DashboardCards({
   onAll?: () => void;
 }) {
   const withAll = total !== undefined;
-  return (
-    <div className={`grid grid-cols-2 gap-3 ${withAll ? (compact ? "sm:grid-cols-5" : "md:grid-cols-5 md:gap-4") : compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
-      {withAll && (
+  // "All circulars" sits 4th, before Read later (owner, 2026-11-26).
+  const allCard = withAll ? (
         <button
           type="button"
           onClick={onAll}
           aria-pressed={allActive}
-          className={`col-span-2 rounded-[14px] border-2 px-4 py-4 text-left transition-colors sm:col-span-1 ${compact ? "" : "sm:px-5 sm:py-5"} ${
+          className={`rounded-[14px] border-2 px-4 py-4 text-left transition-colors sm:col-span-1 ${compact ? "" : "sm:px-5 sm:py-5"} ${
             allActive ? "border-accent bg-accent text-accent-ink shadow-panel" : "border-accent/25 bg-accent-soft text-ink hover:border-accent/50"
           }`}
         >
@@ -75,7 +75,9 @@ export default function DashboardCards({
           </span>
           <span className={`mt-2.5 block text-[14px] ${allActive ? "opacity-90" : "text-ink-2"}`}>In the library</span>
         </button>
-      )}
+  ) : null;
+  return (
+    <div className={`grid grid-cols-2 gap-3 ${withAll ? (compact ? "sm:grid-cols-5" : "md:grid-cols-5 md:gap-4") : compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
       {CARDS.map(({ id, label, hint }) => {
         const n = count(id);
         const locked = id === "later" && !signedIn;
@@ -88,12 +90,13 @@ export default function DashboardCards({
         const numberColour = on ? "" : fresh ? "text-bad" : "text-ink";
         const hintColour = on ? "opacity-90" : "text-ink-2";
         return (
+          <Fragment key={id}>
+          {id === "later" && allCard}
           <button
-            key={id}
             type="button"
             onClick={() => onPick(id)}
             aria-pressed={active === id}
-            className={`rounded-[14px] border-2 px-4 py-4 text-left transition-colors ${compact ? "" : "sm:px-5 sm:py-5"} ${look}`}
+            className={`rounded-[14px] border-2 px-4 py-4 text-left transition-colors ${compact ? "" : "sm:px-5 sm:py-5"} ${withAll && id === "later" ? "col-span-2 sm:col-span-1" : ""} ${look}`}
           >
             <span className="flex items-center justify-between gap-2">
               <span className="text-[15px] font-bold">{label}</span>
@@ -114,6 +117,7 @@ export default function DashboardCards({
             </span>
             <span className={`mt-2.5 block text-[14px] ${hintColour}`}>{locked ? "Register to save" : hint}</span>
           </button>
+          </Fragment>
         );
       })}
     </div>
