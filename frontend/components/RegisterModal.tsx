@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { AuthUser, OPEN_REGISTER_EVENT, quickRegister, updateMyProfile } from "../services/api";
 import { FREE_LIMIT, FREE_VIEWS_EVENT, freeExhausted } from "../services/freeViews";
+import { setPersonDetails, track } from "../services/analytics";
 import { Modal, ModalHeader, Notice } from "./ui";
 import AuthForm from "./AuthForm";
 
@@ -117,6 +118,7 @@ export function RegisterSteps({
       return run(async () => {
         onStarted();
         await quickRegister({ email, password: v.password });
+        track("signed_up");
         setStep(2);
       });
     }
@@ -135,6 +137,8 @@ export function RegisterSteps({
     if (!designation) return setError("Please enter your designation.");
     return run(async () => {
       await updateMyProfile({ company, designation });
+      setPersonDetails({ company, designation });
+      track("signup_details_completed", { company, designation });
       onDone();
     });
   };

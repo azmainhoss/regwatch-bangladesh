@@ -5,6 +5,7 @@ import AppHeader from "../components/AppHeader";
 import Providers from "../components/Providers";
 import AuthGate from "../components/AuthGate";
 import InstallApp from "../components/InstallApp";
+import Analytics from "../components/Analytics";
 
 const latin = Source_Sans_3({
   subsets: ["latin"],
@@ -89,6 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </AuthGate>
           <InstallApp />
+          <Analytics />
         </Providers>
       </body>
     </html>
