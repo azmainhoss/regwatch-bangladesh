@@ -63,6 +63,26 @@ _QUESTION_WORDS = {
 }
 
 
+def _abbreviation_notes(query: str) -> str:
+    """Spells out banking short forms used in the question ("STD" = standard), so the model can match the question to
+    sentences that use the full words. Without it the model refused "What is the STD provision rate" because the
+    circulars say "Standard", not "STD"."""
+    from backend.app.modules.topics.taxonomy import SYNONYMS
+
+    notes = []
+    for word in dict.fromkeys(_WORD.findall(query)):
+        # "STD" or "std" (3+ letters typed in lower case too); 2-letter forms only in capitals ("SS", "DF").
+        if not (2 <= len(word) <= 6 and (word.isupper() or len(word) >= 3)):
+            continue
+        for group in SYNONYMS:
+            if group and group[0].isupper() and group[0] == word.upper():
+                full = ", ".join(w for w in group[1:] if not w.isupper())
+                if full:
+                    notes.append(f"{word.upper()} means {full}")
+                break
+    return ("Abbreviations in the question: " + "; ".join(notes) + ".\n") if notes else ""
+
+
 def _keywords(query: str) -> List[str]:
     """The words that find pages for Ask. Short forms are kept and spelled out with the domain synonyms
     (topics/taxonomy.SYNONYMS): "STD provision rate" finds pages on "standard" loans and "provision"/"প্রভিশন".
@@ -314,8 +334,9 @@ class ResearchService:
 
         formatted_corpus = "\n\n".join(corpus_blocks)
         safe_query = sanitize_prompt_injection(query)
+        glossary = _abbreviation_notes(query)
         user_prompt = f"""Question: {safe_query}
-
+{glossary}
 <regulatory_corpus>
 {formatted_corpus}
 </regulatory_corpus>
