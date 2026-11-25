@@ -258,9 +258,12 @@ export default function CircularDetail(props: Props) {
   } = props;
 
   const [analyzing, setAnalyzing] = useState(false);
-  const [folded, setFolded] = useState<Record<string, boolean>>({});
-  const fold = { folded, toggle: (id: string) => setFolded((f) => ({ ...f, [id]: !f[id] })) };
+  // Every section starts folded (owner, 2026-11-26); the mind map above them shows the whole circular at a glance.
   const FOLDABLE = ["summary", "changes", "requirements", "applies", "dates", "exemptions", "links", "ask"];
+  const allFoldedState = () => Object.fromEntries(FOLDABLE.map((k) => [k, true])) as Record<string, boolean>;
+  const [folded, setFolded] = useState<Record<string, boolean>>(allFoldedState);
+  useEffect(() => setFolded(allFoldedState()), [doc.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fold = { folded, toggle: (id: string) => setFolded((f) => ({ ...f, [id]: !f[id] })) };
   const allFolded = FOLDABLE.every((k) => folded[k]);
   const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => setMoreOpen(false), [doc.id]);
@@ -520,7 +523,7 @@ export default function CircularDetail(props: Props) {
           className="rounded-control border border-line px-2 py-0.5 font-semibold text-accent hover:bg-sunken"
           data-testid="check-page"
         >
-          Page {item.page_number} · AI draft
+          Page {item.page_number} · Analysing
         </button>
       ) : (
         <>
@@ -601,6 +604,14 @@ export default function CircularDetail(props: Props) {
     </div>
   ) : null;
 
+  // The mind map's branches: drawn inline above the sections and in the larger view.
+  const branches = buildBranches(doc, shownOf, entityLabel);
+  const openLeaf = (leaf: MindLeaf) => {
+    setMapOpen(false);
+    if (leaf.page) openPage(leaf.page, leaf.item?.quote, leaf.item?.quote_boxes);
+    else if (leaf.docId) window.location.href = `/dashboard?doc=${leaf.docId}`;
+  };
+
   const analysisBody = locked ? (
     // Free circulars used up: the summary, points and pages open after Register now.
     <div className="space-y-3 border-t border-line pt-5">
@@ -659,7 +670,7 @@ export default function CircularDetail(props: Props) {
       <div className="-mb-1 flex justify-end">
         <button
           type="button"
-          onClick={() => setFolded(allFolded ? {} : Object.fromEntries(FOLDABLE.map((k) => [k, true])))}
+          onClick={() => setFolded(allFolded ? {} : allFoldedState())}
           className="rounded-control px-2 py-1 text-[13px] font-semibold text-ink-3 hover:bg-sunken hover:text-ink"
         >
           {allFolded ? "Expand all" : "Collapse all"}
@@ -681,6 +692,13 @@ export default function CircularDetail(props: Props) {
             ? "checking is paused right now."
             : `${minutesText(view.checking.minutes_left)} left. This page updates by itself.`}
         </Notice>
+      )}
+
+      {branches.length > 0 && (
+        <section className="border-t border-line pt-4" data-testid="inline-mind-map">
+          <h3 className="section-title mb-3">Mind map</h3>
+          <MindMap doc={doc} branches={branches} dark={isDark} onOpenLeaf={openLeaf} full />
+        </section>
       )}
 
       <Section id="summary" title="Summary" count={shownOf("summary").length || undefined}>
@@ -973,7 +991,6 @@ export default function CircularDetail(props: Props) {
     </FoldContext.Provider>
   );
 
-  const branches = buildBranches(doc, shownOf, entityLabel);
   // "Cites": the circulars this one names, by their number (or the name the circular gives, shortened). A link
   // whose target has no name at all is left out rather than shown as a generic "a circular".
   const backLinks: BackLink[] = shownOf("links").flatMap((i) => {
@@ -982,11 +999,6 @@ export default function CircularDetail(props: Props) {
     const short = name.length > 60 ? `${name.slice(0, 57).trimEnd()}…` : name;
     return [{ id: i.id, docId: i.link?.target_document_id ?? null, label: short, quote: name.length > 60 ? `${name}\n\n${i.quote ?? ""}` : i.quote }];
   });
-  const openLeaf = (leaf: MindLeaf) => {
-    setMapOpen(false);
-    if (leaf.page) openPage(leaf.page, leaf.item?.quote, leaf.item?.quote_boxes);
-    else if (leaf.docId) window.location.href = `/dashboard?doc=${leaf.docId}`;
-  };
   const panelBtn = (tab: "pdf" | "pages") =>
     pagePanelOpen && panelTab === tab ? "btn-secondary border-accent/50 bg-accent-soft text-accent hover:bg-accent-soft" : "btn-secondary";
 

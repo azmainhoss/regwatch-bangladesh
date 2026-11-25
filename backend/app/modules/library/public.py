@@ -239,9 +239,9 @@ async def circular_by_path(dept: str, slug: str, db: AsyncSession = Depends(get_
     shown = view.get("counts", {}).get("shown", 0)
     status_label = None
     if doc.publication_status in INDEXABLE:
-        status_label = "AI verified" if shown else "AI draft"
+        status_label = "Ready" if shown else "Analysing"
     elif doc.publication_status == "PUBLISHED_MACHINE_PROCESSED":
-        status_label = "AI draft"
+        status_label = "Analysing"
     pages = 0
     if doc.current_version_id:
         from sqlalchemy import func

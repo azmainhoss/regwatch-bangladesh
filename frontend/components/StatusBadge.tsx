@@ -35,15 +35,15 @@ interface StatusSpec {
  */
 const STATUSES: Record<string, StatusSpec> = {
   // Documents
-  // Reader trust words (owner, 2026-11-24): only "AI verified" and "AI draft", no tooltips.
-  PUBLISHED_HUMAN_REVIEWED: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
-  PUBLISHED_MACHINE_VERIFIED: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
-  PUBLISHED_MACHINE_PROCESSED: { label: "AI draft", tone: "info", icon: Eye },
+  // Reader trust words (owner, 2026-11-24): only "Ready" and "Analysing" (were AI verified / AI draft until 26 Nov), no tooltips.
+  PUBLISHED_HUMAN_REVIEWED: { label: "Ready", tone: "ok", icon: CheckCircle2 },
+  PUBLISHED_MACHINE_VERIFIED: { label: "Ready", tone: "ok", icon: CheckCircle2 },
+  PUBLISHED_MACHINE_PROCESSED: { label: "Analysing", tone: "info", icon: Eye },
   // Read and searchable, not analysed yet (most archive circulars). Readers see no trust badge for these
   // (READER_HIDDEN below): there is no AI output to vouch for. Admin screens still show this label.
   EXTRACTED: { label: "Not analysed", tone: "muted", icon: CircleDashed },
   EXTRACTING: { label: "Reading pages", tone: "info", icon: Loader2, spin: true },
-  AWAITING_REVIEW: { label: "AI verified", tone: "ok", icon: CheckCircle2 },
+  AWAITING_REVIEW: { label: "Ready", tone: "ok", icon: CheckCircle2 },
   NEEDS_REVISION: { label: "Needs revision", tone: "warn", icon: AlertTriangle },
   ANALYZING: { label: "Analysing", tone: "info", icon: Loader2, spin: true },
   EXTRACTION_FAILED: { label: "Extraction failed", tone: "bad", icon: AlertTriangle },

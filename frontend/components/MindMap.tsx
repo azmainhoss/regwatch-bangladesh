@@ -142,20 +142,20 @@ interface Placed {
   leaves: { leaf: MindLeaf; lines: string[]; y: number; h: number; more?: number }[];
 }
 
-function layout(branches: MindBranch[]) {
+function layout(branches: MindBranch[], full = false) {
   let y = 20;
   const placed: Placed[] = [];
   for (const b of branches) {
-    const shown = b.leaves.slice(0, MAX_LEAVES);
+    const shown = full ? b.leaves : b.leaves.slice(0, MAX_LEAVES);
     const leaves: Placed["leaves"] = [];
     const start = y;
     for (const leaf of shown) {
-      const lines = wrap(leaf.text);
+      const lines = wrap(leaf.text, CHARS_PER_LINE, full ? 99 : MAX_LINES);
       const h = lines.length * LINE + 8;
       leaves.push({ leaf, lines, y, h });
       y += h + LEAF_GAP;
     }
-    if (b.leaves.length > MAX_LEAVES) {
+    if (!full && b.leaves.length > MAX_LEAVES) {
       leaves.push({ leaf: { text: `+ ${b.leaves.length - MAX_LEAVES} more` }, lines: [`+ ${b.leaves.length - MAX_LEAVES} more in the circular`], y, h: LINE + 8, more: 1 });
       y += LINE + 8 + LEAF_GAP;
     }
@@ -166,9 +166,10 @@ function layout(branches: MindBranch[]) {
   return { placed, height: Math.max(y, 220) };
 }
 
-/** The mind map as one SVG string. `interactive` adds data attributes the screen uses to open pages. */
-export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false): string {
-  const { placed, height } = layout(branches);
+/** The mind map as one SVG string. `interactive` adds data attributes the screen uses to open pages;
+ * `full` draws every point in full (no "+ N more", no cut-off text). */
+export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false, full = false): string {
+  const { placed, height } = layout(branches, full);
   const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), 34, 5);
   const rootH = 34 + rootLines.length * 18 + 14;
   // Centred on short maps; on tall ones it stays near the top so it is in view when the map opens.
@@ -256,7 +257,7 @@ export async function mindMapPng(doc: DocumentItem, branches: MindBranch[]): Pro
 }
 
 /** Phones: the same branches as a readable outline of tappable cards, nothing cut short. */
-function Outline({ doc, branches, onOpenLeaf }: { doc: DocumentItem; branches: MindBranch[]; onOpenLeaf: (leaf: MindLeaf) => void }) {
+function Outline({ doc, branches, onOpenLeaf, full }: { doc: DocumentItem; branches: MindBranch[]; onOpenLeaf: (leaf: MindLeaf) => void; full?: boolean }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const title = titleWithoutRef(doc.title, doc.reference_number);
   return (
@@ -266,7 +267,7 @@ function Outline({ doc, branches, onOpenLeaf }: { doc: DocumentItem; branches: M
         <p className="mt-0.5 text-[14px] leading-snug opacity-95">{title}</p>
       </div>
       {branches.map((b) => {
-        const all = !!open[b.key];
+        const all = full || !!open[b.key];
         const shown = all ? b.leaves : b.leaves.slice(0, 5);
         return (
           <section key={b.key} className="relative border-l-[3px] pl-3" style={{ borderColor: b.color }}>
@@ -308,7 +309,7 @@ function Outline({ doc, branches, onOpenLeaf }: { doc: DocumentItem; branches: M
                 );
               })}
             </ul>
-            {b.leaves.length > 5 && (
+            {!full && b.leaves.length > 5 && (
               <button
                 type="button"
                 onClick={() => setOpen((o) => ({ ...o, [b.key]: !all }))}
@@ -330,14 +331,17 @@ export default function MindMap({
   branches,
   dark,
   onOpenLeaf,
+  full,
 }: {
   doc: DocumentItem;
   branches: MindBranch[];
   dark?: boolean;
   onOpenLeaf: (leaf: MindLeaf) => void;
+  /** Every point in full and no inner scroll box (the inline map at the top of a circular). */
+  full?: boolean;
 }) {
   const palette: Palette = dark ? { bg: "transparent", ink: "#e6ece9", ink2: "#9aa7a1", line: "#33403a", rootBg: "#2f7d63", rootInk: "#ffffff" } : { ...LIGHT, bg: "transparent" };
-  const svg = useMemo(() => mindMapSvg(doc, branches, palette, true), [doc, branches, dark]); // eslint-disable-line react-hooks/exhaustive-deps
+  const svg = useMemo(() => mindMapSvg(doc, branches, palette, true, full), [doc, branches, dark, full]); // eslint-disable-line react-hooks/exhaustive-deps
   // Phones get the outline first: the full diagram is too wide to read at phone size.
   const [view, setView] = useState<"outline" | "diagram">(() => (typeof window !== "undefined" && window.innerWidth < 640 ? "outline" : "diagram"));
   const [zoom, setZoom] = useState(1);
@@ -347,7 +351,7 @@ export default function MindMap({
   if (branches.length === 0) {
     return (
       <p className="p-4 text-[14px] text-ink-3">
-        The mind map is made from the AI verified summary and requirements. This circular has none yet, so there is nothing to draw.
+        The mind map is made from the checked summary and requirements. This circular has none yet, so there is nothing to draw.
       </p>
     );
   }
@@ -382,7 +386,7 @@ export default function MindMap({
         {tab("outline", "Outline", LayoutList)}
       </div>
       {view === "outline" ? (
-        <Outline doc={doc} branches={branches} onOpenLeaf={onOpenLeaf} />
+        <Outline doc={doc} branches={branches} onOpenLeaf={onOpenLeaf} full={full} />
       ) : (
         <div className="relative">
           {/* Zoom (buttons) and pan (scroll, or drag with the mouse) for large maps. */}
@@ -400,7 +404,7 @@ export default function MindMap({
           </div>
           <div
             ref={pane}
-            className={`-mx-4 max-h-[72vh] overflow-auto px-4 sm:mx-0 sm:px-0 ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
+            className={`-mx-4 ${full ? "" : "max-h-[72vh] "}overflow-auto px-4 sm:mx-0 sm:px-0 ${zoom > 1 ? "cursor-grab active:cursor-grabbing" : ""}`}
             onPointerDown={(e) => {
               if (zoom <= 1 || e.pointerType !== "mouse" || !pane.current) return;
               drag.current = { x: e.clientX, y: e.clientY, left: pane.current.scrollLeft, top: pane.current.scrollTop, moved: false };

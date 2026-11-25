@@ -94,7 +94,7 @@ export default async function CircularPage({ params }: Params) {
 
   const reader = `/dashboard?doc=${c.id}`;
   const any = SECTIONS.some((s) => c[s.key].length > 0);
-  const verified = c.status_label === "AI verified";
+  const verified = c.status_label === "Ready";
   const ref = refLabel(c.reference_number, c.publication_date);
   const bn = bnRef(c.reference_number, c.publication_date);
   const deptCode = c.path.split("/")[2] || c.department.toLowerCase();
@@ -199,7 +199,7 @@ export default async function CircularPage({ params }: Params) {
                         href={`${reader}&page=${p.page}`}
                         className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold text-accent hover:underline"
                       >
-                        Page {p.page} · {p.verified ? "AI verified" : "AI draft"} <ArrowRight className="h-3 w-3" aria-hidden />
+                        Page {p.page} · {p.verified ? "Ready" : "Analysing"} <ArrowRight className="h-3 w-3" aria-hidden />
                       </Link>
                     ) : null}
                   </li>
