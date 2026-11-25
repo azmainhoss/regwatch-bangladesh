@@ -229,7 +229,8 @@ async def test_end_to_end_ai_pipeline_on_corpus_document(client: AsyncClient, au
     relationships = rel_res.json()
     assert len(relationships) >= 1
     rel = relationships[0]
-    assert rel["relationship_type"] == "AMENDS"
+    # Kept as AMENDS only when the machine confirmed it; otherwise a plain mention (no person reviews links).
+    assert rel["relationship_type"] in ("AMENDS", "REFERENCES")
     assert "BRPD Circular No. 14" in rel["target_reference_hint"]
     assert rel["confidence"] >= 0.90
 

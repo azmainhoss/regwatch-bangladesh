@@ -15,6 +15,25 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 25 November 2026 (night): no human review anywhere; one meaning of "AI verified"
+
+- **"AI verified" now means one thing everywhere** (list, reader, search, circular pages): at least one point of
+  the circular passed the automated checks against the page. Until then it is an **AI draft**. Before, 282
+  circulars showed "AI verified" in the list while the reader said "AI draft".
+- **No link or point waits for a person** (owner's rule). A link the machine confirms keeps its type (amends,
+  repeals, ...); one it cannot confirm is kept as a plain "cites" link that never changes a circular's in-force
+  status; a link that fails its checks is dropped from History & links. 174 requirement points that were parked
+  for a person were sent back through the automated checks.
+- The admin-only tag now says "N links being checked" (the automated checks are still running), not
+  "awaiting review".
+- **Daily email (on hold with email):** sent every day at 19:30 Dhaka time to every registered person who has not
+  unsubscribed, with how many circulars came that day and each one listed (also on days with none). No AI labels
+  in emails, and no welcome email.
+- **Known limit:** the second reading of page images uses Gemini's free quota. All 7 keys reached today's limit;
+  5,879 sentences on 759 pages wait, and the free quota clears roughly 230–500 a day.
+
+---
+
 ## 25 November 2026 (evening): sign-up in 3 steps, emails ready
 
 - **Sign-up is now 3 steps** for everyone: email and password (the account is made here), then name and phone,

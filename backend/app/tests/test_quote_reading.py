@@ -447,7 +447,7 @@ async def test_a_clean_second_reading_releases_the_points_and_recomputes_the_sta
     doc, _v, pages, analysis = await image_circular(monkeypatch)
     before = await claims_of(analysis.id)
     assert counts_of(before)["checking"] > 0 and counts_of(before)["shown"] == 0
-    assert await doc_status(doc.id) == "PUBLISHED_MACHINE_VERIFIED"
+    assert await doc_status(doc.id) == "PUBLISHED_MACHINE_PROCESSED"  # AI draft until a point passes
     rows = await waiting_rows(pages[0].id)
     assert {r.status for r in rows} == {"WAITING"} and len(rows) == 5
 

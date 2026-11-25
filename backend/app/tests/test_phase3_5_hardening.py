@@ -402,7 +402,13 @@ async def test_publication_gate_enforcement():
         claim_status.route(d, doc, today=date(2026, 11, 13))
     assert links[0].fields["shown_type"] == "REFERENCES"
     assert claim_status.shown_link_type(links[0]) == "REFERENCES"
-    assert claim_status.link_row_status(links[0]) != "VERIFIED"
+    # No person confirms links (owner, 2026-11-25): an "amends" the machine cannot confirm is kept as a plain mention,
+    # which never changes a circular's in-force status.
+    if claim_status.is_shown(links[0]):
+        assert claim_status.link_row_status(links[0]) == "VERIFIED"
+        assert claim_status.link_row_type(links[0], "AMENDS") == "REFERENCES"
+    else:
+        assert claim_status.link_row_status(links[0]) != "VERIFIED"
 
 
 # 16. Unauthorized review rejection

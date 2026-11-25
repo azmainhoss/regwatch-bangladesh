@@ -39,7 +39,7 @@ export default function AdminLinksPanel() {
     <section className="panel" data-testid="admin-links">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div>
-          <h2 className="text-[17px] font-semibold text-ink">Links awaiting review</h2>
+          <h2 className="text-[17px] font-semibold text-ink">Links still being checked</h2>
           <p className="mt-0.5 max-w-prose text-[13.5px] text-ink-3">
             Read the quote and check it says what the link claims. Only approved links change whether a circular is in force.
           </p>

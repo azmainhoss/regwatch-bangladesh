@@ -170,9 +170,12 @@ def document_status(current: Optional[str], claims: Iterable[Any]) -> Optional[s
     if current in PROTECTED_DOCUMENT_STATUSES:
         return None
     claims = list(claims)
-    if any(c.check_status == WAITING_FOR_PERSON and c.review_queue == REQUIRED for c in claims):
-        return "AWAITING_REVIEW"
-    if any(c.check_status in DECIDED_STATUSES for c in claims):
+    # One rule everywhere (owner, 2026-11-25): "AI verified" only once at least one point has passed the
+    # automated checks; until then the circular is an "AI draft" (PUBLISHED_MACHINE_PROCESSED). No circular is held
+    # for a person any more.
+    if not any(is_shown(c) for c in claims):
+        return "PUBLISHED_MACHINE_PROCESSED"
+    if any(c.check_status in (APPROVED, FIXED) for c in claims):
         return "PUBLISHED_HUMAN_REVIEWED"
     return "PUBLISHED_MACHINE_VERIFIED"
 
@@ -219,15 +222,31 @@ def obligation_row_status(claim: Any) -> str:
 
 
 def link_row_status(claim: Any) -> str:
-    if claim.check_status == REJECTED:
+    """No link waits for a person (owner, 2026-11-25). The machine settles every link:
+    - confirmed change type, or a shown plain mention: VERIFIED;
+    - a change link the machine cannot confirm but whose quote passed: VERIFIED as a mention (sync_rows turns its
+      type into REFERENCES, so it never changes a circular's in-force status);
+    - failed checks (NOT_SHOWN) or rejected: REJECTED;
+    - only while the automated checks are still running (CHECKING): PENDING_REVIEW."""
+    if claim.check_status in (REJECTED, NOT_SHOWN):
         return "REJECTED"
     if _change_type_confirmed(claim):
         return "VERIFIED"
-    # A change-the-law link counts as VERIFIED only when its type was confirmed (above). Shown only as a mention,
-    # it stays PENDING_REVIEW: the row keeps the claimed type, and in-force code reads VERIFIED rows.
-    if is_shown(claim) and not is_change_link(claim):
+    if claim.check_status in SHOWN_STATUSES or is_shown(claim):
         return "VERIFIED"
+    if claim.check_status == WAITING_FOR_PERSON:
+        return "REJECTED"
     return "PENDING_REVIEW"
+
+
+def link_row_type(claim: Any, current: str) -> str:
+    """The type a link row keeps: the claimed change type only when confirmed, otherwise a plain mention."""
+    if _change_type_confirmed(claim):
+        return str(_fields(claim).get("claimed_type") or current).upper()
+    if claim.check_status in SHOWN_STATUSES or is_shown(claim):
+        if is_change_link(claim) and not _change_type_confirmed(claim):
+            return "REFERENCES"
+    return current
 
 
 async def sync_rows(db, claims: Iterable[Any]) -> None:
@@ -272,6 +291,7 @@ async def sync_rows(db, claims: Iterable[Any]) -> None:
             if row is None:
                 continue
             row.verification_status = link_row_status(claim)
+            row.relationship_type = link_row_type(claim, row.relationship_type)
             if claim.check_status == FIXED and f.get("claimed_type"):
                 row.relationship_type = str(f["claimed_type"]).upper()
                 if f.get("target_hint"):

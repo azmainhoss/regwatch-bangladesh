@@ -339,7 +339,7 @@ export function LinksGraph({ graph, selectedEdgeId, onSelectEdge }: { graph: Rel
                 className="cursor-pointer"
                 role="button"
                 tabIndex={0}
-                aria-label={`${label}${pending ? ", awaiting review" : ""}. Show its quote.`}
+                aria-label={`${label}${pending ? ", still being checked" : ""}. Show its quote.`}
                 onClick={() => onSelectEdge(selected ? null : e.id)}
                 onKeyDown={(ev) => {
                   if (ev.key === "Enter" || ev.key === " ") {
@@ -450,7 +450,7 @@ export function GraphLegend() {
         <svg width="26" height="8" aria-hidden>
           <line x1="0" y1="4" x2="26" y2="4" strokeWidth="1.6" strokeDasharray="5 4" style={{ stroke: "rgb(var(--ink-3))" }} />
         </svg>
-        Awaiting review
+        Being checked
       </li>
       <li className="flex items-center gap-1.5 text-ink-3">
         <Clock className="h-3.5 w-3.5" aria-hidden />

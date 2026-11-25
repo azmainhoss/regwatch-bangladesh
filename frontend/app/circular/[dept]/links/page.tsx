@@ -173,7 +173,7 @@ export default function CircularLinksPage() {
             )}
             <p className="max-w-prose text-[13px] text-ink-3">
               Only links that have been confirmed count.
-              {waiting.length > 0 && " Links still awaiting review are shown below in a lighter style and change nothing."}
+              {waiting.length > 0 && " Links still being checked are shown below in a lighter style and change nothing."}
             </p>
           </div>
         )}
@@ -257,7 +257,7 @@ export default function CircularLinksPage() {
       {waiting.length > 0 && (
         <section className="space-y-3" aria-labelledby="waiting-title" data-testid="awaiting-section">
           <h2 id="waiting-title" className="section-title">
-            Awaiting review
+            Being checked
             <span className="ml-2 text-[13px] font-normal text-ink-3">These links have not been confirmed, so they do not change the status above.</span>
           </h2>
           <div className="space-y-2">

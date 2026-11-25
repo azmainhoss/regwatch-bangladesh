@@ -381,12 +381,14 @@ def _c(status, queue=None):
 
 def test_document_status_rules():
     ds = S.document_status
+    # "AI verified" only once a point passed; otherwise "AI draft". Nothing is held for a person (owner, 2026-11-25).
     assert ds("EXTRACTED", [_c("PASSED"), _c("NOT_SHOWN", "OPTIONAL"), _c("CHECKING")]) == "PUBLISHED_MACHINE_VERIFIED"
-    assert ds("EXTRACTED", []) == "PUBLISHED_MACHINE_VERIFIED"
-    assert ds("EXTRACTED", [_c("PASSED"), _c("WAITING_FOR_PERSON", "REQUIRED")]) == "AWAITING_REVIEW"
+    assert ds("EXTRACTED", []) == "PUBLISHED_MACHINE_PROCESSED"
+    assert ds("EXTRACTED", [_c("CHECKING"), _c("NOT_SHOWN")]) == "PUBLISHED_MACHINE_PROCESSED"
+    assert ds("EXTRACTED", [_c("PASSED"), _c("WAITING_FOR_PERSON", "REQUIRED")]) == "PUBLISHED_MACHINE_VERIFIED"
     assert ds("EXTRACTED", [_c("PASSED"), _c("WAITING_FOR_PERSON", "OPTIONAL")]) == "PUBLISHED_MACHINE_VERIFIED"
     assert ds("EXTRACTED", [_c("PASSED"), _c("APPROVED")]) == "PUBLISHED_HUMAN_REVIEWED"
-    assert ds("EXTRACTED", [_c("REJECTED")]) == "PUBLISHED_HUMAN_REVIEWED"
+    assert ds("EXTRACTED", [_c("REJECTED")]) == "PUBLISHED_MACHINE_PROCESSED"
     for protected in ("WITHDRAWN", "SUPERSEDED", "EXTRACTION_FAILED"):
         assert ds(protected, [_c("WAITING_FOR_PERSON", "REQUIRED")]) is None
 
@@ -588,7 +590,8 @@ async def test_archive_analysis_records_no_new_circular_alert_but_live_does(monk
     await run_analysis(archive.id, clean, monkeypatch)
     await run_analysis(live.id, clean, monkeypatch)
     async with AsyncSessionLocal() as db:
-        assert (await db.get(Document, archive.id)).publication_status == "PUBLISHED_MACHINE_VERIFIED"
+        # No points passed (the analysis has none): an "AI draft".
+        assert (await db.get(Document, archive.id)).publication_status == "PUBLISHED_MACHINE_PROCESSED"
         keys = (await db.execute(select(AlertEvent.dedupe_key).where(
             AlertEvent.dedupe_key.in_([f"CIRCULAR_PUBLISHED:{archive.id}", f"CIRCULAR_PUBLISHED:{live.id}"])))).scalars().all()
     assert keys == [f"CIRCULAR_PUBLISHED:{live.id}"]
@@ -651,4 +654,4 @@ async def test_image_read_page_claims_stay_checking_until_the_second_reading(mon
     async with AsyncSessionLocal() as db:
         rows = (await db.execute(select(QuoteReadingCheck).where(QuoteReadingCheck.page_id == pages[0].id))).scalars().all()
         assert rows and {r.status for r in rows} == {"WAITING"}
-        assert (await db.get(Document, doc.id)).publication_status in ("PUBLISHED_MACHINE_VERIFIED", "AWAITING_REVIEW")
+        assert (await db.get(Document, doc.id)).publication_status == "PUBLISHED_MACHINE_PROCESSED"  # AI draft until checked

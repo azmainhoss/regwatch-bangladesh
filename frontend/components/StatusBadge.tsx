@@ -190,12 +190,12 @@ export function InForceBadge({ info, size = "md", plain = false }: { info?: InFo
   );
 }
 
-/** A link that has not been confirmed yet. It is shown for information and changes nothing. */
+/** Links the automated checks have not settled yet (no person is involved). Shown to admins only. */
 export function AwaitingReviewTag({ count }: { count?: number }) {
   return (
-    <Tag tone="muted" title="Not confirmed yet. Unconfirmed links never change a circular's in-force status.">
+    <Tag tone="muted" title="The automated checks are still running on these links. Until they finish, the links do not change any circular's in-force status.">
       <Clock className="h-3 w-3" strokeWidth={2} aria-hidden />
-      {typeof count === "number" ? `${count} awaiting review` : "Awaiting review"}
+      {typeof count === "number" ? `${count} link${count === 1 ? "" : "s"} being checked` : "Being checked"}
     </Tag>
   );
 }
