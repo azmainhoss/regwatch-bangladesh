@@ -63,24 +63,40 @@ _QUESTION_WORDS = {
 }
 
 
-def _abbreviation_notes(query: str) -> str:
-    """Spells out banking short forms used in the question ("STD" = standard), so the model can match the question to
-    sentences that use the full words. Without it the model refused "What is the STD provision rate" because the
-    circulars say "Standard", not "STD"."""
+def _synonym_groups_in(query: str) -> List[tuple]:
+    """Every domain synonym group (topics/taxonomy.SYNONYMS) the question uses, by any of its forms: "ECL",
+    "expected credit loss" and "IFRS 9" all find the ECL group (owner, 2026-11-26: these mean the same).
+    Short forms (6 letters or fewer, in capitals in the list) must stand as whole words, so "ECL" does not match
+    "declaration"; 3+ letter short forms may be typed in lower case."""
     from backend.app.modules.topics.taxonomy import SYNONYMS
 
-    notes = []
-    for word in dict.fromkeys(_WORD.findall(query)):
-        # "STD" or "std" (3+ letters typed in lower case too); 2-letter forms only in capitals ("SS", "DF").
-        if not (2 <= len(word) <= 6 and (word.isupper() or len(word) >= 3)):
-            continue
-        for group in SYNONYMS:
-            if group and group[0].isupper() and group[0] == word.upper():
-                full = ", ".join(w for w in group[1:] if not w.isupper())
-                if full:
-                    notes.append(f"{word.upper()} means {full}")
+    low = " " + re.sub(r"[^\wঀ-৿]+", " ", query.lower()) + " "
+    words = set(_WORD.findall(query))
+    found = []
+    for group in SYNONYMS:
+        for w in group:
+            short = w.isupper() and len(w) <= 6 and " " not in w
+            if short:
+                hit = w in words or (len(w) >= 3 and w.lower() in {x.lower() for x in words})
+            else:
+                phrase = " " + re.sub(r"[^\wঀ-৿]+", " ", w.lower()).strip() + " "
+                hit = phrase.strip() != "" and phrase in low
+            if hit:
+                found.append(group)
                 break
-    return ("Abbreviations in the question: " + "; ".join(notes) + ".\n") if notes else ""
+    return found
+
+
+def _abbreviation_notes(query: str) -> str:
+    """Tells the model which words in the question mean the same thing as the circulars' wording ("STD" = standard;
+    ECL = expected credit loss = IFRS 9), so it matches the question to sentences that use another form. Without it
+    the model refused "What is the STD provision rate" because the circulars say "Standard"."""
+    notes = []
+    for group in _synonym_groups_in(query):
+        forms = list(dict.fromkeys(group))
+        if len(forms) > 1:
+            notes.append(" = ".join(forms))
+    return ("These terms mean the same thing (treat them as one): " + "; ".join(notes) + ".\n") if notes else ""
 
 
 def _keywords(query: str) -> List[str]:
@@ -94,6 +110,12 @@ def _keywords(query: str) -> List[str]:
         for w in group:
             groups.setdefault(w.lower(), group)
     out: List[str] = []
+    # Every form of a synonym group the question names, by any of its forms ("IFRS 9" also finds "expected credit loss").
+    for group in _synonym_groups_in(query):
+        for w in group:
+            wl = w.lower()
+            if len(wl) > 3 or not wl.isascii():
+                out.append(wl)
     for word in _WORD.findall(query):
         low = word.lower()
         if low in _QUESTION_WORDS:
