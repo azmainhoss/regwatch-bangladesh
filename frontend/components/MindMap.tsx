@@ -47,7 +47,7 @@ const readable = (v?: string | null) => (v ? v.charAt(0) + v.slice(1).toLowerCas
 export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => ClaimItem[], entityLabel: (e: any) => string): MindBranch[] {
   const leaf = (item: ClaimItem, text: string): MindLeaf => ({ text, page: item.page_number, item });
   const branches: MindBranch[] = [
-    { key: "summary", label: "In short", color: BRANCH_COLORS.summary, leaves: shownOf("summary").map((i) => leaf(i, i.fields.text || "")) },
+    // No "In short" branch (owner, 2026-11-26): the summary has its own section right below the map.
     { key: "changes", label: "What changed", color: BRANCH_COLORS.changes, leaves: shownOf("changes").map((i) => leaf(i, i.fields.text || "")) },
     {
       key: "requirements",
@@ -351,7 +351,7 @@ export default function MindMap({
   if (branches.length === 0) {
     return (
       <p className="p-4 text-[14px] text-ink-3">
-        The mind map is made from the checked summary and requirements. This circular has none yet, so there is nothing to draw.
+        The mind map is made from the checked requirements and other points. This circular has none yet, so there is nothing to draw.
       </p>
     );
   }
