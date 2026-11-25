@@ -84,8 +84,8 @@ export default async function TopicPage({ params }: Params) {
       )}
       <p className="mt-3 max-w-[680px] text-[16px] leading-relaxed text-ink-2">
         {about ? `${about.lead} ` : ""}
-        Bangladesh Bank has issued {list.total.toLocaleString("en")} circulars on this; {list.analysed.toLocaleString("en")} have a
-        plain-English summary with deadlines and the page of the original each point comes from.
+        Bangladesh Bank has issued {list.total.toLocaleString("en")} circulars on this; {list.analysed.toLocaleString("en")} are
+        Ready, with a plain-English summary, deadlines and the page of the original each point comes from.
       </p>
       <CircularRows list={list} heading="All circulars on this subject, newest first" />
       <HubLinks hubs={hubs} skip={`/circulars/topic/${params.code}`} />

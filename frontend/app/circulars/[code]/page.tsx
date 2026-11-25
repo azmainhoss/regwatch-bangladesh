@@ -84,7 +84,7 @@ export default async function DepartmentOrYear({ params }: Params) {
         {year
           ? `Bangladesh Bank issued ${list.total.toLocaleString("en")} circulars and circular letters in ${code}. `
           : `${ABOUT[code] ? `${ABOUT[code]} ` : ""}${list.total.toLocaleString("en")} ${code.toUpperCase()} circulars so far. `}
-        {list.analysed.toLocaleString("en")} have a plain-English summary with deadlines and the page of the original each point
+        {list.analysed.toLocaleString("en")} are Ready, with a plain-English summary, deadlines and the page of the original each point
         comes from.
       </p>
       <CircularRows list={list} heading={year ? `All circulars of ${code}` : `All ${code.toUpperCase()} circulars, newest first`} />

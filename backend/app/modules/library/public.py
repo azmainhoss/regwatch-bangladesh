@@ -29,7 +29,7 @@ from backend.app.modules.topics.taxonomy import TOPIC_BY_CODE, TOPICS
 
 router = APIRouter(prefix="/public", tags=["Public circular pages"])
 
-# Circulars whose analysis passed the automated checks ("AI verified" for readers).
+# Circulars whose analysis passed the automated checks ("Ready" for readers) are the only indexable ones (DECISIONS.md 16).
 INDEXABLE = {"PUBLISHED_MACHINE_VERIFIED", "PUBLISHED_HUMAN_REVIEWED", "AWAITING_REVIEW"}
 
 _NUMBER = re.compile(r"No\.?\s*([0-9]+)(?:\s*[/-]\s*((?:19|20)[0-9]{2}))?", re.I)

@@ -30,7 +30,7 @@ export default async function CircularsIndex() {
       </p>
       <p className="mt-3 max-w-[680px] text-[16px] leading-relaxed text-ink-2">
         {hubs.total.toLocaleString("en")} circulars from every Bangladesh Bank department, newest first. New circulars from
-        bb.org.bd appear here within the hour. {hubs.analysed.toLocaleString("en")} of them have a plain-English summary: what
+        bb.org.bd appear here within the hour. {hubs.analysed.toLocaleString("en")} of them are Ready, with a plain-English summary: what
         changed, what banks must do, deadlines, and the page of the original each point comes from.
       </p>
       <CircularRows list={latest} heading="Newest circulars" />

@@ -62,7 +62,7 @@ export function CircularRows({ list, heading }: { list: CircularList; heading?: 
                 <span className="text-ink-3">{longDate(i.publication_date)}</span>
                 {i.analysed && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-ok-soft px-2 py-0.5 text-[12px] font-semibold text-ok">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden /> Summary
+                    <CheckCircle2 className="h-3 w-3" aria-hidden /> Ready
                   </span>
                 )}
               </div>
