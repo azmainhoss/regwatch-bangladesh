@@ -8,8 +8,8 @@
 - **Bing Webmaster Tools:** amarcircular.com verified by a CNAME record in Cloudflare; sitemap submitted.
 - **IndexNow:** first try got 403 "SiteVerificationNotCompleted" (normal for a new key); it retries hourly. Check
   `journalctl -u regwatch-backend | grep IndexNow` for "sent N new pages".
-- Only "AI verified" circulars are indexable (393 live). 275 "AI draft" circulars are `noindex`; whether to index
-  them is the owner's call.
+- Only "AI verified" circulars are indexable (393 live); the 275 "AI draft" ones stay `noindex` (owner's decision,
+  DECISIONS.md 16). Popular circulars reach Google by getting verified.
 - **Dated future tasks** (content, links, weekly checks): TickTick project "amarcircular seo".
 - OpenSEO (app.openseo.so) account exists, free trial, about $0.30 credit left. Its keyword tool works in the browser.
 

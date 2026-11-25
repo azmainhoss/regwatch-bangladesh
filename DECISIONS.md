@@ -153,6 +153,12 @@ This is the single source of truth for architecture decisions. Last updated 2026
 - Claim checks (decision 13) are separate: points that fail their checks are still hidden until decided.
 - Old flagged pages are cleared by `backend/scripts/requeue_pages.py --yes` (dry run without it).
 
+### 16. Search engines index only "AI verified" circulars (decided 2026-11-26, owner's choice)
+- A circular page is indexable (in the sitemap, no `noindex`) only when its analysis passed every automatic check
+  ("AI verified"). "AI draft" circulars stay readable but carry `noindex` (275 of them on 26 Nov; 393 indexable).
+- To get a much-searched circular into Google (for example BFIU 26/2020, BRPD 16/2022), get it to "AI verified";
+  don't loosen the rule. Code: `INDEXABLE` in `backend/app/modules/library/public.py`.
+
 ## Open (being decided by the benchmark; the verdict goes in `research/06_VERDICT.md`)
 - **Analysis:** which free model or method extracts metadata, obligations, applies-to, deadlines, links to other circulars and the English summary.
   Rules are ruled out as the main method: they were tuned on 8 docs and got 26-28 of 40 others right.
