@@ -61,9 +61,14 @@ export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => C
       label: "What banks must do",
       color: BRANCH_COLORS.requirements,
       leaves: shownOf("requirements").map((i) => {
-        // "by 31 Dec 2024" for a date; a deadline in words is shown as written ("within 14 days of issuance").
-        const dl = i.fields.deadline ? `by ${fmtDate(i.fields.deadline)}` : (i.fields.deadline_text || "").trim();
-        return leaf(i, `${i.fields.title || "Requirement"}${dl ? ` (${dl})` : ""}`);
+        // The duty itself, not just its name (owner, 2026-11-26: a title and a deadline alone are not insightful):
+        // "Title: what exactly to do. Who: ... By 31 Dec 2024."
+        const dl = i.fields.deadline ? `By ${fmtDate(i.fields.deadline)}.` : i.fields.deadline_text ? `${String(i.fields.deadline_text).trim().replace(/^./, (c) => c.toUpperCase())}.` : "";
+        const title = (i.fields.title || "Requirement").trim();
+        let desc = String(i.fields.description || "").trim();
+        if (desc.toLowerCase().startsWith(title.toLowerCase())) desc = desc.slice(title.length).replace(/^[\s:,.-]+/, "");
+        const who = i.fields.who ? `Who: ${String(i.fields.who).trim().replace(/\.$/, "")}.` : "";
+        return leaf(i, [desc ? `${title}: ${desc}` : title, who, dl].filter(Boolean).join(" "));
       }),
     },
     { key: "applies_to", label: "Who it applies to", color: BRANCH_COLORS.applies_to, leaves: shownOf("applies_to").map((i) => leaf(i, entityLabel(i.fields.entity))) },
@@ -107,10 +112,10 @@ const BRANCH_X = 330;
 const BRANCH_W = 170;
 const LEAF_X = 540;
 const LEAF_W = W - LEAF_X - 16;
-const LINE = 17;
+const LINE = 21;
 const LEAF_GAP = 10;
 const BRANCH_GAP = 22;
-const CHARS_PER_LINE = 62;
+const CHARS_PER_LINE = 54;
 const MAX_LINES = 4;
 const MAX_LEAVES = 8;
 
@@ -164,7 +169,8 @@ function layout(branches: MindBranch[], full = false) {
     const start = y;
     for (const leaf of shown) {
       const lines = wrap(leaf.text, CHARS_PER_LINE, full ? 99 : MAX_LINES);
-      const h = lines.length * LINE + 8;
+      // A small line under the text for "p. 3" (and "· Analysing" while the point is still being checked).
+      const h = lines.length * LINE + 12 + (leaf.page ? 18 : 0);
       leaves.push({ leaf, lines, y, h });
       y += h + LEAF_GAP;
     }
@@ -184,7 +190,7 @@ function layout(branches: MindBranch[], full = false) {
 export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false, full = false): string {
   const { placed, height } = layout(branches, full);
   const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), 34, 5);
-  const rootH = 34 + rootLines.length * 18 + 14;
+  const rootH = 38 + rootLines.length * 20 + 14;
   // Centred on short maps; on tall ones it stays near the top so it is in view when the map opens.
   const rootY = Math.max(12, Math.min(height / 2 - rootH / 2, 150));
   const rootMid = rootY + rootH / 2;
@@ -212,7 +218,7 @@ export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette
         : `M ${trunkX} ${bMid - dir * r} Q ${trunkX} ${bMid}, ${trunkX + r} ${bMid} H ${BRANCH_X}`;
     parts.push(`<path d="${arm}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.85"/>`);
     parts.push(`<rect x="${BRANCH_X}" y="${bMid - 17}" width="${BRANCH_W}" height="34" rx="17" fill="${c}"/>`);
-    parts.push(`<text x="${BRANCH_X + BRANCH_W / 2}" y="${bMid + 5}" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">${esc(pb.branch.label)}</text>`);
+    parts.push(`<text x="${BRANCH_X + BRANCH_W / 2}" y="${bMid + 5}" text-anchor="middle" font-size="16" font-weight="600" fill="#ffffff">${esc(pb.branch.label)}</text>`);
     for (const l of pb.leaves) {
       const lMid = l.y + l.h / 2;
       parts.push(
@@ -225,18 +231,18 @@ export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette
       parts.push(`<g${attrs}>`);
       parts.push(`<rect x="${LEAF_X}" y="${l.y}" width="${LEAF_W}" height="${l.h}" rx="8" fill="${c}" fill-opacity="0.09" stroke="${c}" stroke-opacity="0.35"/>`);
       l.lines.forEach((line, i) => {
-        parts.push(`<text x="${LEAF_X + 10}" y="${l.y + 18 + i * LINE}" font-size="13" fill="${l.more ? p.ink2 : p.ink}">${esc(line)}</text>`);
+        parts.push(`<text x="${LEAF_X + 12}" y="${l.y + 21 + i * LINE}" font-size="15" fill="${l.more ? p.ink2 : p.ink}">${esc(line)}</text>`);
       });
       if (l.leaf.page) {
-        parts.push(`<text x="${LEAF_X + LEAF_W - 8}" y="${l.y + 15}" text-anchor="end" font-size="10.5" fill="${p.ink2}">p. ${l.leaf.page}</text>`);
+        parts.push(`<text x="${LEAF_X + 12}" y="${l.y + 21 + l.lines.length * LINE}" font-size="12" fill="${p.ink2}">Page ${l.leaf.page}${l.leaf.item?.check_page ? " · Analysing" : ""}</text>`);
       }
       parts.push(`</g>`);
     }
   }
   parts.push(`<rect x="${ROOT_X}" y="${rootY}" width="${ROOT_W}" height="${rootH}" rx="14" fill="${p.rootBg}"/>`);
-  parts.push(`<text x="${ROOT_X + 16}" y="${rootY + 26}" font-size="14" font-weight="700" fill="${p.rootInk}">${esc(doc.reference_number || "Circular")}</text>`);
+  parts.push(`<text x="${ROOT_X + 16}" y="${rootY + 26}" font-size="16" font-weight="700" fill="${p.rootInk}">${esc(doc.reference_number || "Circular")}</text>`);
   rootLines.forEach((line, i) => {
-    parts.push(`<text x="${ROOT_X + 16}" y="${rootY + 48 + i * 18}" font-size="13.5" fill="${p.rootInk}" opacity="0.92">${esc(line)}</text>`);
+    parts.push(`<text x="${ROOT_X + 16}" y="${rootY + 50 + i * 20}" font-size="15" fill="${p.rootInk}" opacity="0.92">${esc(line)}</text>`);
   });
   parts.push(`</svg>`);
   return parts.join("");
@@ -244,30 +250,32 @@ export function mindMapSvg(doc: DocumentItem, branches: MindBranch[], p: Palette
 
 // ------------------------------------------------------------------------- narrow layout
 
-const NW = 360;
 const N_TRUNK = 24;
 const N_PILL_X = 40;
 const N_LEAF_X = 58;
-const N_LEAF_W = NW - N_LEAF_X - 10;
-const N_CHARS = 36;
+const N_LINE = 22;
 
 /** The same map drawn top to bottom, for phones and narrow panes: it fits the width, so nothing scrolls sideways. */
-export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false, full = false): string {
-  const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), 42, full ? 8 : 5);
+export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: Palette = LIGHT, interactive = false, full = false, width = 360): string {
+  // Drawn at the width it is shown at (no shrinking), so the text is always 15-16 px on screen.
+  const NW = Math.max(320, Math.round(width));
+  const N_LEAF_W = NW - N_LEAF_X - 10;
+  const N_CHARS = Math.max(26, Math.floor((N_LEAF_W - 24) / 7.4));
+  const rootLines = wrap(titleWithoutRef(doc.title, doc.reference_number), Math.floor((NW - 48) / 7.6), full ? 8 : 5);
   const rootY = 10;
-  const rootH = 32 + rootLines.length * 18 + 10;
+  const rootH = 36 + rootLines.length * 21 + 12;
   let y = rootY + rootH + 20;
   const body: string[] = [];
   let lastMid = rootY + rootH;
   for (const b of branches) {
     const c = b.color;
-    const pillW = Math.min(NW - N_PILL_X - 10, b.label.length * 8 + 30);
-    const pMid = y + 15;
+    const pillW = Math.min(NW - N_PILL_X - 10, b.label.length * 9 + 36);
+    const pMid = y + 17;
     lastMid = pMid;
     body.push(`<path d="M ${N_TRUNK} ${pMid} H ${N_PILL_X}" fill="none" stroke="${c}" stroke-width="2.5" opacity="0.85"/>`);
-    body.push(`<rect x="${N_PILL_X}" y="${y}" width="${pillW}" height="30" rx="15" fill="${c}"/>`);
-    body.push(`<text x="${N_PILL_X + pillW / 2}" y="${pMid + 5}" text-anchor="middle" font-size="14" font-weight="600" fill="#ffffff">${esc(b.label)}</text>`);
-    y += 30 + 8;
+    body.push(`<rect x="${N_PILL_X}" y="${y}" width="${pillW}" height="34" rx="17" fill="${c}"/>`);
+    body.push(`<text x="${N_PILL_X + pillW / 2}" y="${pMid + 6}" text-anchor="middle" font-size="16" font-weight="600" fill="#ffffff">${esc(b.label)}</text>`);
+    y += 34 + 10;
     const shown = full ? b.leaves : b.leaves.slice(0, MAX_LEAVES);
     const items: { leaf: MindLeaf; idx: number; more?: boolean }[] = shown.map((leaf, idx) => ({ leaf, idx }));
     if (!full && b.leaves.length > MAX_LEAVES) items.push({ leaf: { text: `+ ${b.leaves.length - MAX_LEAVES} more in the circular` }, idx: -1, more: true });
@@ -276,8 +284,8 @@ export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: P
     const stemX = N_PILL_X + 10;
     for (const it of items) {
       const lines = wrap(it.leaf.text, N_CHARS, full ? 99 : MAX_LINES);
-      const h = lines.length * LINE + 10;
-      const lMid = y + Math.min(h / 2, 16);
+      const h = lines.length * N_LINE + 14 + (it.leaf.page ? 18 : 0);
+      const lMid = y + Math.min(h / 2, 19);
       stemBottom = lMid;
       body.push(`<path d="M ${stemX} ${lMid} H ${N_LEAF_X}" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>`);
       const clickable = interactive && !it.more && (it.leaf.page || it.leaf.docId);
@@ -285,13 +293,13 @@ export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: P
       body.push(`<g${attrs}>`);
       body.push(`<rect x="${N_LEAF_X}" y="${y}" width="${N_LEAF_W}" height="${h}" rx="8" fill="${c}" fill-opacity="0.09" stroke="${c}" stroke-opacity="0.35"/>`);
       lines.forEach((line, i) => {
-        body.push(`<text x="${N_LEAF_X + 10}" y="${y + 19 + i * LINE}" font-size="13" fill="${it.more ? p.ink2 : p.ink}">${esc(line)}</text>`);
+        body.push(`<text x="${N_LEAF_X + 12}" y="${y + 23 + i * N_LINE}" font-size="15" fill="${it.more ? p.ink2 : p.ink}">${esc(line)}</text>`);
       });
       if (it.leaf.page) {
-        body.push(`<text x="${N_LEAF_X + N_LEAF_W - 8}" y="${y + 15}" text-anchor="end" font-size="10.5" fill="${p.ink2}">p. ${it.leaf.page}</text>`);
+        body.push(`<text x="${N_LEAF_X + 12}" y="${y + 21 + lines.length * N_LINE}" font-size="12" fill="${p.ink2}">Page ${it.leaf.page}${it.leaf.item?.check_page ? " · Analysing" : ""}</text>`);
       }
       body.push(`</g>`);
-      y += h + 8;
+      y += h + 10;
     }
     if (items.length) body.unshift(`<path d="M ${stemX} ${stemTop} V ${stemBottom}" fill="none" stroke="${c}" stroke-width="1.5" opacity="0.6"/>`);
     y += 14;
@@ -303,9 +311,9 @@ export function mindMapSvgNarrow(doc: DocumentItem, branches: MindBranch[], p: P
   parts.push(`<path d="M ${N_TRUNK} ${rootY + rootH} V ${lastMid}" fill="none" stroke="${p.ink2}" stroke-width="2" opacity="0.55"/>`);
   parts.push(...body);
   parts.push(`<rect x="10" y="${rootY}" width="${NW - 20}" height="${rootH}" rx="12" fill="${p.rootBg}"/>`);
-  parts.push(`<text x="24" y="${rootY + 24}" font-size="14" font-weight="700" fill="${p.rootInk}">${esc(doc.reference_number || "Circular")}</text>`);
+  parts.push(`<text x="24" y="${rootY + 27}" font-size="16" font-weight="700" fill="${p.rootInk}">${esc(doc.reference_number || "Circular")}</text>`);
   rootLines.forEach((line, i) => {
-    parts.push(`<text x="24" y="${rootY + 46 + i * 18}" font-size="13.5" fill="${p.rootInk}" opacity="0.92">${esc(line)}</text>`);
+    parts.push(`<text x="24" y="${rootY + 51 + i * 21}" font-size="15" fill="${p.rootInk}" opacity="0.92">${esc(line)}</text>`);
   });
   parts.push(`</svg>`);
   return parts.join("");
@@ -355,17 +363,22 @@ export default function MindMap({
   const palette: Palette = dark ? { bg: "transparent", ink: "#e6ece9", ink2: "#9aa7a1", line: "#33403a", rootBg: "#2f7d63", rootInk: "#ffffff" } : { ...LIGHT, bg: "transparent" };
   // Narrow spaces (phones, the reader beside an open side panel) get the top-to-bottom drawing that fits the width.
   const box = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < 640);
+  // The wide drawing is 1000 units wide: shown narrower than about 900 px its text would shrink below reading size,
+  // so smaller spaces get the top-to-bottom drawing made at the exact width of the space.
+  const [boxW, setBoxW] = useState(() => (typeof window !== "undefined" ? Math.min(window.innerWidth - 32, 1000) : 1000));
   useEffect(() => {
     const el = box.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < 600));
+    const ro = new ResizeObserver(([e]) => setBoxW(Math.round(e.contentRect.width)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const narrow = boxW < 900;
+  // Re-drawn only when the width changes by a step, not on every pixel of a resize.
+  const narrowW = Math.max(320, Math.floor(boxW / 20) * 20);
   const svg = useMemo(
-    () => (narrow ? mindMapSvgNarrow(doc, branches, palette, true, full) : mindMapSvg(doc, branches, palette, true, full)),
-    [doc, branches, dark, full, narrow], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (narrow ? mindMapSvgNarrow(doc, branches, palette, true, full, narrowW) : mindMapSvg(doc, branches, palette, true, full)),
+    [doc, branches, dark, full, narrow, narrowW], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const [zoom, setZoom] = useState(1);
   useEffect(() => setZoom(1), [narrow]);
@@ -430,7 +443,7 @@ export default function MindMap({
           >
             <div
               className="mind-map [&_svg]:h-auto [&_svg]:w-full"
-              style={narrow ? { width: "100%", maxWidth: 440 } : { minWidth: `${760 * zoom}px`, width: `${100 * zoom}%` }}
+              style={narrow ? { width: `${narrowW}px`, maxWidth: "100%" } : { minWidth: `${1000 * zoom}px`, width: `${100 * zoom}%` }}
               onClick={(e) => {
                 if (drag.current?.moved) return;
                 pick(e);
