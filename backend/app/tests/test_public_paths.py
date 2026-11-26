@@ -59,3 +59,16 @@ def test_unknown_department_and_other_topic_get_no_page():
 def test_reference_read_from_title_when_missing():
     assert _reference_from_title("BRD Circular No. 04: Regarding Placement of Padma Bank PLC") == "BRD Circular No. 04"
     assert _reference_from_title("Some notice without a number") is None
+
+
+def test_bangla_reference_without_no_is_named():
+    """'এসডিএডি সার্কুলার লেটার-২২' names SDAD Circular Letter No. 22 (no "নং" in Bangla)."""
+    import re
+
+    from backend.app.modules.claims.checks import _search_form
+    from backend.app.modules.relationships.linking import reference_keys
+
+    quote = _search_form("২২ নভেম্বর ২০২৬ তারিখের এসডিএডি সার্কুলার লেটার-২২ বাতিল করা হলো।")
+    keys = reference_keys("SDAD Circular Letter No. 22 dated 22 November 2026")
+    keys = keys + [k.replace(" no ", " ") for k in keys if " no " in k]
+    assert any(re.search(r"(?<![\w/])" + re.escape(k) + r"(?![\w/])", quote) for k in keys)

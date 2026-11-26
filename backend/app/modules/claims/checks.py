@@ -348,6 +348,8 @@ def _search_form(text: str) -> str:
 
 def check_target_named(claim: Any, ctx: CheckContext) -> Dict[str, Any]:
     keys = linking.reference_keys((claim.fields or {}).get("target_hint"))
+    # Bangla circulars often leave out "No." ("এসডিএডি সার্কুলার লেটার-২২" = "SDAD Circular Letter No. 22").
+    keys = keys + [k.replace(" no ", " ") for k in keys if " no " in k]
     quote = _search_form(evidence_text(claim, ctx))
     for key in keys:
         if re.search(r"(?<![\w/])" + re.escape(key) + r"(?![\w/])", quote):
