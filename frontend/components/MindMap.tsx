@@ -67,7 +67,10 @@ export function buildBranches(doc: DocumentItem, shownOf: (s: ClaimSection) => C
         const title = (i.fields.title || "Requirement").trim();
         let desc = String(i.fields.description || "").trim();
         if (desc.toLowerCase().startsWith(title.toLowerCase())) desc = desc.slice(title.length).replace(/^[\s:,.-]+/, "");
-        const who = i.fields.who ? `Who: ${String(i.fields.who).trim().replace(/\.$/, "")}.` : "";
+        // "AUTHORIZED_DEALER" -> the readable entity name; free text stays as written.
+        const rawWho = String(i.fields.who || "").trim();
+        const whoText = /^[A-Z_]+$/.test(rawWho) ? entityLabel(rawWho) : rawWho.replace(/\.$/, "");
+        const who = whoText ? `Who: ${whoText}.` : "";
         return leaf(i, [desc ? `${title}: ${desc}` : title, who, dl].filter(Boolean).join(" "));
       }),
     },
