@@ -4,6 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { ArrowRight, CheckCircle2, Download, Eye, FileText } from "lucide-react";
 import { SITE_URL, serverApi } from "@/services/serverApi";
 import { bnRef, getRelated, getTopicsOf, refLabel } from "@/services/publicApi";
+import { entityLabel } from "@/services/claimWords";
 import { Breadcrumbs, CircularRows } from "@/components/seo/CircularHub";
 
 /**
@@ -193,7 +194,7 @@ export default async function CircularPage({ params }: Params) {
               <ul className="mt-3 space-y-3">
                 {c[s.key].map((p, i) => (
                   <li key={i} className="rounded-[12px] border border-line bg-surface px-4 py-3">
-                    <p className="text-[15.5px] leading-relaxed text-ink">{p.text}</p>
+                    <p className="text-[15.5px] leading-relaxed text-ink">{s.key === "applies_to" || s.key === "exemptions" ? entityLabel(p.text) : p.text}</p>
                     {p.page ? (
                       <Link
                         href={`${reader}&page=${p.page}`}

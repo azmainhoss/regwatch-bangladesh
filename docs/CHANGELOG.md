@@ -5,6 +5,13 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 26 November 2026: FEPD-2 Circular Letter No. 03 analysed
+
+- New circular (price verification platform and a central price monitoring cell for Authorized Dealers, due
+  1 January 2027) analysed and uploaded; all 15 points passed the checks and it shows as Ready.
+- Public circular pages now print "Who it applies to" as readable names (Authorised dealers) instead of
+  codes like AUTHORIZED_DEALER.
+
 ## 26 November 2026: search engine pages (SEO)
 
 - **Keyword research** (`docs/seo/KEYWORDS.md`): "bangladesh bank circular" is searched about 12,100 times a
