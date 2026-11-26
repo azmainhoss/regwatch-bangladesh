@@ -124,7 +124,11 @@ export default function AuthForm({
           className="field"
         />
         {mode === "signup" && <p className="mt-1 text-[12.5px] text-ink-3">At least {MIN_PASSWORD} characters.</p>}
-        {/* "Forgot password?" returns when email sending is switched on (halted by the owner, 2026-11-25). */}
+        {mode === "signin" && (
+          <a href="/reset-password" data-free-click className="mt-1.5 inline-block text-[13px] font-semibold text-accent hover:underline">
+            Forgot password?
+          </a>
+        )}
       </div>
       {mode === "signup" && (
         <div>

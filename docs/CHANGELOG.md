@@ -36,6 +36,15 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 26 November 2026: email is on
+
+- Brevo SMTP key installed on the server. A test daily email was delivered to the owner (Brevo log: Delivered).
+- "Forgot password?" is back under the sign-in password.
+- The daily email of new circulars goes to every registered person at 19:30 Dhaka time, covering circulars added
+  after email was switched on (26 Nov, 06:52 UTC).
+
+---
+
 ## 25 November 2026 (night): no human review anywhere; one meaning of "AI verified"
 
 - **"AI verified" now means one thing everywhere** (list, reader, search, circular pages): at least one point of
