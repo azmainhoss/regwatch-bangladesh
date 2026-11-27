@@ -15,6 +15,7 @@ import {
   fetchResearchMatches,
   type ResearchCitation,
   searchCirculars, openRegister } from "@/services/api";
+import DashboardAsk from "@/components/DashboardAsk";
 import AccountModal from "@/components/AccountModal";
 import { fetchFeedCounts } from "@/services/libraryApi";
 import StatusBadge, { PrivateTag, Tag } from "@/components/StatusBadge";
@@ -275,62 +276,14 @@ export default function SearchPage() {
     <div className="space-y-5">
       <AccountModal isOpen={accountOpen} onClose={() => setAccountOpen(false)} currentUser={currentUser} onUserChange={setCurrentUser} />
 
-      <div>
-        <h1 className="text-[26px] font-semibold tracking-[-0.015em] text-ink">Search</h1>
-        <p className="mt-0.5 text-[14.5px] text-ink-3">Find words inside every circular, or ask a question and get answers with page citations.</p>
-      </div>
+      {/* Same as the dashboard: one box that searches, or answers a question (owner, 2026-11-28). */}
+      <section className="pt-6 sm:pt-10" aria-label="Search and ask">
+        <h1 className="mb-4 text-center font-serif text-[26px] font-medium tracking-[-0.01em] text-ink sm:text-[32px]">Amar Circular Intelligence</h1>
+        {ready && <DashboardAsk signedIn={!!currentUser} onSearch={setQ} initial={q} inputId="search-q" />}
+      </section>
 
-      <div role="tablist" aria-label="Search or ask" className="inline-flex rounded-control bg-sunken p-0.5">
-        {(
-          [
-            { id: "search", label: "Search", Icon: Search },
-            { id: "ask", label: "Ask a question", Icon: MessageSquareText },
-          ] as const
-        ).map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            role="tab"
-            type="button"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-            className={`inline-flex items-center gap-1.5 rounded-[6px] px-3.5 py-1.5 text-[14px] font-semibold transition-colors ${
-              tab === id ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-ink-3 hover:text-ink"
-            }`}
-          >
-            <Icon className="h-4 w-4" strokeWidth={1.75} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "search" ? (
+      {tab === "search" || tab === "ask" ? (
         <section aria-label="Search circulars" className="space-y-4">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-3" strokeWidth={1.75} />
-            <label htmlFor="search-q" className="sr-only">
-              Words to find
-            </label>
-            <input
-              id="search-q"
-              type="search"
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Words, a reference number or a Bangla phrase"
-              className="field h-11 pl-9 pr-9"
-              lang={hasBangla(q) ? "bn" : undefined}
-            />
-            {q && (
-              <button
-                type="button"
-                onClick={() => setQ("")}
-                aria-label="Clear search"
-                className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <div>

@@ -17,6 +17,7 @@ is in the commits (`git log`) and the linked documents.
 - **Header:**
   - Computers: taller, with green-tinted glass and a bottom line, a bigger logo and larger text. Dashboard / Search sit centred, and the duplicate search box and the theme button are removed.
   - Phones: the bottom bar matches the header and is taller.
+- **Search page** now opens with the same "Amar Circular Intelligence" heading and single search-or-ask box as the dashboard, instead of separate Search / Ask a question tabs. Words search every circular below; a question gets an answer with the pages it came from.
 
 ## 28 November 2026: For you (institution type, Applies to me)
 
