@@ -1,7 +1,7 @@
 // Amar Circular service worker: lets the app install on Android and open fast.
 // Pages and data always come fresh from the network (never a stale screen); only the app's own
 // static files are kept, and the last page is shown with a plain note if the phone is offline.
-const CACHE = "regwatch-static-v1";
+const CACHE = "regwatch-static-v2";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/icons/icon-192.png", "/icons/icon-512.png"])).then(() => self.skipWaiting()));

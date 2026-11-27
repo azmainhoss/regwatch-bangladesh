@@ -5,6 +5,12 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 27 November 2026: new logo
+
+- The new Amar Circular logo (page with a star inside an open ring) replaces the old "A" square: full logo in the
+  header (light and dark versions), the icon alone on phones, the browser tab icon, the installed-app icons and
+  the link preview image. The app's icon cache was renewed so installed apps pick up the new icon.
+
 ## 26 November 2026: FEPD-2 Circular Letter No. 03 analysed
 
 - New circular (price verification platform and a central price monitoring cell for Authorized Dealers, due

@@ -50,6 +50,7 @@ export const metadata: Metadata = {
     title: "Amar Circular: Bangladesh Bank circulars, summarised",
     description: "Every new Bangladesh Bank circular, summarised the day it is issued, with the page each point comes from.",
     locale: "en_BD",
+    images: [{ url: "/brand/lockup-1200.png", width: 1200, height: 400, alt: "Amar Circular" }],
   },
   twitter: { card: "summary_large_image" },
   // Search Console / Bing Webmaster ownership tags, set on the server when the owner verifies the site.

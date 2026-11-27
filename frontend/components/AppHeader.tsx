@@ -14,12 +14,31 @@ import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser, openRegi
 export const SEARCH_INPUT_ID = "circular-search";
 
 function Mark() {
-  // The wordmark's square: a folded page corner, drawn with two rectangles.
+  // The brand icon (page with a star inside an open ring), used alone on phones.
   return (
-    <span aria-hidden className="relative grid h-7 w-7 place-items-center rounded-[5px] bg-accent text-accent-ink">
-      <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-bl-[3px] bg-canvas/90" />
-      <span className="mt-1 text-[13px] font-bold leading-none">A</span>
-    </span>
+    <svg aria-hidden viewBox="0 0 200 200" className="h-8 w-8 shrink-0">
+      <rect width="200" height="200" rx="36" fill="#225E48" />
+      <path d="M163.04 50.75A80 80 0 1 0 163.04 149.25" fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round" />
+      <circle cx="163.04" cy="50.75" r="10" fill="#F2C230" />
+      <path fill="#fff" d="M70 50H118.24L138 69.76V142a8 8 0 0 1-8 8H70a8 8 0 0 1-8-8V58a8 8 0 0 1 8-8Z" />
+      <path fill="#9DC3AE" d="M118.24 50V69.76H138Z" />
+      <path fill="#225E48" d="M100 65.52C102.8 80.2 102.8 80.2 117.48 83C102.8 85.8 102.8 85.8 100 100.48C97.2 85.8 97.2 85.8 82.52 83C97.2 80.2 97.2 80.2 100 65.52Z" />
+      <rect x="77.96" y="110" width="44.08" height="5" rx="2.5" fill="#225E48" opacity="0.55" />
+      <rect x="77.96" y="122" width="44.08" height="5" rx="2.5" fill="#F2C230" />
+      <rect x="77.96" y="134" width="29.97" height="5" rx="2.5" fill="#225E48" opacity="0.55" />
+    </svg>
+  );
+}
+
+/** The full logo (icon + "Amar Circular"), light and dark versions. */
+function Lockup() {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/lockup.svg" alt="" width={126} height={42} className="h-[42px] w-auto dark:hidden" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/lockup-dark.svg" alt="" width={126} height={42} className="hidden h-[42px] w-auto dark:block" />
+    </>
   );
 }
 
@@ -78,10 +97,11 @@ export default function AppHeader() {
       <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
         <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
           <Link href="/" className="flex min-h-[44px] shrink-0 items-center gap-2.5" aria-label="Amar Circular home">
-            <Mark />
-            <span className="hidden leading-tight sm:block">
-              <span className="block text-[15px] font-bold tracking-tight text-ink">Amar Circular</span>
-              <span className="hidden text-2xs font-medium text-ink-3 sm:block">Bangladesh Bank circulars</span>
+            <span className="sm:hidden">
+              <Mark />
+            </span>
+            <span className="hidden sm:block">
+              <Lockup />
             </span>
           </Link>
 
