@@ -37,6 +37,7 @@ import PdfPanel from "./PdfPanel";
 import Backtrail, { type BackLink } from "./Backtrail";
 import MindMap, { buildBranches, type MindLeaf } from "./MindMap";
 import ShareModal from "./ShareModal";
+import { AppliesBar } from "./ForYou";
 
 export interface QaResponse {
   answer: string;
@@ -1072,6 +1073,7 @@ export default function CircularDetail(props: Props) {
           <span>Bangladesh Bank</span>
         </div>
         <Backtrail documentId={doc.id} status={relStatus} back={backLinks} />
+        <AppliesBar documentId={doc.id} />
         {/* Actions (audit 2026-11-25): primary first (source pages, mind map, history, assign), then save and email;
             Original PDF, compare and add-to-register sit under "More". Phones show the first two and Save. */}
         <div className="flex flex-wrap items-center gap-2 pt-1">

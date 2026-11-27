@@ -5,6 +5,24 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 28 November 2026: For you (institution type, Applies to me)
+
+- **Who each circular applies to** is now stored for every circular (`document_audiences`): the checked analysis
+  first, else the circular's addressee line ("all scheduled banks", "Authorized Dealers", "সকল তফসিলি ব্যাংক"),
+  else its department. No AI. Checked against 664 analysed circulars: scheduled banks 99% right / 95% found,
+  authorised dealers 99% / 98%, NBFIs 92% / 89%. New circulars are filled in by themselves.
+- **Institution type** per reader: conventional, Islamic, state-owned, specialised (not scheduled), foreign bank,
+  NBFI, MFS / payment provider, money changer, auditor / consultant, company (importer / exporter), other, plus
+  "AD branches?" for banks. Filled in from the company name for known banks, NBFIs, MFS and audit firms; otherwise
+  sign-up asks once, and a one-time dashboard card says "Tell us your institution type". Changeable in Account.
+  Workspace members without their own type inherit the workspace's.
+- **For you**: a pill on each list row and a "For you" filter first among the category pills; hovering (or tapping)
+  the pill shows why, with "Not for me". The circular page says who it applies to, with Applies to me / Not for me.
+- **Marks teach similar circulars**: Applies to me flags later circulars sharing its department and categories;
+  one Not for me never overrules the institution type (it takes repeated ones); nothing is ever hidden. Learned
+  interests show in Account and each can be removed. In a workspace a mark counts for the team and is audited.
+- **Daily email**: For you circulars come first, with a For you pill.
+
 ## 28 November 2026: re-uploaded PDFs keep their analysis
 
 - Bangladesh Bank sometimes replaces a published PDF with a corrected copy (a reformatted date, a fixed

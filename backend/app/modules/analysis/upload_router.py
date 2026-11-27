@@ -198,6 +198,12 @@ async def upload_analysis(
         .group_by(AnalysisClaim.check_status)
     )).all()
     points = {k: n for k, n in rows}
+    try:  # who it applies to, from the new analysis (For you)
+        from backend.app.modules.audience.service import refresh_document
+        await refresh_document(db, doc.id)
+        await db.commit()
+    except Exception as e:  # never fail an upload over this
+        logger.warning(f"Audience refresh failed for {doc.id}: {e}")
     logger.info(f"Analysis upload: loaded {doc.reference_number or doc.id}, points {points}")
     return {"document_id": str(doc.id), "analysis_id": str(analysis.id), "points": points}
 

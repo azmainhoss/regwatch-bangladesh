@@ -34,6 +34,7 @@ import FilterMenu from "@/components/FilterMenu";
 import DashboardCards, { BOX_HINTS, type Box } from "@/components/DashboardCards";
 import AssignedPanel from "@/components/AssignedPanel";
 import { QuickSave } from "@/components/SaveButtons";
+import { InstitutionCard, RowForYou } from "@/components/ForYou";
 import { fetchFeed, fetchFeedCounts, fetchTopicNames, type Choice, type FeedCounts } from "@/services/libraryApi";
 import { toggleKind, useLists } from "@/services/listsStore";
 
@@ -168,7 +169,8 @@ function CircularsPageInner() {
     period: box && box !== "later" ? box : null,
     saved: box === "later" ? ("READ_LATER" as const) : null,
     department: dept !== "ALL" ? dept : null,
-    topic: topic !== "ALL" ? topic : null,
+    topic: topic !== "ALL" && topic !== "FOR_YOU" ? topic : null,
+    for_you: topic === "FOR_YOU" ? true : null,
     q: search.trim(),
     limit: PAGE_SIZE,
     offset,
@@ -572,12 +574,14 @@ function CircularsPageInner() {
 
       {currentUser && <AssignedPanel userId={currentUser.id} />}
 
+      <InstitutionCard signedIn={!!currentUser} />
+
       {/* Search and Ask in one box, with the filters centred right under it. */}
       <section className="pt-6 sm:pt-10" aria-label="Search, ask and filter">
         <h2 className="mb-4 text-center font-serif text-[26px] font-medium tracking-[-0.01em] text-ink sm:text-[32px]">Amar Circular Intelligence</h2>
         <DashboardAsk signedIn={!!currentUser} onSearch={setSearch} initial={search} inputId={SEARCH_INPUT_ID} />
         <div aria-label="Filter by category and department" className="mx-auto mt-4 flex max-w-[760px] flex-wrap items-center justify-center gap-1.5">
-          {[{ code: "ALL", label: "All", count: -1 }, ...topicPills].map((t) => {
+          {[...(currentUser ? [{ code: "FOR_YOU", label: "For you", count: -1 }] : []), { code: "ALL", label: "All", count: -1 }, ...topicPills].map((t) => {
             const active = topic === t.code;
             return (
               <button
@@ -593,7 +597,7 @@ function CircularsPageInner() {
                   <motion.span layoutId="topic-pill" className="absolute inset-0 rounded-full bg-accent" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
                 )}
                 <span className="relative">
-                  {t.code === "ALL" ? "All" : shortTopic(topicNames[t.code] || t.label)}
+                  {t.code === "ALL" ? "All" : t.code === "FOR_YOU" ? "For you" : shortTopic(topicNames[t.code] || t.label)}
                   {t.count > 0 && <span className={`ml-1.5 text-[12px] tabular-nums ${active ? "opacity-80" : "text-ink-3"}`}>{t.count}</span>}
                 </span>
               </button>
@@ -740,6 +744,7 @@ function CircularsPageInner() {
                         <span className="mt-2.5 flex items-center justify-between gap-2">
                           <span className="shrink-0 whitespace-nowrap text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}` : "No pages yet"}</span>
                           <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                            {currentUser && <RowForYou documentId={doc.id} />}
                             <InForceBadge info={inForceOf(rel, doc)} size="sm" plain />
                             <StatusBadge status={doc.publication_status} size="sm" reader />
                           </span>

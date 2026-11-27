@@ -6,6 +6,7 @@ import { ArrowRight, LogOut } from "lucide-react";
 import { AuthUser, logoutUser, openRegister } from "../services/api";
 import { Modal, ModalHeader } from "./ui";
 import AuthForm from "./AuthForm";
+import { AccountInstitution } from "./ForYou";
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -63,6 +64,8 @@ export default function AccountModal({ isOpen, onClose, currentUser, onUserChang
                 <dd className="mt-0.5 font-semibold text-ink tabular-nums">{currentUser.phone_number || "Not set"}</dd>
               </div>
             </dl>
+
+            <AccountInstitution />
 
             <div className="flex items-center justify-between gap-3">
               <button type="button" onClick={handleLogout} className="btn-danger">

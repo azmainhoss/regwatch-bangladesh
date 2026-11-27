@@ -95,6 +95,7 @@ async def feed(
     saved: Optional[str] = Query(None, description="READ_LATER or FAVOURITES"),
     q: Optional[str] = Query(None, max_length=200),
     analysed: Optional[bool] = Query(None, description="Only circulars that have a checked summary"),
+    for_you: Optional[bool] = Query(None, description="Only circulars flagged For you (institution type and marks)"),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: Optional[User] = Depends(get_listing_reader),
@@ -121,6 +122,14 @@ async def feed(
         ))
     if analysed:
         conditions.append(Document.publication_status.like("PUBLISHED%"))
+    if for_you:
+        if not user:
+            return FeedPage(total=0, items=[])
+        from backend.app.modules.audience.service import for_you_ids
+        ids = await for_you_ids(db, user)
+        if not ids:
+            return FeedPage(total=0, items=[])
+        conditions.append(Document.id.in_(ids))
     terms = query_terms(q or "")
     order = [Document.publication_date.desc(), Document.created_at.desc(), Document.id]
     if terms and sum(len(t) for t in terms) >= 2:

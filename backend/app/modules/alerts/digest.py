@@ -52,7 +52,8 @@ async def new_circulars(db: AsyncSession, start: datetime, end: datetime) -> Lis
         url = f"{base}{hit[0]}" if hit else f"{base}/dashboard?doc={d.id}"
         title = templates.clip(re.sub(r"^[^:]{0,80}\bNo\.?\s*[0-9]+[^:]*:\s*", "", d.title or "").rstrip(".") or d.title, 200)
         items.append(brand.DigestCircular(reference=d.reference_number or "Circular", title=title,
-                                          date=templates.fmt_date(d.publication_date), url=url, point=point))
+                                          date=templates.fmt_date(d.publication_date), url=url, point=point,
+                                          document_id=str(d.id)))
     return items
 
 
@@ -67,6 +68,21 @@ def _window_start(now: datetime) -> datetime:
         except ValueError:
             pass
     return start
+
+
+async def _for_you_first(db: AsyncSession, user: User, items: list) -> list:
+    """The reader's "For you" circulars first, marked (owner, 2026-11-28). Unchanged if anything goes wrong."""
+    from dataclasses import replace
+    from uuid import UUID
+
+    from backend.app.modules.audience.service import scorer_for
+
+    try:
+        s = await scorer_for(db, user, autosave=False)
+        marked = [replace(c, for_you=bool(c.document_id) and s.verdict(UUID(c.document_id)).for_you) for c in items]
+    except Exception:
+        return items
+    return [c for c in marked if c.for_you] + [c for c in marked if not c.for_you]
 
 
 async def build_daily_updates(db: AsyncSession, now: datetime, local: datetime) -> int:
@@ -92,7 +108,7 @@ async def build_daily_updates(db: AsyncSession, now: datetime, local: datetime) 
         key = f"daily:{user.id}:{today}"
         if (await db.execute(select(EmailOutbox.id).where(EmailOutbox.dedupe_key == key))).first():
             continue
-        email = brand.daily_digest(reader_mail.base_url(), day, items, reader_mail.unsubscribe_page_url(user.id))
+        email = brand.daily_digest(reader_mail.base_url(), day, await _for_you_first(db, user, items), reader_mail.unsubscribe_page_url(user.id))
         db.add(EmailOutbox(
             user_id=user.id, organization_id=None, to_address=user.email, kind="DIGEST", dedupe_key=key,
             notification_ids=[], subject=email.subject, text_body=email.text, html_body=email.html,

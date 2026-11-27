@@ -37,7 +37,7 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
   return `${fallback} (HTTP ${res.status})`;
 }
 
-async function throwApiError(res: Response, fallback: string): Promise<never> {
+export async function throwApiError(res: Response, fallback: string): Promise<never> {
   throw new ApiError(res.status, await readErrorMessage(res, fallback));
 }
 

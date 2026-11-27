@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { AuthUser, OPEN_REGISTER_EVENT, quickRegister, updateMyProfile } from "../services/api";
+import { fetchKinds, guessInstitution, saveInstitution, type InstitutionKind } from "../services/audienceApi";
+import { InstitutionPicker } from "./ForYou";
 import { FREE_LIMIT, FREE_VIEWS_EVENT, freeExhausted } from "../services/freeViews";
 import { setPersonDetails, track } from "../services/analytics";
 import { Modal, ModalHeader, Notice } from "./ui";
@@ -95,6 +97,10 @@ export function RegisterSteps({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof v) => (val: string) => setV((s) => ({ ...s, [k]: val }));
+  // Step 3: asked only when the company name is not one we recognise (owner, 2026-11-28).
+  const [kinds, setKinds] = useState<InstitutionKind[] | null>(null);
+  const [kind, setKind] = useState<string | null>(null);
+  const [hasAd, setHasAd] = useState<boolean | null>(null);
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -135,10 +141,21 @@ export function RegisterSteps({
     const designation = v.designation.trim();
     if (!company) return setError("Please enter your company.");
     if (!designation) return setError("Please enter your designation.");
+    if (kinds && !kind) return setError("Please choose your institution type.");
     return run(async () => {
+      if (!kinds) {
+        const guess = await guessInstitution(company).catch(() => ({ institution_type: null, has_ad: null }));
+        if (!guess.institution_type) {
+          // Not recognised: show the institution type question before finishing.
+          await updateMyProfile({ company, designation });
+          setKinds(await fetchKinds());
+          return;
+        }
+      }
       await updateMyProfile({ company, designation });
+      if (kind) await saveInstitution(kind, hasAd);
       setPersonDetails({ company, designation });
-      track("signup_details_completed", { company, designation });
+      track("signup_details_completed", { company, designation, institution_type: kind || "recognised" });
       onDone();
     });
   };
@@ -188,6 +205,9 @@ export function RegisterSteps({
             value={v.designation}
             onChange={set("designation")}
           />
+          {kinds && (
+            <InstitutionPicker kinds={kinds} kind={kind} hasAd={hasAd} onChange={(k, a) => (setKind(k), setHasAd(a))} />
+          )}
         </>
       )}
       <button type="submit" disabled={loading} className="btn-primary w-full justify-center">

@@ -32,6 +32,7 @@ from backend.app.modules.library.public import router as public_router
 from backend.app.modules.alerts.unsubscribe_router import router as unsubscribe_router
 from backend.app.modules.share.router import router as share_router
 from backend.app.modules.plans.router import router as plans_router
+from backend.app.modules.audience.router import router as audience_router
 from backend.app.modules.alerts.worker import alerts_worker
 from backend.app.modules.alerts.mailer import email_configured
 from backend.app.workers.scheduler import monitoring_scheduler
@@ -171,6 +172,7 @@ app.include_router(public_router, prefix=settings.API_V1_STR)
 app.include_router(unsubscribe_router, prefix=settings.API_V1_STR)
 app.include_router(share_router, prefix=settings.API_V1_STR)
 app.include_router(plans_router, prefix=settings.API_V1_STR)
+app.include_router(audience_router, prefix=settings.API_V1_STR)
 
 
 @app.exception_handler(ConflictError)

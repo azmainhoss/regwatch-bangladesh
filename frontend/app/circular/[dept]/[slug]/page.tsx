@@ -5,6 +5,7 @@ import { ArrowRight, CheckCircle2, Download, Eye, FileText } from "lucide-react"
 import { SITE_URL, serverApi } from "@/services/serverApi";
 import { bnRef, getRelated, getTopicsOf, refLabel } from "@/services/publicApi";
 import { entityLabel } from "@/services/claimWords";
+import { AppliesBar } from "@/components/ForYou";
 import { Breadcrumbs, CircularRows } from "@/components/seo/CircularHub";
 
 /**
@@ -155,6 +156,7 @@ export default async function CircularPage({ params }: Params) {
             {[bn, c.title_bn].filter(Boolean).join(": ")}
           </p>
         )}
+        <AppliesBar documentId={c.id} />
         <div className="flex flex-wrap gap-3 pt-1">
           <Link href={reader} className="btn-primary h-11 px-5 text-[15px]">
             <FileText className="h-4 w-4" aria-hidden /> Open with source pages

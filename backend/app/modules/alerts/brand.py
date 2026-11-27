@@ -41,6 +41,8 @@ class DigestCircular:
     url: str
     point: Optional[str] = None  # first AI verified summary point, if any
     verified: bool = False
+    document_id: Optional[str] = None
+    for_you: bool = False  # the reader's institution type or marks say it applies to them
 
 
 def _e(s: str) -> str:
@@ -112,16 +114,18 @@ def daily_digest(base: str, day_label: str, circulars: List[DigestCircular], uns
         heading = "No new circulars today"
         lead = "Bangladesh Bank did not publish any new circulars today. The full library is one click away."
     rows = []
+    pill = (f'<span style="display:inline-block;margin-right:8px;padding:1px 8px;border-radius:999px;background:#E1F5EE;'
+            f'color:#085041;font-size:11px;font-weight:700;vertical-align:1px">For you</span>')
     text = [heading + f" ({day_label})", ""]
     for c in circulars:
         point = f'<p style="margin:8px 0 0;font-size:14.5px;line-height:1.5;color:{INK2}">{_e(c.point)}</p>' if c.point else ""
         rows.append(
             f'<tr><td style="padding:16px 0;border-top:1px solid {LINE}">'
-            f'<div style="font-size:13px;font-weight:700;color:{GREEN}">{_e(c.reference)}</div>'
+            f'<div style="font-size:13px;font-weight:700;color:{GREEN}">{pill if c.for_you else ""}{_e(c.reference)}</div>'
             f'<a href="{_e(c.url)}" style="display:block;margin-top:4px;font-size:16px;font-weight:700;line-height:1.35;color:{INK};text-decoration:none">{_e(c.title)}</a>'
             f'<div style="margin-top:2px;font-size:13px;color:{INK3}">{_e(c.date)}</div>{point}</td></tr>'
         )
-        text += [f"{c.reference}: {c.title} ({c.date})"] + ([f"  {c.point}"] if c.point else []) + [f"  {c.url}", ""]
+        text += [("[For you] " if c.for_you else "") + f"{c.reference}: {c.title} ({c.date})"] + ([f"  {c.point}"] if c.point else []) + [f"  {c.url}", ""]
     table = f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0">{"".join(rows)}</table>' if rows else ""
     cta_url = base + ("/dashboard?box=today" if n else "/dashboard")
     body = (

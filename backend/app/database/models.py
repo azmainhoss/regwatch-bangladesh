@@ -21,6 +21,7 @@ from backend.app.modules.topics.models import DocumentTopic
 from backend.app.modules.library.models import UserList, UserListItem
 from backend.app.modules.share.models import CircularAssignment
 from backend.app.modules.plans.models import Subscription, DailyUsage
+from backend.app.modules.audience.models import DocumentAudience, CircularMark
 from backend.app.modules.alerts.models import AlertEvent, AlertNotification, AlertPreference, EmailOutbox, EmailDeliveryAttempt
 
 __all__ = [

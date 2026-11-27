@@ -48,6 +48,7 @@ export interface FeedQuery {
   topic?: string | null;
   saved?: "READ_LATER" | "FAVOURITES" | null;
   list_id?: string | null;
+  for_you?: boolean | null;
   q?: string;
   limit?: number;
   offset?: number;
