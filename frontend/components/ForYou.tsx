@@ -2,6 +2,7 @@
 /** "For you" (owner, 2026-11-28): the institution type picker, the For you pill with its reason (hover, or tap on
  * phones), the circular page line with Applies to me / Not for me, the dashboard card, and the Account section. */
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, X } from "lucide-react";
 import {
   AudienceMe,
@@ -59,23 +60,46 @@ export function InstitutionPicker({
   );
 }
 
-/** The small "For you" pill. Hover (or tap) shows why, with "Not for me". */
+/** The small "For you" pill. Hover (or tap) shows why, with "Not for me". The note floats over the page (portal),
+ * so a list's edge never cuts it off, and it is kept inside the screen. */
 export function ForYouPill({ documentId, flag }: { documentId: string; flag?: Flag }) {
-  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const tip = useRef<HTMLSpanElement>(null);
+  const leaveTimer = useRef<number | null>(null);
+  const WIDTH = 256;
+
+  const show = () => {
+    if (leaveTimer.current) window.clearTimeout(leaveTimer.current);
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.min(Math.max(8, r.right - WIDTH), window.innerWidth - WIDTH - 8);
+    const below = r.bottom + 6;
+    setPos({ left, top: below + 120 > window.innerHeight ? Math.max(8, r.top - 126) : below }); // flip up near the bottom
+  };
+  const hideSoon = () => {
+    leaveTimer.current = window.setTimeout(() => setPos(null), 150);
+  };
+
   useEffect(() => {
-    if (!open) return;
+    if (!pos) return;
     const close = (e: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !tip.current?.contains(t)) setPos(null);
     };
+    const away = () => setPos(null);
     document.addEventListener("mousedown", close);
     document.addEventListener("touchstart", close);
+    window.addEventListener("scroll", away, true);
+    window.addEventListener("resize", away);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("touchstart", close);
+      window.removeEventListener("scroll", away, true);
+      window.removeEventListener("resize", away);
     };
-  }, [open]);
+  }, [pos]);
   if (!flag?.for_you) return null;
   const notForMe = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -84,7 +108,7 @@ export function ForYouPill({ documentId, flag }: { documentId: string; flag?: Fl
     setBusy(true);
     try {
       await markCircular(documentId, flag.mark > 0 ? 0 : -1);
-      setOpen(false);
+      setPos(null);
     } finally {
       setBusy(false);
     }
@@ -93,34 +117,41 @@ export function ForYouPill({ documentId, flag }: { documentId: string; flag?: Fl
     <span
       ref={ref}
       className="relative inline-flex"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={show}
+      onMouseLeave={hideSoon}
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
-        setOpen(true); // hover may have opened it already; a tap elsewhere closes it
+        show(); // hover may have opened it already; a tap elsewhere closes it
       }}
     >
       <span className="cursor-default rounded-full bg-accent-soft px-2 py-0.5 text-[11.5px] font-bold text-accent">For you</span>
-      {open && (
-        <span
-          role="tooltip"
-          className="absolute right-0 top-full z-30 mt-1.5 w-64 rounded-[10px] border border-line-strong bg-surface p-3 text-left shadow-lg"
-        >
-          <span className="block text-[13px] font-normal leading-snug text-ink">{flag.reason || "Applies to your institution."}</span>
-          {/* A span, not a button: the pill can sit inside a list row that is itself a button. */}
+      {pos &&
+        createPortal(
           <span
-            role="button"
-            tabIndex={0}
-            aria-disabled={busy}
-            onClick={notForMe}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && notForMe(e as unknown as React.MouseEvent)}
-            className="btn-secondary mt-2 inline-flex h-8 cursor-pointer px-3 text-[12.5px]"
+            ref={tip}
+            role="tooltip"
+            style={{ left: pos.left, top: pos.top, width: WIDTH }}
+            onMouseEnter={show}
+            onMouseLeave={hideSoon}
+            onClick={(e) => e.stopPropagation()}
+            className="fixed z-[80] block rounded-[10px] border border-line-strong bg-surface p-3 text-left shadow-lg"
           >
-            {flag.mark > 0 ? "Undo" : "Not for me"}
-          </span>
-        </span>
-      )}
+            <span className="block text-[13px] font-normal leading-snug text-ink">{flag.reason || "Applies to your institution."}</span>
+            {/* A span, not a button: the pill can sit inside a list row that is itself a button. */}
+            <span
+              role="button"
+              tabIndex={0}
+              aria-disabled={busy}
+              onClick={notForMe}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && notForMe(e as unknown as React.MouseEvent)}
+              className="btn-secondary mt-2 inline-flex h-8 cursor-pointer px-3 text-[12.5px]"
+            >
+              {flag.mark > 0 ? "Undo" : "Not for me"}
+            </span>
+          </span>,
+          document.body,
+        )}
     </span>
   );
 }
