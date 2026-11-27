@@ -60,7 +60,7 @@ export const metadata: Metadata = {
   },
   applicationName: "Amar Circular",
   appleWebApp: { capable: true, title: "Amar Circular", statusBarStyle: "black-translucent" },
-  icons: { apple: "/icons/apple-touch-icon.png" },
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }], apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
