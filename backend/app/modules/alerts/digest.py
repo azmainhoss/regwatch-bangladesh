@@ -71,12 +71,14 @@ def _window_start(now: datetime) -> datetime:
 
 async def build_daily_updates(db: AsyncSession, now: datetime, local: datetime) -> int:
     """Every day, to every registered person who has not unsubscribed: how many circulars came in the last 24 hours,
-    each listed (owner, 2026-11-25). Sent on days with none too. Their new-circular alerts are marked emailed so
+    each listed (owner, 2026-11-25). Nothing is sent on a day with none (owner, 2026-11-27). Their new-circular alerts are marked emailed so
     they are not repeated in another digest. Does not commit."""
     from backend.app.modules.alerts import brand, reader_mail
 
     today = local.date().isoformat()
     items = await new_circulars(db, _window_start(now), now)
+    if not items:
+        return 0  # No email on a day with no new circulars (owner, 2026-11-27).
     day = f"{local.strftime('%A')} {local.day} {local.strftime('%B %Y')}"
     users = (await db.execute(select(User).where(User.is_active.is_(True)))).scalars().all()
     pref_map = await prefs.load_many(db, [str(u.id) for u in users])

@@ -336,7 +336,7 @@ async def test_password_never_appears_anywhere(client, smtp, monkeypatch, caplog
 # ---------------------------------------------------------------------------
 async def test_daily_summary(client, smtp):
     """Every day at 19:30 Dhaka everyone subscribed gets the daily update: how many circulars came, each listed,
-    or "No new circulars" (owner, 2026-11-25). New-circular alerts are folded into it, not sent again."""
+    and no email on a day with none (owner, 2026-11-27). New-circular alerts are folded into it, not sent again."""
     from backend.app.modules.documents.models import Document
     from backend.app.tests.factories import make_institution
 
@@ -367,17 +367,17 @@ async def test_daily_summary(client, smtp):
     assert len(rows) == 1 and rows[0].dedupe_key == f"daily:{user.id}:2031-05-05"
     assert rows[0].subject.startswith("1 new Bangladesh Bank circular today") and ref in rows[0].text_body
     assert "AI verified" not in rows[0].html_body and "AI draft" not in rows[0].html_body
+    assert "Each one opens" not in rows[0].html_body and "Each one opens" not in rows[0].text_body
     async with AsyncSessionLocal() as db:
         assert await build_digests(db, now_after + timedelta(hours=1)) == 0     # one a day
         await db.commit()
         assert (await db.get(AN, nid)).emailed_at is not None
     assert len(await outbox_for(user, "DIGEST")) == 1
-    # A day with nothing new still gets the email, saying so.
+    # A day with nothing new sends no email at all.
     async with AsyncSessionLocal() as db:
         await build_digests(db, now_after + timedelta(days=1))
         await db.commit()
-    rows = await outbox_for(user, "DIGEST")
-    assert len(rows) == 2 and any(r.subject == "No new Bangladesh Bank circulars today" for r in rows)
+    assert len(await outbox_for(user, "DIGEST")) == 1
 
 
 # ---------------------------------------------------------------------------

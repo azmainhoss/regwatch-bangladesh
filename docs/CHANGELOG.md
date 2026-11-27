@@ -5,6 +5,12 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 27 November 2026: daily email only when something came
+
+- The daily update is no longer sent on days with no new circulars ("No new Bangladesh Bank circulars today"
+  is gone).
+- Removed the line "Each one opens with the summary and the exact page in the original." from the daily update.
+
 ## 27 November 2026: new logo
 
 - The new Amar Circular logo (page with a star inside an open ring) replaces the old "A" square: full logo in the

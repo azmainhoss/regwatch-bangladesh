@@ -105,7 +105,7 @@ def daily_digest(base: str, day_label: str, circulars: List[DigestCircular], uns
         subject = f"{n} new Bangladesh Bank circular{'s' if n != 1 else ''} today: {first}" + (f" and {n - 1} more" if n > 1 else "")
         preheader = "; ".join(c.title for c in circulars[:2])[:140]
         heading = f"{n} new circular{'s' if n != 1 else ''} from Bangladesh Bank"
-        lead = "Each one opens with the summary and the exact page in the original."
+        lead = ""
     else:
         subject = "No new Bangladesh Bank circulars today"
         preheader = f"Nothing new from Bangladesh Bank on {day_label}."
@@ -127,8 +127,8 @@ def daily_digest(base: str, day_label: str, circulars: List[DigestCircular], uns
     body = (
         f'<p style="margin:0;font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:{INK3}">Daily update · {_e(day_label)}</p>'
         f'<h1 style="margin:6px 0 4px;font-size:24px;line-height:1.25">{_e(heading)}</h1>'
-        f'<p style="margin:0 0 8px;font-size:15px;color:{INK2}">{_e(lead)}</p>'
-        f'{table}'
+        + (f'<p style="margin:0 0 8px;font-size:15px;color:{INK2}">{_e(lead)}</p>' if lead else "")
+        + f'{table}'
         f'<div style="margin-top:20px">{button("Open the library", cta_url)}</div>'
     )
     why = "You get this daily update because you registered at amarcircular.com."
