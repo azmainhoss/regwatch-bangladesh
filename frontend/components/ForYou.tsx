@@ -98,7 +98,7 @@ export function ForYouPill({ documentId, flag }: { documentId: string; flag?: Fl
       onClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
-        setOpen((o) => !o);
+        setOpen(true); // hover may have opened it already; a tap elsewhere closes it
       }}
     >
       <span className="cursor-default rounded-full bg-accent-soft px-2 py-0.5 text-[11.5px] font-bold text-accent">For you</span>
@@ -147,7 +147,7 @@ export function AppliesBar({ documentId }: { documentId: string }) {
       setBusy(false);
     }
   };
-  const who = flag.applies_to.length ? `Applies to ${flag.applies_to.map((w, i) => (i ? w.charAt(0).toLowerCase() + w.slice(1) : w)).join(", ")}` : "";
+  const who = flag.applies_to.length ? `Applies to ${flag.applies_to.map((w) => (w.startsWith("Islamic") ? w : w.charAt(0).toLowerCase() + w.slice(1))).join(", ")}` : "";
   return (
     <div className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[10px] border px-3 py-2 ${flag.for_you ? "border-accent/50" : "border-line"}`}>
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-[13.5px] text-ink-2">
