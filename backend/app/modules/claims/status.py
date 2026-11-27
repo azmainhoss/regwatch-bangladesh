@@ -174,6 +174,11 @@ def document_status(current: Optional[str], claims: Iterable[Any]) -> Optional[s
     # automated checks; until then the circular is an "AI draft" (PUBLISHED_MACHINE_PROCESSED). No circular is held
     # for a person any more.
     if not any(is_shown(c) for c in claims):
+        # Nothing shown and nothing left to check (every point thrown out): the circular is not
+        # "Analysing", it needs a new analysis. Back to EXTRACTED (no reader label), so it joins the analysis
+        # queue again (owner, 2026-11-28: circulars were stuck on "Analysing" for weeks).
+        if claims and not any(c.check_status not in (REJECTED, NOT_SHOWN) for c in claims):
+            return "EXTRACTED"
         return "PUBLISHED_MACHINE_PROCESSED"
     if any(c.check_status in (APPROVED, FIXED) for c in claims):
         return "PUBLISHED_HUMAN_REVIEWED"

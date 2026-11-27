@@ -388,7 +388,9 @@ def test_document_status_rules():
     assert ds("EXTRACTED", [_c("PASSED"), _c("WAITING_FOR_PERSON", "REQUIRED")]) == "PUBLISHED_MACHINE_VERIFIED"
     assert ds("EXTRACTED", [_c("PASSED"), _c("WAITING_FOR_PERSON", "OPTIONAL")]) == "PUBLISHED_MACHINE_VERIFIED"
     assert ds("EXTRACTED", [_c("PASSED"), _c("APPROVED")]) == "PUBLISHED_HUMAN_REVIEWED"
-    assert ds("EXTRACTED", [_c("REJECTED")]) == "PUBLISHED_MACHINE_PROCESSED"
+    # Every point thrown out: not "Analysing" for ever, back to the analysis queue (owner, 2026-11-28).
+    assert ds("EXTRACTED", [_c("REJECTED")]) == "EXTRACTED"
+    assert ds("PUBLISHED_MACHINE_PROCESSED", [_c("NOT_SHOWN"), _c("REJECTED")]) == "EXTRACTED"
     for protected in ("WITHDRAWN", "SUPERSEDED", "EXTRACTION_FAILED"):
         assert ds(protected, [_c("WAITING_FOR_PERSON", "REQUIRED")]) is None
 

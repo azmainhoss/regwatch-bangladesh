@@ -71,7 +71,11 @@ select d.id, d.reference_number, d.title, d.publication_date, d.current_version_
      and p.quality_status = 'PENDING_VISION' and coalesce(p.is_human_corrected, 0) = 0) as waiting
 from documents d
 where coalesce(d.is_synthetic_fixture, 0) = 0 and d.owner_user_id is null and d.current_version_id is not null
-  and not exists (select 1 from document_analyses a where a.document_version_id = d.current_version_id)
+  and (not exists (select 1 from document_analyses a where a.document_version_id = d.current_version_id)
+       -- an analysis whose points were all thrown out counts as none (owner, 2026-11-28)
+       or not exists (select 1 from analysis_claims c join document_analyses a on a.id = c.analysis_id
+                      where a.document_version_id = d.current_version_id
+                        and c.check_status not in ('REJECTED', 'NOT_SHOWN')))
 order by d.publication_date desc, d.title
 limit :limit
 """)
@@ -116,7 +120,8 @@ async def pending_circulars(
     limit: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_async_db),
 ) -> Dict[str, Any]:
-    """Circulars ready for analysis: every page has usable text and the current version has no analysis."""
+    """Circulars ready for analysis: every page has usable text and the current version has no analysis, or only
+    one whose points were all thrown out (send those with replace=true)."""
     rows = (await db.execute(_PENDING_SQL, {"limit": limit * 3})).mappings().all()
     ready: List[Dict[str, Any]] = []
     for r in rows:
