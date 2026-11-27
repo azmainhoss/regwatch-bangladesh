@@ -25,6 +25,8 @@ is in the commits (`git log`) and the linked documents.
 - Look (owner, same day): the For you pill is blue; "In force" is a small green dot and "Ready" a green check mark
   on lists, search results and the circular header (Amended / Replaced / Repealed keep their words). The For you
   note floats above the page so a list's edge never cuts it off.
+- The green dot and check mark have tooltips (hover, or tap on phones): "In force: no later circular has changed
+  or replaced this one." and "Ready: checked against the original circular."
 
 ## 28 November 2026: re-uploaded PDFs keep their analysis
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Tip from "./Tip";
 import {
   AlertTriangle,
   Ban,
@@ -113,9 +114,11 @@ export default function StatusBadge({ status, size = "md", reader = false }: { s
   // Readers: "Ready" is just a green check mark (owner, 2026-11-28).
   if (reader && spec.label === "Ready") {
     return (
-      <span role="img" aria-label="Ready" title="Ready" className="inline-flex shrink-0 items-center text-ok">
-        <Check className={size === "sm" ? "h-4 w-4" : "h-[18px] w-[18px]"} strokeWidth={2.5} aria-hidden />
-      </span>
+      <Tip text="Ready: checked against the original circular.">
+        <span role="img" aria-label="Ready" className="inline-flex shrink-0 cursor-default items-center text-ok">
+          <Check className={size === "sm" ? "h-4 w-4" : "h-[18px] w-[18px]"} strokeWidth={2.5} aria-hidden />
+        </span>
+      </Tip>
     );
   }
   return (
@@ -176,9 +179,11 @@ export function InForceBadge({ info, size = "md", plain = false, blip = false }:
   // "In force" as a small green dot (owner, 2026-11-28); Amended / Replaced / Repealed keep their words.
   if (blip && info.status === "IN_FORCE") {
     return (
-      <span role="img" aria-label="In force" title="In force" data-testid="in-force-badge" data-status={info.status} className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
-        <span className="h-2 w-2 rounded-full bg-ok ring-2 ring-ok/25" />
-      </span>
+      <Tip text="In force: no later circular has changed or replaced this one.">
+        <span role="img" aria-label="In force" data-testid="in-force-badge" data-status={info.status} className="inline-flex h-4 w-4 shrink-0 cursor-default items-center justify-center">
+          <span className="h-2 w-2 rounded-full bg-ok ring-2 ring-ok/25" />
+        </span>
+      </Tip>
     );
   }
   const Icon = spec.icon;
