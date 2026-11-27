@@ -5,6 +5,19 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 28 November 2026: new home page and header
+
+- **Home page, rebuilt in full-screen sections** (snap scrolling on computers):
+  - **Hero:** a much larger "Grab the updates first!" over a dotted background that glows green around the mouse, with the Today / This week / This month / All circulars cards below. Read later and the picture beside the title are gone.
+  - **"Only a few need you now."** This year's circulars as dots on a grid: across is who they apply to, up is how urgent they are (a duty with a deadline ahead, a duty, or information only). Switch between Conventional bank, AD bank, Islamic bank, NBFI and MFS / payments to re-sort them, and hover any dot to see that circular. The data comes from the new `/public/grid` feed (cached 10 minutes).
+  - **How it works:** five numbered steps (Caught, Explained, Proven, For you, Done). They play once the section is on screen, and hover jumps to a step.
+  - **Dark band for compliance teams:** glowing cards, and dots that light up under the mouse.
+  - **Four feature sections:** summaries, mind map, Ask, and history & links.
+- **New dark footer on every page:** link columns, the disclaimer, and a giant dotted "Amar Circular" that lights up under the mouse.
+- **Header:**
+  - Computers: taller, with green-tinted glass and a bottom line, a bigger logo and larger text. Dashboard / Search sit centred, and the duplicate search box and the theme button are removed.
+  - Phones: the bottom bar matches the header and is taller.
+
 ## 28 November 2026: For you (institution type, Applies to me)
 
 - **Who each circular applies to** is now stored for every circular (`document_audiences`): the checked analysis

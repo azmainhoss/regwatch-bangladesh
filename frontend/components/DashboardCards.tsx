@@ -38,6 +38,7 @@ export default function DashboardCards({
   total,
   allActive = false,
   onAll,
+  noLater = false,
 }: {
   count: (b: Box) => number | null;
   active?: Box | null;
@@ -49,6 +50,8 @@ export default function DashboardCards({
   total?: number | null;
   allActive?: boolean;
   onAll?: () => void;
+  /** Home page: no Read later card (owner, 2026-11-28). */
+  noLater?: boolean;
 }) {
   const withAll = total !== undefined;
   // "All circulars" sits 4th, before Read later (owner, 2026-11-26).
@@ -77,7 +80,7 @@ export default function DashboardCards({
         </button>
   ) : null;
   return (
-    <div className={`grid grid-cols-2 gap-3 ${withAll ? (compact ? "sm:grid-cols-5" : "md:grid-cols-5 md:gap-4") : compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
+    <div className={`grid grid-cols-2 gap-3 ${withAll && noLater ? "md:grid-cols-4 md:gap-4" : withAll ? (compact ? "sm:grid-cols-5" : "md:grid-cols-5 md:gap-4") : compact ? "sm:grid-cols-4" : "md:grid-cols-4 md:gap-4"}`}>
       {CARDS.map(({ id, label, hint }) => {
         const n = count(id);
         const locked = id === "later" && !signedIn;
@@ -92,6 +95,7 @@ export default function DashboardCards({
         return (
           <Fragment key={id}>
           {id === "later" && allCard}
+          {!(noLater && id === "later") && (
           <button
             type="button"
             onClick={() => onPick(id)}
@@ -117,6 +121,7 @@ export default function DashboardCards({
             </span>
             <span className={`mt-2.5 block text-[14px] ${hintColour}`}>{locked ? "Register to save" : hint}</span>
           </button>
+          )}
           </Fragment>
         );
       })}

@@ -1,17 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser } from "@/services/api";
+import AccountModal from "@/components/AccountModal";
+import DashboardCards, { type Box } from "@/components/DashboardCards";
 import { fetchFeedCounts, type FeedCounts } from "@/services/libraryApi";
 import { useLists } from "@/services/listsStore";
-import AccountModal from "@/components/AccountModal";
-import DashboardAsk from "@/components/DashboardAsk";
-import DashboardCards, { type Box } from "@/components/DashboardCards";
-
-// The circular in the hero picture: a real point, its real quote, on page 1 of 2.
-const HERO_DOC = "ce648d4f-0e8e-4cc7-b4d0-481bb64617cb";
+import AppliesGrid from "@/components/home/AppliesGrid";
+import HowItWorks from "@/components/home/HowItWorks";
+import TeamBand from "@/components/home/TeamBand";
+import FeatureSplits from "@/components/home/FeatureSplits";
+import Reveal from "@/components/home/Reveal";
+import HeroDots from "@/components/home/HeroDots";
+import "@/components/home/home.css";
 
 /** amarcircular.com: what the site does, the four cards, and Ask. The library itself is at /dashboard. */
 export default function HomePage() {
@@ -43,9 +45,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    fetchFeedCounts()
-      .then(setCounts)
-      .catch(() => undefined);
+    fetchFeedCounts().then(setCounts).catch(() => undefined);
   }, [user?.id, lists.version]);
   // Live numbers: re-read every 5 minutes while the page is visible.
   useEffect(() => {
@@ -53,6 +53,12 @@ export default function HomePage() {
       if (document.visibilityState === "visible") fetchFeedCounts().then(setCounts).catch(() => undefined);
     }, 5 * 60 * 1000);
     return () => window.clearInterval(t);
+  }, []);
+
+  // Snap scrolling between sections, only while the home page is open.
+  useEffect(() => {
+    document.documentElement.classList.add("hx-snap");
+    return () => document.documentElement.classList.remove("hx-snap");
   }, []);
 
   if (legacy) return null;
@@ -65,97 +71,34 @@ export default function HomePage() {
   };
   const count = (b: Box) => (counts ? (b === "later" ? (later ? later.document_ids.length : counts.read_later) : counts[b]) : null);
 
+  // Each section fills the screen, so one never shows the edge of the next (owner, 2026-11-28).
   return (
-    <div className="space-y-12 sm:space-y-16">
+    <div className="pb-10">
       <AccountModal isOpen={accountOpen} onClose={() => setAccountOpen(false)} currentUser={user} onUserChange={setUser} />
 
       {/* Hero */}
-      <section className="flex flex-wrap items-center gap-x-14 gap-y-12 pt-4 sm:pt-10">
-        <div className="flex min-w-0 flex-[1_1_460px] flex-col gap-6">
-          <h1 className="font-serif text-[40px] font-medium leading-[1.06] tracking-[-0.01em] text-ink sm:text-[52px] lg:text-[58px]">
-            <span className="mb-3 block font-sans text-[15px] font-semibold tracking-normal text-accent sm:text-[16px]">Bangladesh Bank circulars, summarised</span>
+      <section className="hx-screen hx-hero relative">
+        <HeroDots />
+        <div className="relative flex flex-col gap-7">
+          <span className="text-[15px] font-semibold text-accent sm:text-[17px]">Bangladesh Bank circulars, summarised</span>
+          <h1 className="font-serif text-[52px] font-medium leading-[0.98] tracking-[-0.025em] text-ink sm:text-[84px] lg:text-[112px]">
             Grab the updates <span className="hero-hl px-1">first!</span>
           </h1>
-          <p className="max-w-[540px] text-[17px] leading-[1.55] text-ink-2 sm:text-[19px]">
+          <p className="max-w-[820px] text-[18px] leading-[1.55] text-ink-2 sm:text-[23px]">
             Every new Bangladesh Bank circular is notified on the day it’s issued, highlighting what has changed, what banks need to do, and exactly
             where to find it in the original document.
           </p>
-          <div className="mt-2">
-            <DashboardCards total={counts ? counts.library ?? null : null} onAll={() => router.push("/dashboard")} count={count} signedIn={!!user} onPick={pick} compact />
+          <div className="mt-4">
+            <DashboardCards total={counts ? counts.library ?? null : null} onAll={() => router.push("/dashboard")} count={count} signedIn={!!user} onPick={pick} noLater />
           </div>
         </div>
-
-        <figure
-          className="relative m-0 flex min-w-0 flex-[1_1_520px] flex-col items-end"
-          aria-label="A requirement from BRPD-1 Circular Letter No. 40 linked to the highlighted sentence on page 1 of the original circular"
-        >
-          <Link
-            href={`/dashboard?doc=${HERO_DOC}`}
-            className="relative z-[2] flex w-[92%] max-w-[480px] flex-col gap-2.5 self-start rounded-[14px] border border-line bg-surface px-[22px] pb-4 pt-5 shadow-pop transition-colors hover:border-accent/50"
-          >
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="text-[13px] font-semibold text-accent">BRPD-1 Circular Letter No. 40</span>
-              <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[12px] font-semibold text-accent">In force</span>
-              <span className="rounded-full bg-ok-soft px-2 py-0.5 text-[12px] font-semibold text-ok">Ready</span>
-            </span>
-            <span className="flex items-baseline justify-between gap-3">
-              <span className="text-[17px] font-bold leading-[1.3] text-ink">Borrowers with court stay orders are loan-eligible</span>
-              <span className="whitespace-nowrap rounded border border-ink px-1.5 py-px text-[11px] font-bold uppercase tracking-[0.06em] text-ink">
-                Mandatory
-              </span>
-            </span>
-            <span className="text-[15px] leading-normal text-ink-2">
-              Scheduled banks must treat these borrowers as eligible under the 15 stimulus schemes listed in Annexure ‘A’.
-            </span>
-            <span className="flex flex-wrap items-center gap-2.5 text-[13px] text-ink-3">
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-accent/30 bg-accent-soft px-2 py-1 font-semibold text-accent">
-                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M3 2h7l3 3v9H3z" fill="none" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M5.5 9l1.8 1.8L11 7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-                Page 1
-              </span>
-              Applies to all scheduled banks
-            </span>
-          </Link>
-
-          <svg
-            width="120"
-            height="90"
-            viewBox="0 0 120 90"
-            aria-hidden="true"
-            className="pointer-events-none absolute left-[18%] top-[190px] z-[3] overflow-visible text-accent"
-          >
-            <path className="hero-wire" d="M8 4 C 8 50, 80 40, 96 86" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="8" cy="4" r="4" fill="currentColor" />
-            <circle cx="96" cy="86" r="4" fill="currentColor" />
-          </svg>
-
-          <div className="relative z-[1] -mt-7 flex w-[88%] max-w-[470px] flex-col gap-[9px] rounded-md border border-line bg-surface px-[30px] pb-[26px] pt-[52px] shadow-pop">
-            <div className="flex justify-between text-[11px] text-ink-3">
-              <span>Original PDF · bb.org.bd</span>
-              <span>Page 1 of 2</span>
-            </div>
-            <div className="my-1.5 h-[7px] w-[62%] self-center rounded-[3px] bg-line" />
-            <div className="h-[7px] w-full rounded-[3px] bg-sunken" />
-            <div className="h-[7px] w-[94%] rounded-[3px] bg-sunken" />
-            <p lang="bn" className="my-0.5 font-bangla text-[13.5px] leading-[1.75] text-ink">
-              <span className="hero-hl py-0.5 shadow-[0_0_0_1px_rgb(var(--marker-edge))]">
-                … উক্ত ঋণগ্রহীতাগণ সংযোজনী ‘ক’ এ উল্লেখিত স্কিমসমূহের আওতায় ঋণ প্রাপ্তির জন্য যোগ্য মর্মে বিবেচিত হবেন।
-              </span>
-            </p>
-            <div className="h-[7px] w-[97%] rounded-[3px] bg-sunken" />
-            <div className="h-[7px] w-[72%] rounded-[3px] bg-sunken" />
-            <div className="mt-3 h-[7px] w-[38%] self-end rounded-[3px] bg-sunken" />
-          </div>
-        </figure>
       </section>
 
-      {/* Ask a question, under the hero. */}
-      <section aria-label="Ask a question">
-        <DashboardAsk signedIn={!!user} onSignIn={() => setAccountOpen(true)} />
-      </section>
+      <section className="hx-screen"><AppliesGrid /></section>
+      <section className="hx-screen hx-reveal"><HowItWorks /></section>
+      <section className="hx-screen hx-reveal"><TeamBand /></section>
+      <FeatureSplits />
+      <Reveal />
     </div>
   );
 }
-

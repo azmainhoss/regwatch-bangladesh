@@ -1241,7 +1241,7 @@ export default function CircularDetail(props: Props) {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: EASE_OUT }}
-            className="fixed inset-x-0 bottom-0 z-50 h-[88dvh] px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:sticky xl:top-[72px] xl:z-auto xl:has-[[data-fullscreen]]:z-[70] xl:h-[calc(100dvh-96px)] xl:self-start xl:px-0 xl:pb-0"
+            className="fixed inset-x-0 bottom-0 z-50 h-[88dvh] px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] xl:sticky xl:top-[94px] xl:z-auto xl:has-[[data-fullscreen]]:z-[70] xl:h-[calc(100dvh-118px)] xl:self-start xl:px-0 xl:pb-0"
           >
             <div className="flex h-full flex-col overflow-hidden rounded-panel border border-line bg-surface shadow-pop xl:shadow-none">
               <div aria-hidden className="mx-auto mt-1.5 h-1 w-10 rounded-full bg-line-strong xl:hidden" />

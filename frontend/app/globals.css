@@ -259,3 +259,18 @@ html.dark {
 @media (prefers-reduced-motion: reduce) {
   .hero-hl, .hero-wire { animation: none; background-size: 100% 100%; stroke-dashoffset: 0; }
 }
+
+/* Header: glass with a light brand-green tint, so the bar reads as its own layer (owner, 2026-11-28). */
+.hx-glass {
+  background: linear-gradient(rgb(34 94 72 / .15), rgb(34 94 72 / .15)), rgb(var(--canvas) / .84);
+  border-color: rgb(34 94 72 / .45);
+  box-shadow: 0 1px 0 rgb(34 94 72 / .12);
+}
+.dark .hx-glass {
+  background: linear-gradient(rgb(104 194 155 / .13), rgb(104 194 155 / .13)), rgb(var(--canvas) / .84);
+  border-color: rgb(104 194 155 / .4);
+  box-shadow: 0 1px 0 rgb(104 194 155 / .1);
+}
+/* Phone bottom tab bar: same glass and green as the header, stroke on top (owner, 2026-11-28). */
+.hx-glass-bottom { box-shadow: 0 -1px 0 rgb(34 94 72 / .12); }
+.dark .hx-glass-bottom { box-shadow: 0 -1px 0 rgb(104 194 155 / .1); }

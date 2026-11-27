@@ -648,7 +648,7 @@ function CircularsPageInner() {
 
       <div className={`grid grid-cols-1 gap-6 ${focusReading ? "" : "lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]"}`}>
         {/* List */}
-        <div className={`space-y-3 lg:sticky lg:top-[72px] lg:max-h-[calc(100dvh-88px)] lg:self-start lg:overflow-y-auto lg:pr-1 ${focusReading ? "lg:hidden" : ""}`}>
+        <div className={`space-y-3 lg:sticky lg:top-[94px] lg:max-h-[calc(100dvh-110px)] lg:self-start lg:overflow-y-auto lg:pr-1 ${focusReading ? "lg:hidden" : ""}`}>
           {currentUser && !currentUser.is_superuser && <MyCircularUpload institutions={institutions} onUploaded={loadData} />}
 
           {/* Phone and tablet: a circular opened by a link that is not in the list below still shows here. */}

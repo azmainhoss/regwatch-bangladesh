@@ -1,3 +1,4 @@
+import SiteFooter from "@/components/home/SiteFooter";
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Newsreader, Noto_Sans_Bengali, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
@@ -131,28 +132,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <AuthGate
             header={<AppHeader />}
-            footer={
-              <footer className="border-t border-line pb-[calc(56px+env(safe-area-inset-bottom))] sm:pb-0">
-                <nav
-                  aria-label="Circular lists"
-                  className="mx-auto flex max-w-[1480px] flex-wrap gap-x-4 gap-y-1.5 px-4 pt-5 text-[13px] text-ink-2 sm:px-6 lg:px-8"
-                >
-                  {FOOTER_LINKS.map(([href, label]) => (
-                    <Link key={href} href={href} className="hover:text-ink hover:underline">
-                      {label}
-                    </Link>
-                  ))}
-                </nav>
-                <div className="mx-auto flex max-w-[1480px] flex-col gap-1 px-4 py-5 text-[13px] text-ink-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8 !pb-2">
-                  <span>Amar Circular. Every finding links back to the page it came from.</span>
-                  <span>Source: Bangladesh Bank circulars</span>
-                </div>
-                <p className="mx-auto max-w-[1480px] px-4 pb-5 text-[13px] text-ink-3 sm:px-6 lg:px-8">
-                  This is not an official reference. Please verify the original reference at your own responsibility before
-                  making any decision.
-                </p>
-              </footer>
-            }
+            footer={<SiteFooter links={FOOTER_LINKS} />}
           >
             {children}
           </AuthGate>

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Activity, Briefcase, LayoutDashboard, Search, Shield, UserRound } from "lucide-react";
-import ThemeToggle from "./ThemeToggle";
 import AccountModal from "./AccountModal";
 import BellButton from "./alerts/BellButton";
 import { startAlertsSync } from "../services/alertsStore";
@@ -18,9 +17,9 @@ function Lockup() {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/lockup.svg" alt="" width={126} height={42} className="h-[42px] w-auto dark:hidden" />
+      <img src="/brand/lockup.svg" alt="" width={126} height={42} className="h-[42px] w-auto sm:h-[48px] dark:hidden" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/lockup-dark.svg" alt="" width={126} height={42} className="hidden h-[42px] w-auto dark:block" />
+      <img src="/brand/lockup-dark.svg" alt="" width={126} height={42} className="hidden h-[42px] w-auto sm:h-[48px] dark:block" />
     </>
   );
 }
@@ -77,14 +76,14 @@ export default function AppHeader() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
+      <header className="hx-glass sticky top-0 z-40 border-b backdrop-blur-md">
         {/* Phones: the full logo centred on its own row, then search and account on the row below. */}
-        <div className="mx-auto flex max-w-[1480px] flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pb-2 pt-1.5 sm:h-14 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-0 lg:px-8">
+        <div className="mx-auto flex max-w-[1480px] flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pb-2 pt-1.5 relative sm:h-[78px] sm:flex-nowrap sm:gap-8 sm:px-6 sm:py-0 lg:px-8">
           <Link href="/" className="flex min-h-[44px] w-full shrink-0 items-center justify-center sm:w-auto sm:justify-start" aria-label="Amar Circular home">
             <Lockup />
           </Link>
 
-          <nav className="hidden min-w-0 items-center gap-1 text-[14px] font-semibold sm:flex" aria-label="Main">
+          <nav className="hidden min-w-0 items-center gap-1 text-[16px] font-semibold sm:flex lg:pointer-events-none lg:absolute lg:inset-0 lg:justify-center lg:gap-4 [&>*]:lg:pointer-events-auto" aria-label="Main">
             {nav.map((item) => {
               const active = pathname.startsWith(item.href) || (item.href === "/dashboard" && pathname.startsWith("/circular"));
               return (
@@ -98,7 +97,7 @@ export default function AppHeader() {
                   {active && (
                     <motion.span
                       layoutId="nav-underline"
-                      className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-accent sm:inset-x-2.5 sm:-bottom-[11px]"
+                      className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-accent sm:inset-x-2.5 sm:-bottom-[22px]"
                       transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   )}
@@ -119,26 +118,6 @@ export default function AppHeader() {
           )}
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {pathname !== "/dashboard" && pathname !== "/search" && (
-            <>
-            <button
-              type="button"
-              onClick={focusSearch}
-              className="hidden h-9 items-center gap-2 rounded-control border border-line bg-surface px-3 text-[13px] text-ink-3 transition-colors hover:border-line-strong hover:text-ink-2 xl:flex xl:w-56"
-            >
-              <Search className="h-4 w-4" strokeWidth={1.75} />
-              <span>Search circulars</span>
-            </button>
-            <button
-              type="button"
-              onClick={focusSearch}
-              aria-label="Search circulars"
-              className="hidden h-9 w-9 place-items-center rounded-control border border-line text-ink-2 hover:bg-sunken sm:grid xl:hidden"
-            >
-              <Search className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-            </>
-            )}
 
             {currentUser && <BellButton />}
 
@@ -146,7 +125,7 @@ export default function AppHeader() {
               <button
                 type="button"
                 onClick={() => setAccountOpen(true)}
-                className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-9 text-[13px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
+                className="flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-line px-1.5 sm:h-10 text-[15px] font-semibold text-ink-2 transition-colors hover:border-line-strong hover:bg-sunken hover:text-ink sm:pr-3"
                 title={`Signed in as ${currentUser.email}`}
               >
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-accent-soft text-2xs font-bold text-accent">
@@ -160,7 +139,7 @@ export default function AppHeader() {
                   type="button"
                   data-free-click
                   onClick={() => openRegister("signin")}
-                  className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2 text-[13px] font-semibold text-ink-2 transition-colors hover:bg-sunken hover:text-ink sm:h-9"
+                  className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-control px-2.5 text-[15px] font-semibold text-ink-2 transition-colors hover:bg-sunken hover:text-ink sm:h-10"
                 >
                   <UserRound className="h-4 w-4" strokeWidth={1.75} />
                   Sign in
@@ -169,16 +148,13 @@ export default function AppHeader() {
                   type="button"
                   data-free-click
                   onClick={() => openRegister("register")}
-                  className="btn-primary h-11 shrink-0 whitespace-nowrap px-3 text-[13px] sm:h-9"
+                  className="btn-primary h-11 shrink-0 whitespace-nowrap px-4 text-[15px] sm:h-10"
                 >
                   Register
                 </button>
               </>
             )}
 
-            <span data-free-click className="contents">
-              <ThemeToggle />
-            </span>
           </div>
         </div>
       </header>
@@ -186,7 +162,7 @@ export default function AppHeader() {
       {/* Phones: the main sections as a bar at the bottom, in thumb reach. */}
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md sm:hidden"
+        className="hx-glass hx-glass-bottom fixed inset-x-0 bottom-0 z-40 border-t pb-[max(6px,env(safe-area-inset-bottom))] backdrop-blur-md sm:hidden"
       >
         <div className="flex items-stretch justify-around">
           {nav.map(({ href, label, Icon }) => {
@@ -196,11 +172,11 @@ export default function AppHeader() {
                 key={href}
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11.5px] font-semibold transition-colors ${
+                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[12.5px] font-semibold transition-colors ${
                   active ? "text-accent" : "text-ink-3 active:text-ink"
                 }`}
               >
-                <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.75} aria-hidden />
+                <Icon className="h-6 w-6" strokeWidth={active ? 2.2 : 1.75} aria-hidden />
                 {label}
               </Link>
             );

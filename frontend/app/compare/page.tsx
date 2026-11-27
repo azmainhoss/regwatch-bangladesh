@@ -495,7 +495,7 @@ function ComparePageInner() {
               These files are long, so only the first {Math.max(result.left.pages_compared, result.right.pages_compared)} pages of each were compared.
             </Notice>
           )}
-          <div className="sticky top-14 z-20 hidden gap-4 border-b border-line bg-canvas/95 py-2 backdrop-blur lg:grid lg:grid-cols-2">
+          <div className="sticky top-[78px] z-20 hidden gap-4 border-b border-line bg-canvas/95 py-2 backdrop-blur lg:grid lg:grid-cols-2">
             <p className="truncate text-[13px] font-semibold text-ink-2">{sideLabel(result.left)}</p>
             <p className="truncate text-[13px] font-semibold text-ink-2">{sideLabel(result.right)}</p>
           </div>

@@ -468,3 +468,80 @@ async def circular_topics(document_id: str, db: AsyncSession = Depends(get_async
         if slug in hub:
             out.append(HubLink(code=slug, name=TOPIC_BY_CODE[t].label, total=0, analysed=0))
     return out
+
+
+# --- Home page grid (owner, 2026-11-28): this year's circulars by who they apply to and how urgent they are. ---
+
+class GridCircular(BaseModel):
+    id: str
+    path: Optional[str] = None
+    ref: Optional[str] = None
+    title: str
+    published: Optional[date] = None
+    ents: List[str] = []
+    mand: int = 0
+    deadline: Optional[str] = None
+
+
+class GridOut(BaseModel):
+    year: int
+    library: int
+    circulars: List[GridCircular]
+
+
+_GRID_CACHE: Dict[str, Any] = {"at": 0.0, "data": None}
+_DUTY_TYPES = {"MANDATORY", "PROHIBITION", "REPORTING"}
+
+
+@router.get("/grid", response_model=GridOut)
+async def applies_grid(db: AsyncSession = Depends(get_async_db)):
+    """Every shared circular published this year with: who it applies to (APPLIES_TO points), how many duties it has
+    and its latest dated deadline. Cached 10 minutes; the home page sorts them per institution type in the browser."""
+    import json as _json
+    from sqlalchemy import func
+    from backend.app.modules.analysis.models import AnalysisClaim, DocumentAnalysis
+
+    if _GRID_CACHE["data"] is not None and time.time() - _GRID_CACHE["at"] < 600:
+        return _GRID_CACHE["data"]
+    year = date.today().year
+    base = [shared_documents_condition(), ~synthetic_sql_condition()]
+    library = (await db.execute(select(func.count()).select_from(Document).where(*base))).scalar_one()
+    docs = (await db.execute(select(Document).where(*base, Document.publication_date >= date(year, 1, 1)))).scalars().all()
+    vids = [d.current_version_id for d in docs if d.current_version_id]
+    latest: Dict[Any, Any] = {}
+    if vids:
+        for vid, aid in (await db.execute(
+            select(DocumentAnalysis.document_version_id, DocumentAnalysis.id)
+            .where(DocumentAnalysis.document_version_id.in_(vids)).order_by(DocumentAnalysis.created_at)
+        )).all():
+            latest[vid] = aid
+    per: Dict[Any, Dict[str, Any]] = {aid: {"ents": set(), "mand": 0, "deadline": None} for aid in latest.values()}
+    if per:
+        rows = await db.execute(
+            select(AnalysisClaim.analysis_id, AnalysisClaim.kind, AnalysisClaim.fields)
+            .where(AnalysisClaim.analysis_id.in_(list(per)), AnalysisClaim.kind.in_(["APPLIES_TO", "OBLIGATION"]))
+        )
+        for aid, kind, f in rows.all():
+            f = _json.loads(f) if isinstance(f, str) else (f or {})
+            p = per[aid]
+            if kind == "APPLIES_TO" and re.fullmatch(r"[A-Z_]+", str(f.get("entity") or "")):
+                p["ents"].add(f["entity"])
+            elif kind == "OBLIGATION":
+                if str(f.get("obligation_type") or "").upper() in _DUTY_TYPES:
+                    p["mand"] += 1
+                d = str(f.get("explicit_deadline") or f.get("deadline") or "")[:10]
+                if re.fullmatch(r"\d{4}-\d\d-\d\d", d):
+                    p["deadline"] = max(p["deadline"] or "", d)
+    idx = await path_index(db)
+    out = []
+    for d in docs:
+        p = per.get(latest.get(d.current_version_id), {"ents": set(), "mand": 0, "deadline": None})
+        hit = idx["by_id"].get(str(d.id))
+        out.append(GridCircular(
+            id=str(d.id), path=hit[0] if hit else None, ref=d.reference_number or _reference_from_title(d.title),
+            title=(_TITLE_REF.sub("", d.title or "", count=1) or d.title or "")[:160], published=d.publication_date,
+            ents=sorted(p["ents"]), mand=p["mand"], deadline=p["deadline"],
+        ))
+    data = GridOut(year=year, library=library, circulars=out)
+    _GRID_CACHE.update(at=time.time(), data=data)
+    return data
