@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   Ban,
+  Check,
   CheckCircle2,
   CircleDashed,
   Clock,
@@ -109,6 +110,14 @@ export default function StatusBadge({ status, size = "md", reader = false }: { s
   if (reader && status && READER_HIDDEN.has(status)) return null;
   const spec = describeStatus(status);
   const Icon = spec.icon;
+  // Readers: "Ready" is just a green check mark (owner, 2026-11-28).
+  if (reader && spec.label === "Ready") {
+    return (
+      <span role="img" aria-label="Ready" title="Ready" className="inline-flex shrink-0 items-center text-ok">
+        <Check className={size === "sm" ? "h-4 w-4" : "h-[18px] w-[18px]"} strokeWidth={2.5} aria-hidden />
+      </span>
+    );
+  }
   return (
     <span
       title={spec.hint ? `${spec.hint} (${status})` : status ?? undefined}
@@ -160,10 +169,18 @@ export interface InForceView {
  * Whether a circular is still in force. Only confirmed links count; links awaiting review never change it.
  * With a newer circular known, the badge names it and (unless `plain`) links to it.
  */
-export function InForceBadge({ info, size = "md", plain = false }: { info?: InForceView | null; size?: "sm" | "md"; plain?: boolean }) {
+export function InForceBadge({ info, size = "md", plain = false, blip = false }: { info?: InForceView | null; size?: "sm" | "md"; plain?: boolean; blip?: boolean }) {
   if (!info) return null;
   const spec = IN_FORCE_SPEC[info.status];
   if (!spec) return null;
+  // "In force" as a small green dot (owner, 2026-11-28); Amended / Replaced / Repealed keep their words.
+  if (blip && info.status === "IN_FORCE") {
+    return (
+      <span role="img" aria-label="In force" title="In force" data-testid="in-force-badge" data-status={info.status} className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+        <span className="h-2 w-2 rounded-full bg-ok ring-2 ring-ok/25" />
+      </span>
+    );
+  }
   const Icon = spec.icon;
   const named = info.status !== "IN_FORCE" && info.status !== "AMENDED" && info.byRef ? `${spec.verb} ${info.byRef}` : spec.label;
   const title = info.byRef && info.status !== "IN_FORCE" ? `${spec.verb} ${info.byRef}. ${spec.hint}` : spec.hint;

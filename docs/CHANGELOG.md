@@ -22,6 +22,9 @@ is in the commits (`git log`) and the linked documents.
   one Not for me never overrules the institution type (it takes repeated ones); nothing is ever hidden. Learned
   interests show in Account and each can be removed. In a workspace a mark counts for the team and is audited.
 - **Daily email**: For you circulars come first, with a For you pill.
+- Look (owner, same day): the For you pill is blue; "In force" is a small green dot and "Ready" a green check mark
+  on lists, search results and the circular header (Amended / Replaced / Repealed keep their words). The For you
+  note floats above the page so a list's edge never cuts it off.
 
 ## 28 November 2026: re-uploaded PDFs keep their analysis
 

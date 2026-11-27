@@ -125,7 +125,7 @@ export function ForYouPill({ documentId, flag }: { documentId: string; flag?: Fl
         show(); // hover may have opened it already; a tap elsewhere closes it
       }}
     >
-      <span className="cursor-default rounded-full bg-accent-soft px-2 py-0.5 text-[11.5px] font-bold text-accent">For you</span>
+      <span className="cursor-default rounded-full bg-info-soft px-2 py-0.5 text-[11.5px] font-bold text-info ring-1 ring-inset ring-info/25">For you</span>
       {pos &&
         createPortal(
           <span

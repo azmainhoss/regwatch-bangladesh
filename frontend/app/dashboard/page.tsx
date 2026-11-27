@@ -745,7 +745,7 @@ function CircularsPageInner() {
                           <span className="shrink-0 whitespace-nowrap text-[12.5px] text-ink-3 tabular-nums">{pageCount > 0 ? `${pageCount} ${pageCount === 1 ? "page" : "pages"}` : "No pages yet"}</span>
                           <span className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                             {currentUser && <RowForYou documentId={doc.id} />}
-                            <InForceBadge info={inForceOf(rel, doc)} size="sm" plain />
+                            <InForceBadge info={inForceOf(rel, doc)} size="sm" plain blip />
                             <StatusBadge status={doc.publication_status} size="sm" reader />
                           </span>
                         </span>

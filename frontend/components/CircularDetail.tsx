@@ -1023,7 +1023,7 @@ export default function CircularDetail(props: Props) {
             // While the points load, "Checked" from the status alone could turn into "Not checked yet" a moment later.
             <StatusBadge status={doc.publication_status} reader />
           )}
-          <InForceBadge info={inForce} />
+          <InForceBadge info={inForce} blip />
           {awaiting > 0 && <AwaitingReviewTag count={awaiting} />}
           {doc.is_private && <PrivateTag />}
           {(props.prevDoc || props.nextDoc) && (
