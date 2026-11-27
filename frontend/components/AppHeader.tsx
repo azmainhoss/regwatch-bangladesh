@@ -13,23 +13,6 @@ import { AUTH_CHANGED_EVENT, AuthUser, fetchCurrentUser, getStoredUser, openRegi
 
 export const SEARCH_INPUT_ID = "circular-search";
 
-function Mark() {
-  // The brand icon (page with a star inside an open ring), used alone on phones.
-  return (
-    <svg aria-hidden viewBox="0 0 200 200" className="h-8 w-8 shrink-0">
-      <rect width="200" height="200" rx="36" fill="#225E48" />
-      <path d="M163.04 50.75A80 80 0 1 0 163.04 149.25" fill="none" stroke="#fff" strokeWidth="9" strokeLinecap="round" />
-      <circle cx="163.04" cy="50.75" r="10" fill="#F2C230" />
-      <path fill="#fff" d="M70 50H118.24L138 69.76V142a8 8 0 0 1-8 8H70a8 8 0 0 1-8-8V58a8 8 0 0 1 8-8Z" />
-      <path fill="#9DC3AE" d="M118.24 50V69.76H138Z" />
-      <path fill="#225E48" d="M100 65.52C102.8 80.2 102.8 80.2 117.48 83C102.8 85.8 102.8 85.8 100 100.48C97.2 85.8 97.2 85.8 82.52 83C97.2 80.2 97.2 80.2 100 65.52Z" />
-      <rect x="77.96" y="110" width="44.08" height="5" rx="2.5" fill="#225E48" opacity="0.55" />
-      <rect x="77.96" y="122" width="44.08" height="5" rx="2.5" fill="#F2C230" />
-      <rect x="77.96" y="134" width="29.97" height="5" rx="2.5" fill="#225E48" opacity="0.55" />
-    </svg>
-  );
-}
-
 /** The full logo (icon + "Amar Circular"), light and dark versions. */
 function Lockup() {
   return (
@@ -95,14 +78,10 @@ export default function AppHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/80">
-        <div className="mx-auto flex h-14 max-w-[1480px] items-center gap-2 px-4 sm:gap-6 sm:px-6 lg:px-8">
-          <Link href="/" className="flex min-h-[44px] shrink-0 items-center gap-2.5" aria-label="Amar Circular home">
-            <span className="sm:hidden">
-              <Mark />
-            </span>
-            <span className="hidden sm:block">
-              <Lockup />
-            </span>
+        {/* Phones: the full logo centred on its own row, then search and account on the row below. */}
+        <div className="mx-auto flex max-w-[1480px] flex-wrap items-center gap-x-2 gap-y-1.5 px-4 pb-2 pt-1.5 sm:h-14 sm:flex-nowrap sm:gap-6 sm:px-6 sm:py-0 lg:px-8">
+          <Link href="/" className="flex min-h-[44px] w-full shrink-0 items-center justify-center sm:w-auto sm:justify-start" aria-label="Amar Circular home">
+            <Lockup />
           </Link>
 
           <nav className="hidden min-w-0 items-center gap-1 text-[14px] font-semibold sm:flex" aria-label="Main">

@@ -10,6 +10,8 @@ is in the commits (`git log`) and the linked documents.
 - The new Amar Circular logo (page with a star inside an open ring) replaces the old "A" square: full logo in the
   header (light and dark versions), the icon alone on phones, the browser tab icon, the installed-app icons and
   the link preview image. The app's icon cache was renewed so installed apps pick up the new icon.
+- Phones: the full logo now sits centred on its own row at the top, with the search bar and Sign in / Register
+  on the row below.
 
 ## 26 November 2026: FEPD-2 Circular Letter No. 03 analysed
 
