@@ -158,6 +158,13 @@ class ScheduledMonitoringService:
                 await classify_pending(session, limit=50)
         except Exception as ex:  # never let sorting stop the checker
             logger.warning(f"Category sorting skipped this time: {ex}")
+        # A re-uploaded PDF that reads the same keeps its analysis (owner, 2026-11-28).
+        try:
+            from backend.app.modules.analysis.carry_version import carry_unchanged_analyses
+            async with AsyncSessionLocal() as session:
+                await carry_unchanged_analyses(session)
+        except Exception as ex:
+            logger.warning(f"Keeping analyses of re-uploaded PDFs skipped this time: {ex}")
 
     async def _active_sources(self):
         async with AsyncSessionLocal() as session:

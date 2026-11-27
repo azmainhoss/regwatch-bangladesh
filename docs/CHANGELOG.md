@@ -5,6 +5,16 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 28 November 2026: re-uploaded PDFs keep their analysis
+
+- Bangladesh Bank sometimes replaces a published PDF with a corrected copy (a reformatted date, a fixed
+  cross-reference). The site stored it as a new version without an analysis, so the circular went back to
+  "Analysing" (FEPD-2 Circular Letter No. 03, FEPD-2 Circular No. 12, FEPD-1 Circular Letter No. 23; all three
+  restored by hand).
+- Now, after each hourly check, a new version whose pages read the same as the analysed one (97% or more of the
+  words on every page, same page count) keeps the analysis automatically (`analysis/carry_version.py`). A real
+  change still waits for a fresh analysis.
+
 ## 27 November 2026: daily email only when something came
 
 - The daily update is no longer sent on days with no new circulars ("No new Bangladesh Bank circulars today"
