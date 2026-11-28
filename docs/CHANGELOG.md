@@ -5,6 +5,20 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 28 November 2026: no more circulars stuck on "Analysing"; fairer second reading for Bangla
+
+- A circular whose points were all thrown out no longer says "Analysing" for ever: it loses the label and goes
+  back to the analysis queue. 7 circulars were stuck like this since 13 November; all 7 were analysed again
+  (FID Circular No. 03, FCRPD Circular No. 06/2026, FEPD-1 Circular Letter No. 14, DFIM Circular Letters 01 and
+  06/2026, BRD Order 01/2026, BRPD-1 Circular Letter 02/2026). FCRPD Circular No. 06/2026 got its missing number.
+- The second reading (the page image read again and compared with our text) counted Bangla spelling variants as
+  misreadings. It now accepts: ya-phala (ফাইনান্স / ফাইন্যান্স), a paragraph number the strip catches ("৩।"),
+  header lines read in another order, memo numbers with more or fewer zero groups, and Devanagari digits
+  (२०२६ = ২০২৬). A word changed for another (রেগুলেশন / রেজল্যুশন) still fails. Saved readings were judged again
+  with no new calls: 85 sentences cleared and 7 had a figure corrected across the library, 819 points re-checked.
+- Still failing, correctly: BRD Order 01/2026 (our text says Regulation Act 2023; the page says Resolution Act)
+  and BRPD-1 Circular Letter 02/2026 (the two readers disagree on the header date).
+
 ## 28 November 2026: new home page and header
 
 - **Home page, rebuilt in full-screen sections** (snap scrolling on computers):
