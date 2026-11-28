@@ -1,6 +1,7 @@
 # START HERE (26 Nov 2026): SEO live
 
 - What was built is in `docs/CHANGELOG.md` (26 Nov) and the keyword research in `docs/seo/KEYWORDS.md`.
+- **SEO and analytics guide** (accounts, Search Console, PostHog, IndexNow, weekly routine): `docs/seo/SEO_GUIDE.md`.
 - **Deployed 26 Nov.** Live: `/circulars`, `/circulars/<dept|year>`, `/circulars/topic/<subject>`, `/llms.txt`,
   sitemap with about 450 addresses, IndexNow key at `/60b49caa6f7be62ceb2165ea3dc93699.txt`.
 - **Google Search Console:** domain property amarcircular.com (Google account hozaifah626), verified by a TXT record
