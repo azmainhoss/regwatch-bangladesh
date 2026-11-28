@@ -563,3 +563,24 @@ def test_reference_number_for_departments_not_in_the_known_list():
     assert C.reference_from_title("FDIPP Circular Letter No. 01: Amendment of the FDIPP Operating Guidelines") == "FDIPP Circular Letter No. 01"
     assert C.reference_from_title("FEPD-1 Circular Letter No. 24: Regarding suspension") == "FEPD-1 Circular Letter No. 24"
     assert C.reference_from_title("Regarding holiday on 16 December") is None
+
+
+@pytest.mark.asyncio
+async def test_ingest_never_attaches_a_real_circular_to_a_test_record():
+    """BRPD 15/2024 landed on a test record with the same number on 13 Nov 2026 and stayed hidden."""
+    inst = await make_institution()
+    ref = f"BRPD Circular No. {uuid.uuid4().hex[:4]}/2024"
+    async with AsyncSessionLocal() as db:
+        fixture = Document(institution_id=inst.id, title="Test record", reference_number=ref,
+                           publication_date=date(2026, 11, 13), is_synthetic_fixture=True)
+        db.add(fixture)
+        await db.commit()
+        fixture_id = fixture.id
+    async with AsyncSessionLocal() as db:
+        doc, _version, _count = await document_ingestion_service.ingest_document(
+            db=db, pdf_bytes=_make_pdf(f"Loan classification {uuid.uuid4().hex}"), institution_id=inst.id,
+            title="Master Circular", publication_date=date(2024, 11, 27), reference_number=ref,
+        )
+        assert doc.id != fixture_id
+        assert doc.is_synthetic_fixture is False
+        assert doc.publication_date == date(2024, 11, 27)

@@ -108,7 +108,8 @@ class DocumentIngestionService:
         existing_version_query = await db.execute(
             select(DocumentVersion)
             .join(Document, Document.id == DocumentVersion.document_id)
-            .where(DocumentVersion.file_sha256 == file_sha256, _same_owner(owner_user_id))
+            .where(DocumentVersion.file_sha256 == file_sha256, _same_owner(owner_user_id),
+                   Document.is_synthetic_fixture.is_(False))
         )
         # file_sha256 is not unique (the same file can sit under several documents), so take the first match.
         existing_version = existing_version_query.scalars().first()
@@ -138,6 +139,8 @@ class DocumentIngestionService:
                     Document.institution_id == institution_id,
                     Document.reference_number == reference_number,
                     _same_owner(owner_user_id),
+                    # A test record never takes a real circular (BRPD 15/2024 landed on one on 13 Nov 2026).
+                    Document.is_synthetic_fixture.is_(False),
                 ).options(selectinload(Document.versions))
             )
             doc = existing_doc_query.scalars().first()

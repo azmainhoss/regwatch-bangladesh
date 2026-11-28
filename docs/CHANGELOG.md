@@ -5,6 +5,16 @@ is in the commits (`git log`) and the linked documents.
 
 ---
 
+## 28 November 2026: two much-searched BRPD circulars now on the site
+
+- **BRPD Circular No. 15/2024** (Master Circular: Loan Classification and Provisioning, about 140 searches a
+  month) was in the library but hidden: on 13 Nov a test record with the same number was made in the real
+  database, and the archive import put the real PDF under it. The record is now a normal circular with its real
+  date (27 Nov 2024), it was analysed (64 points shown) and it is Ready. The import now never matches a test
+  record, by file or by number.
+- **BRPD Circular Letter No. 26/2025** (about 170 searches a month) was stuck on "Analysing" because its page's
+  second reading had not run yet. It ran today and the circular is Ready (18 points shown).
+
 ## 28 November 2026: no more circulars stuck on "Analysing"; fairer second reading for Bangla
 
 - A circular whose points were all thrown out no longer says "Analysing" for ever: it loses the label and goes

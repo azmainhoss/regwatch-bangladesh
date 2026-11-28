@@ -32,8 +32,8 @@ links.
 | bangladesh bank brpd circular | 170 | 20 | /circulars/brpd |
 | brpd circular 2026 | 170 | 10 | /circulars/brpd |
 | বাংলাদেশ ব্যাংক সার্কুলার ২০২৬ | 170 | 0 | /circulars/2026 (Bangla line) |
-| brpd circular 26 (2025) | 170 | 12 | **not in library**: check bb.org.bd |
-| brpd circular 15 2024 / 13 2024 | 140 each | 0 | 13/2024 in library, **needs a summary**; 15/2024 **not in library** |
+| brpd circular 26 (2025) | 170 | 12 | BRPD Circular Letter 26/2025 page (Ready since 28 Nov: its second reading had not run) |
+| brpd circular 15 2024 / 13 2024 | 140 each | 0 | both pages Ready; 15/2024 was hidden on a test record until 28 Nov |
 | cash incentive circular bangladesh bank | 110 (+50 each for 2025/2026) | 0 | /circulars/topic/trade |
 | bangladesh bank circular today | 110 | 15 | /circulars |
 | জাল নোট সার্কুলার বাংলাদেশ ব্যাংক | 90 | 0 | /circulars/topic/currency |
