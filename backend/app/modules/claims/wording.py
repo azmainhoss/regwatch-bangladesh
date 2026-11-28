@@ -9,7 +9,8 @@ from collections import Counter
 from datetime import date
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-_BANGLA_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
+# Bangla digits, and Devanagari ones a page reader sometimes writes for them (२०२६ for ২০২৬).
+_BANGLA_DIGITS = str.maketrans("০১২৩৪৫৬৭৮৯०१२३४५६७८९", "01234567890123456789")
 _QUOTES = str.maketrans({
     "‘": "'", "’": "'", "‚": "'", "‛": "'",
     "“": '"', "”": '"', "„": '"',

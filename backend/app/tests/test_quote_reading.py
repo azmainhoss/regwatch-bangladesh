@@ -829,3 +829,47 @@ async def test_a_proven_correction_spreads_to_the_same_reference_but_not_to_a_pl
         from backend.app.modules.analysis.models import ClaimCitation
         quotes = (await db.execute(select(ClaimCitation.quoted_text).where(ClaimCitation.claim_id.in_([c.id for c in on_s2])))).scalars().all()
     assert on_s2 and quotes and all("177/2026" not in q for q in quotes if "Law Review" in q)
+
+
+# ---------------------------------------------------------------------------
+# Bangla variants that are not misreadings (owner, 2026-11-28)
+# ---------------------------------------------------------------------------
+def test_bangla_variants_are_the_same_reading():
+    from backend.app.modules.claims.reading import same_reading as same
+
+    # A paragraph number the strip catches at the line start; ya-phala; spacing in a section number.
+    ours = "ফাইনান্স কোম্পানি আইন, ২০২৩ এর ৪১(২) (ঘ) ধারায় প্রদত্ত ক্ষমতাবলে এ নির্দেশনা জারি করা হলো।"
+    assert same(ours, "৩। ফাইন্যান্স কোম্পানি আইন, ২০২৩ এর ৪১(২)(ঘ) ধারায় প্রদত্ত ক্ষমতাবলে এ নির্দেশনা জারি করা হলো।")
+    # Memo numbers with more or fewer zero groups.
+    ours = "জনপ্রশাসন মন্ত্রণালয় এর ০৮ মার্চ ২০২৬ তারিখের স্মারক নং- ০৫.০০.০০০০.১৭৫.০৮.০০২০.২৫-২৮ (কপি সংযুক্ত) এর প্রতি"
+    assert same(ours, "জনপ্রশাসন মন্ত্রণালয় এর ০৮ মার্চ ২০২৬ তারিখের স্মারক নং- ০৫.০০.০০০০০.১৭৫.০৮.০০২০.২৫-২৮ (কপি সংযুক্ত) এর প্রতি")
+    # ...but a changed non-zero digit in a memo number is still a difference.
+    assert not same(ours, "জনপ্রশাসন মন্ত্রণালয় এর ০৮ মার্চ ২০২৬ তারিখের স্মারক নং- ০৫.০০.০০০০.১৭৬.০৮.০০২০.২৫-২৮ (কপি সংযুক্ত) এর প্রতি")
+    # Header lines read in another order.
+    ours = "Website:www.bb.org.bd আর্থিক প্রতিষ্ঠান ও বাজার বিভাগ ১০ মার্চ ২০২৬ ডিএফআইএম সার্কুলার লেটার নং-০৬ তারিখ: ২৫ ফাল্গুন ১৪৩২"
+    assert same(ours, "Website:www.bb.org.bd আর্থিক প্রতিষ্ঠান ও বাজার বিভাগ ডিএফআইএম সার্কুলার লেটার নং-০৬ ১০ মার্চ ২০২৬ তারিখ: ২৫ ফাল্গুন ১৪৩২")
+    # Devanagari digits from the reader equal Bangla ones.
+    assert same("গণভোট ২০২৬ সংসদ নির্বাচন দেশের চাবি আপনার হাতে", "গণভোট २०२६ সংসদ নির্বাচন দেশের চাবি আপনার হাতে")
+
+
+def test_a_different_word_is_still_a_misreading():
+    from backend.app.modules.claims.reading import same_reading as same
+
+    ours = "বাংলাদেশ ব্যাংক, ব্যাংক রেগুলেশন আইন, ২০২৩ এর ধারা ৭১ এ প্রদত্ত ক্ষমতাবলে, আর্থিক স্থিতিশীলতা রক্ষা এবং ফাইন্যান্স কোম্পানি কর্তৃক পরিচালিত"
+    assert not same(ours, ours.replace("রেগুলেশন", "রেজল্যুশন"))   # Regulation / Resolution
+    assert not same(ours, ours.replace("২০২৩", "২০২৬"))
+
+
+def test_rejudge_uses_stored_readings():
+    from backend.app.modules.claims.reading import rejudge
+
+    ours = "আসন্ন পবিত্র ঈদুল-ফিতর উপলক্ষে ১৮ মার্চ ২০২৬ তারিখ বুধবার ছুটি থাকবে"
+    row = SimpleNamespace(our_text=ours, numbers_confirmed=[], reads=[
+        {"kind": "CROP", "text": "২। আসন্ন পবিত্র ঈদুল-ফিতর উপলক্ষে ১৮ মার্চ ২০২৬ তারিখ বুধবার ছুটি থাকবে"},
+        {"kind": "SHARP_CROP", "text": "২। আসন্ন পবিত্র ঈদুল-ফিতর উপলক্ষে ১৮ মার্চ ২০২৬ তারিখ বুধবার ছুটি থাকবে"}], status="MISREAD")
+    assert rejudge(row) == "CLEAN"
+    # Both readings agree on a different year: our figure is corrected.
+    row = SimpleNamespace(our_text="গণভোট ২০২৩ সংসদ নির্বাচন দেশের চাবি আপনার হাতে", numbers_confirmed=[], reads=[
+        {"kind": "CROP", "text": "গণভোট ২০২৬ সংসদ নির্বাচন দেশের চাবি আপনার হাতে"},
+        {"kind": "SHARP_CROP", "text": "গণভোট २०२६ সংসদ নির্বাচন দেশের চাবি আপনার হাতে"}], status="UNCLEAR")
+    assert rejudge(row) == "CORRECTED" and row.reads[-1]["fixes"] == [["2023", "2026"]]

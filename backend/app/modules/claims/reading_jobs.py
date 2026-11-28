@@ -187,3 +187,34 @@ async def quote_checks_waiting_total(db) -> int:
     return (
         await db.execute(select(func.count()).select_from(QuoteReadingCheck).where(QuoteReadingCheck.status == "WAITING"))
     ).scalar_one()
+
+
+async def rejudge_stored_readings(db, statuses=("UNCLEAR", "MISREAD")) -> Dict[str, int]:
+    """Re-applies today's comparison rules to readings already made (no new calls) and re-checks the points on
+    every page whose sentences changed status. Commits."""
+    from collections import Counter
+
+    codes = await _department_codes(db)
+    rows = (await db.execute(select(QuoteReadingCheck).where(QuoteReadingCheck.status.in_(statuses)))).scalars().all()
+    moved: Counter = Counter()
+    pages = set()
+    for row in rows:
+        new = R.rejudge(row, codes)
+        if new and new != row.status:
+            moved[f"{row.status}->{new}"] += 1
+            row.status = new
+            if new != "UNCLEAR":
+                row.last_error = None
+            pages.add(row.page_id)
+    await db.commit()
+    rerouted = 0
+    for page_id in pages:
+        page = await db.get(DocumentPage, page_id)
+        if page is None:
+            continue
+        rerouted += await reroute_claims_for_page(db, page.document_version_id, page.page_number)
+        await db.commit()
+    out = dict(moved)
+    out.update(rows=len(rows), pages=len(pages), claims_rerouted=rerouted)
+    return out
+

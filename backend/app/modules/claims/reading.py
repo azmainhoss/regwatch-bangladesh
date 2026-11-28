@@ -215,9 +215,37 @@ def confirmed_figures(our_text: str, native_text: Optional[str]) -> List[str]:
 _SPELLING_FOLD = str.maketrans({"\u09cd": None, "\u09c0": "\u09bf", "\u09c2": "\u09c1", "\u09ce": "\u09a4", "\u0964": ".", "\u0965": "."})
 
 
+_YA_PHALA = "\u09cd\u09af"  # ফাইনান্স / ফাইন্যান্স: printed and dropped freely
+
+
 def fold_spelling(text: str) -> str:
     """norm() plus the Bangla spelling folds above, without punctuation: the text the edit share is measured on."""
-    return _strip_punctuation(W.norm(text).translate(_SPELLING_FOLD))
+    return _strip_punctuation(W.norm(text).replace(_YA_PHALA, "").translate(_SPELLING_FOLD))
+
+
+# A paragraph number the strip catches at the start of the line ("২। আসন্ন ...", "3. The ...") while our sentence
+# starts after it (the number is a sentence of its own). Dropped from a reading only when ours has none.
+_LIST_NUMBER = re.compile(r"^\s*\(?[0-9০-৯]{1,2}\s*[।.)]\s+")
+# Memo / file numbers (০৫.০০.০০০০.১৭৫.০৮.০০২০.২৫-২৮): readers drop or add zeros and whole zero groups. Such a code
+# (2+ dots, 4+ groups) is compared by its non-zero digits in order. Amounts (১,০০,০০,০০০) have no dots and are
+# never touched; every other figure is still compared exactly.
+_MEMO_CODE = re.compile(r"[0-9০-৯]+(?:\s*[.,\-/]\s*[0-9০-৯]+){3,}")
+
+
+def _tame_memo_codes(text: str) -> str:
+    def squash(m: "re.Match[str]") -> str:
+        code = m.group(0)
+        if code.count(".") < 2:
+            return code
+        digits = re.sub(r"[^0-9]", "", code.translate(W._BANGLA_DIGITS)).replace("0", "")
+        return f" {digits} "
+    return _MEMO_CODE.sub(squash, text or "")
+
+
+def _drop_list_number(ours: str, reading: str) -> str:
+    if _LIST_NUMBER.match(reading or "") and not _LIST_NUMBER.match(ours or ""):
+        return _LIST_NUMBER.sub("", reading, count=1)
+    return reading or ""
 
 
 def whole_word_gap(ca: str, cb: str, min_letters: int = 3) -> bool:
@@ -228,6 +256,20 @@ def whole_word_gap(ca: str, cb: str, min_letters: int = 3) -> bool:
             return True
         if op == "insert" and any(len(w) >= min_letters for w in wb[j1:j2]):
             return True
+    return False
+
+
+WORD_CHANGE_EDITS = 3  # letters a word may not differ by and still be "the same word, spelled differently"
+
+
+def different_word(ca: str, cb: str) -> bool:
+    """True when a word was swapped for another (3+ letter edits between the pair), not respelled."""
+    wa, wb = ca.split(), cb.split()
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, wa, wb, autojunk=False).get_opcodes():
+        if op == "replace" and (i2 - i1) == (j2 - j1):
+            for x, y in zip(wa[i1:i2], wb[j1:j2]):
+                if max(len(x), len(y)) <= 20 and not re.search(r"\d", x + y) and levenshtein(x, y) >= WORD_CHANGE_EDITS:
+                    return True
     return False
 
 
@@ -247,6 +289,9 @@ def same_reading(
     if ILLEGIBLE in (a or "").lower() or ILLEGIBLE in (b or "").lower():
         return False
     share = settings.QUOTE_CHECK_MAX_EDIT_SHARE if max_share is None else max_share
+    a, b = _tame_memo_codes(a), _tame_memo_codes(b)
+    b = _drop_list_number(a, b)
+    a = _drop_list_number(b, a)
 
     fa, fb = _figures(a), _figures(b)
     sure = [k for k in set(confirmed) if k in fa]
@@ -271,9 +316,17 @@ def same_reading(
     ca, cb = fold_spelling(a), fold_spelling(b)
     if not ca:
         return not cb
-    if whole_word_gap(ca, cb):
-        return False  # a word is missing on one side (e.g. "new applications" vs "applications")
-    return levenshtein(ca, cb) / len(ca) <= share
+    if different_word(ca, cb):
+        return False  # রেগুলেশন / রেজল্যুশন (Regulation / Resolution): a respelling never differs this much
+    if not whole_word_gap(ca, cb) and levenshtein(ca, cb) / len(ca) <= share:
+        return True
+    # Header blocks (date, reference, addressee side by side) come back in another order: the same words,
+    # figures and codes (checked above), only arranged differently, are the same reading.
+    wa, wb = ca.split(), cb.split()
+    if len(wa) >= 6 and abs(len(wa) - len(wb)) <= 1:
+        sa, sb = " ".join(sorted(wa)), " ".join(sorted(wb))
+        return levenshtein(sa, sb) / len(sa) <= share
+    return False
 
 
 # ----- self-correction: both readers agree, our text differs only in figures --------------------------------
@@ -671,3 +724,39 @@ async def check_page(page: Any, rows: List[Any], pdf_bytes: bytes, send: Any, co
             _add_read(r, "PAGE", found, result.model or settings.QUOTE_CHECK_MODEL)
             _finish(r, "CLEAN" if judge(r, found) else "UNCLEAR", summary)
     return summary
+
+
+def rejudge(row: Any, codes: Iterable[str] = ()) -> Optional[str]:
+    """The status the readings already stored on a row give under today's comparison rules, or None to leave it.
+
+    No new reading is made. Used after the rules change (owner, 2026-11-28: Bangla spelling variants, paragraph
+    numbers, header order and memo-number zeros were counted as misreadings). The order follows check_page: the
+    first reading decides; a disagreeing first reading is settled by the sharper second one; two agreeing readings
+    that differ from ours only in figures correct our figures.
+    """
+    reads = [x for x in (row.reads or []) if isinstance(x, dict)]
+    by_kind: Dict[str, str] = {}
+    for x in reads:
+        by_kind.setdefault(x.get("kind") or "", x.get("text") or "")
+    confirmed = list(row.numbers_confirmed or [])
+    ours = row.our_text or ""
+
+    def judge(text: str) -> bool:
+        return bool(text) and same_reading(ours, text, confirmed, codes)
+
+    for kind in ("CROP", "PAGE"):
+        if kind in by_kind and judge(by_kind[kind]):
+            return "CLEAN"
+    if "SHARP_CROP" in by_kind:
+        sharp, first = by_kind["SHARP_CROP"], by_kind.get("CROP", "")
+        if judge(sharp):
+            return "CLEAN"
+        if first and same_reading(first, sharp, (), codes):
+            fixes = figure_fixes(ours, first, confirmed, codes)
+            if fixes:
+                row.reads = list(row.reads or []) + [{"kind": "AGREED", "text": first, "fixes": fixes}]
+                return "CORRECTED"
+            return "MISREAD"
+        return "UNCLEAR"
+    return None
+
